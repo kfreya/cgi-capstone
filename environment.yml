@@ -1,0 +1,18 @@
+name: cgi-capstone
+channels:
+  - conda-forge
+dependencies:
+  - python=3.11
+  - pip
+  - pip:
+      - pandas
+      - openpyxl
+      - numpy
+      - scikit-learn
+      - python-dotenv
+      - openai
+      - streamlit
+      - plotly
+      - chromadb
+      - ipykernel
+      - jupyter
