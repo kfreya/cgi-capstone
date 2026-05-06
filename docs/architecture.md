@@ -1,0 +1,524 @@
+# Capacity Analyzer Architecture
+
+## Purpose
+
+The Capacity Analyzer helps CGI Atlantic / Media Atlantic leadership understand each director's current workload, compare it with that director's historical workload, and identify who has capacity to take on additional sales or operational work.
+
+The project has two deliverables:
+
+1.  A director capacity dashboard that compares current workload against each director's own historical baseline.
+2.  An RFP assignment tool that estimates the effort required by a new RFP and recommends directors who have enough capacity and relevant experience.
+
+This prototype is scoped to the CGI Atlantic / Media Atlantic business unit based on the opportunity data currently available. It should not be presented as a Canada-wide dashboard unless broader data becomes available.
+
+The system uses structured CRM opportunity data, historical RFP/proposal text, standard Python data processing, and Azure OpenAI. LLMs are used for summarization and reasoning, not for core numeric scoring.
+
+## Inputs
+
+Expected local inputs:
+
+``` text
+data/csv_files/anonymized_opps_1.xlsx
+data/csv_files/anonymized_opps_2.xlsx
+data/proposals_responses.json
+data/.env
+```
+
+The data files are local and ignored by git.
+
+## Core Entities
+
+| Entity | Source | Notes |
+|----|----|----|
+| Opportunity | `opps1`, `opps2` | CRM opportunity records keyed by `opportunity_id` |
+| Director / senior leader | `opportunity_owner` | Primary capacity dashboard entity |
+| Opportunity manager | `opportunity_manager` | Optional metadata / supporting reporting field |
+| RFP / proposal | `proposals_responses.json` | Historical proposal and response text |
+| Service solution | `opps1` | Supplemental opportunity detail |
+
+CGI confirmed that `opportunity_owner` is the primary field representing the director whose capacity should be estimated. `opportunity_manager` is more like a direct-report or reporting-structure field; it can be retained as metadata, but it is not part of the MVP scoring model.
+
+## Data Integration
+
+CGI confirmed that the two opportunity Excel files are different views of the same underlying CRM opportunity data. Use `opps2` as the base opportunity table because it has the richer CRM schema, then supplement it with useful fields from `opps1`.
+
+Merge strategy:
+
+1.  Clean and normalize column names in both Excel files.
+2.  Use `opps2` as the base table.
+3.  Left-join selected `opps1` fields onto overlapping `opportunity_id` values.
+4.  Append `opps1`-exclusive opportunity IDs.
+5.  Preserve duplicate opportunity rows initially, but flag them for downstream cleaning.
+6.  Cross-match opportunities across both files to fill date, duration, and revenue fields where possible.
+
+Supplemental `opps1` fields:
+
+``` text
+opportunity_product
+service_solution
+service_solution_estimated_revenue
+ip
+delivery_territory_center
+```
+
+Revenue definition:
+
+``` text
+authoritative_revenue =
+    total_estimated_revenue
+    or matched opportunity_estimated_revenue_base_cad when total_estimated_revenue is unavailable
+```
+
+CGI confirmed that the total revenue field should be treated as the authoritative opportunity-level revenue. Where the total field is unavailable, use the matched opportunity-level revenue from the other CRM view. Do not calculate opportunity-level revenue as `opportunity_estimated_revenue_base_cad + service_solution_estimated_revenue`. `service_solution_estimated_revenue` can support service mix or solution breakdown analysis, but it should not be added to the opportunity-level revenue because that may double-count revenue.
+
+## Capacity Model
+
+Capacity is derived, not directly available as a source column. The model should compare each director's current workload against that same director's historical baseline.
+
+For v1, current workload is estimated as the sum of two components:
+
+1.  Sales pipeline load
+2.  Inferred delivery load
+
+``` text
+current_workload = sales_pipeline_load + inferred_delivery_load
+```
+
+Open opportunities alone are too sparse for a reliable capacity view. The EDA found only 374 currently open opportunities, so the dashboard should also estimate delivery commitments using dates, project duration, and historical workload.
+
+### Sales Pipeline Load
+
+For opportunities still in the sales pipeline, estimate opportunity-level workload with interpretable business factors:
+
+``` text
+sales_load_i =
+    stage_weight_i
+  * (probability_i / 100)
+  * log1p(total_estimated_revenue_i)
+  * duration_weight_i
+```
+
+`duration_weight_i` should be bounded so that duration does not inflate workload without limit. For v1, compute it from normalized or log-scaled `project_duration_number_of_months`.
+
+Example:
+
+``` text
+duration_weight_i = log1p(project_duration_number_of_months_i)
+```
+
+Then normalize or cap the result before using it in the load formula. If `project_duration_number_of_months` is missing, use a documented default duration and flag the record so missing-duration assumptions are visible in the dashboard or methodology.
+
+Initial `stage_weight` values should use the observed CRM `sales_stage` values and can be refined through stakeholder feedback. Example starting point:
+
+``` text
+0-Lead/Suspect             : 0.4
+1-Identification           : 0.6
+2-Qualification            : 0.8
+3-Bid Planning             : 1.0
+4-Proposal                 : 1.3
+5-Client Decision          : 1.5
+6-Negotiation&Signature    : 1.7
+```
+
+Won opportunities should move to delivery load. Lost, cancelled, duplicated, and closed opportunities should not contribute to current sales pipeline load.
+
+Sales pipeline fields:
+
+``` text
+status
+sales_stage
+probability
+total_estimated_revenue
+project_duration_number_of_months
+```
+
+### Inferred Delivery Load
+
+For won or historical opportunities that may still be in delivery, estimate delivery load from dates, duration, and revenue:
+
+``` text
+delivery_load_i =
+    delivery_active_i
+  * log1p(total_estimated_revenue_i)
+  * duration_weight_i
+```
+
+Where:
+
+``` text
+delivery_active_i = 1 if current_date falls within the estimated delivery window
+```
+
+CGI confirmed that using won opportunities plus date and duration fields is a reasonable proxy for delivery load.
+
+Preferred delivery-window logic:
+
+``` text
+revenue_start_date <= current_date <= revenue_start_date + project_duration_number_of_months
+```
+
+Fallback delivery-window logic when `revenue_start_date` is missing:
+
+``` text
+close_date <= current_date <= close_date + project_duration_number_of_months
+```
+
+If start date or duration is still missing after cross-matching both Excel files, delivery load should either use a documented fallback assumption or be calculated only for records with enough date information.
+
+For v1, delivery load is treated as active if the current date falls within the estimated delivery window. This means projects receive similar delivery contribution while active, even if one is near the start and another is near the end.
+
+A future refinement may down-weight delivery load as a project approaches its estimated end date, for example by multiplying delivery load by the proportion of estimated delivery time remaining.
+
+Delivery load is inferred from opportunity dates and duration fields. It should be treated as a heuristic estimate, not as an exact measure of director working hours, because the dataset does not include timesheets or calendar data.
+
+Delivery-load fields:
+
+``` text
+status
+status_reason
+total_estimated_revenue
+revenue_start_date
+close_date
+project_duration_number_of_months
+```
+
+CGI confirmed that the `opportunity_owner` can be assumed to remain responsible during delivery for the MVP. Therefore, inferred delivery load should contribute to the same owner-level capacity model as sales pipeline load.
+
+### Director-Level Current Load
+
+Aggregate opportunity-level sales and delivery load by `opportunity_owner`:
+
+``` text
+current_load_owner =
+    sum(sales_load_i for active sales pipeline opportunities)
+  + sum(delivery_load_i for inferred active delivery commitments)
+```
+
+Keep supporting fields for dashboard explainability:
+
+``` text
+open_deal_count
+late_stage_deal_count
+weighted_pipeline_revenue
+inferred_delivery_commitments
+current_load_owner
+```
+
+Then compare against each director's own historical baseline:
+
+``` text
+relative_load_owner = current_load_owner / historical_average_load_owner
+capacity_score_owner = max(0, 1 - min(relative_load_owner, 1))
+```
+
+Keep both `relative_load_owner` and `capacity_score_owner` in the dashboard. Because `capacity_score_owner` is capped at 0 once `relative_load_owner` reaches 1, the dashboard should always display `relative_load_owner` alongside `capacity_score_owner` to show the severity of overextension.
+
+Suggested capacity labels:
+
+``` text
+Available    : capacity_score >= 0.35
+At Capacity  : 0.15 <= capacity_score < 0.35
+Overextended : capacity_score < 0.15
+```
+
+CGI confirmed that the three labels are appropriate. Thresholds should remain configurable, either in the dashboard or in a config file, so they can be refined through stakeholder review.
+
+## Historical Baseline
+
+Build the historical baseline from the actual date range in the data rather than a hard-coded range. For consistency, the historical baseline should use the same workload contribution logic as the current-load calculation, rather than only counting opportunities.
+
+A simple opportunity count can be used as an initial baseline, but the preferred baseline should include stage, probability, revenue, and estimated duration where available.
+
+For each owner and quarter:
+
+``` text
+historical_load_owner_q =
+    sum(sales_load_i active during quarter q)
+  + sum(delivery_load_i active during quarter q)
+```
+
+Historical workload should apply the same status and stage rules as current workload. Lost, cancelled, duplicated, and irrelevant closed records should not inflate the historical baseline.
+
+An opportunity can be considered active during a quarter only if it passes the relevant sales-load or delivery-load filters and:
+
+``` text
+created_on <= quarter_end
+and
+(close_date is null or close_date >= quarter_start)
+```
+
+Optional delivery-window estimate:
+
+``` text
+revenue_start_date to revenue_start_date + project_duration_number_of_months
+```
+
+Baseline outputs:
+
+``` text
+historical_mean_load
+historical_std_load
+historical_max_load
+quarters_seen
+baseline_reliability_flag
+```
+
+Directors with too few historical quarters should be flagged as having a less reliable baseline.
+
+## RFP Assignment
+
+The RFP assignment tool estimates the effort required by a new RFP and ranks directors by capacity and fit.
+
+Historical proposals must be chunked before embedding. The EDA found that most proposal documents exceed the embedding context limit when treated as a single input.
+
+RFP processing pipeline:
+
+1.  Extract proposal and response text.
+2.  Chunk documents with overlap.
+3.  Embed chunks using Azure OpenAI embeddings.
+4.  Store chunk embeddings in Chroma.
+5.  For a new RFP, chunk and embed the text.
+6.  Retrieve similar historical RFP chunks.
+7.  Estimate effort level using retrieved examples and LLM reasoning.
+8.  Rank directors using capacity, semantic relevance, structured track record, service fit, and risk flags.
+
+RFP effort features:
+
+``` text
+document length
+similar historical RFPs
+service solution or domain keywords
+estimated duration
+estimated revenue
+delivery complexity
+required response effort
+client or territory similarity
+```
+
+### Experience Definition
+
+Experience should not be based on text similarity alone. Text similarity measures semantic relevance, but it does not measure whether a director has a strong business track record on similar work.
+
+Use two experience components:
+
+``` text
+experience_score =
+    semantic_relevance_score
+  + confidence_adjusted_structured_track_record_score
+```
+
+Semantic relevance measures how similar the new RFP is to a director's historical opportunities, proposals, service solutions, or client context.
+
+CGI confirmed that experience should combine semantic relevance with structured track record. Structured track record measures outcome quality and historical success. It should use smoothed rates and confidence adjustment based on sample size and data completeness.
+
+Candidate features include:
+
+``` text
+smoothed_win_rate
+revenue_weighted_win_rate
+similar_deal_count
+successful_similar_deal_count
+median_similar_deal_size
+average_sales_cycle_length
+client_or_sector_recurrence
+```
+
+The confidence adjustment reflects the reliability of the structured experience estimate. Larger and more complete samples should be treated as more reliable, while very small samples should be shrunk toward the overall average.
+
+For example, a director with 5 wins out of 5 similar deals should not automatically outrank a director with 80 wins out of 100 similar deals. The 5/5 record is promising, but the 80/100 record is based on much stronger evidence.
+
+Some structured features may require proxies or additional CGI metadata:
+
+``` text
+client_tier: not directly available unless CGI provides it; approximate with revenue size or client recurrence if needed
+avg_stage_progression_time: not directly available without full CRM stage history; approximate with created_on to close_date if needed
+sector: not directly available unless mapped from client, service solution, or additional CGI metadata
+```
+
+Assignment score:
+
+``` text
+assignment_score =
+    experience_weight * experience_score
+  + capacity_weight * director_available_capacity
+  + fit_weight * service_solution_match
+  - risk_weight * overextension_penalty
+```
+
+Based on CGI feedback, director recommendations should use a balanced scoring approach with past experience weighted most heavily, followed by available capacity, then service-solution fit. The initial MVP should keep these weights configurable.
+
+The tool should return:
+
+``` text
+top recommended directors
+capacity justification
+similar historical RFPs
+estimated effort level
+risk flags
+LLM-generated explanation
+```
+
+## LLM Responsibilities
+
+LLMs should be used for interpretation and explanation, not as the source of truth for numeric scoring.
+
+LLM tasks:
+
+``` text
+RFP summarization
+effort explanation
+assignment rationale
+director workload narrative
+```
+
+Non-LLM tasks:
+
+``` text
+data cleaning
+capacity scoring
+historical baseline calculation
+revenue calculations
+ranking formula
+dashboard metrics
+```
+
+## Application Architecture
+
+``` text
+DATA LAYER
+  anonymized_opps_1.xlsx
+  anonymized_opps_2.xlsx
+  proposals_responses.json
+  data/.env
+
+PROCESSING LAYER
+  data_loader.py
+    load Excel files
+    load proposal JSON
+    validate required files
+
+  opportunity_cleaner.py
+    clean column names
+    normalize date and numeric fields
+    merge opps2 base with opps1 supplemental fields
+    append opps1-exclusive rows
+    flag duplicates and sparse fields
+
+  identity_resolver.py
+    define opportunity_owner as director
+    retain opportunity_manager as optional metadata
+
+CAPACITY ENGINE
+  capacity_engine.py
+    compute_historical_baseline()
+    compute_current_sales_load()
+    compute_estimated_delivery_load()
+    compute_relative_load()
+    assign_capacity_label()
+
+RFP ENGINE
+  rfp_preprocessor.py
+    extract text
+    chunk proposal and response documents
+    prepare metadata
+
+  vector_store.py
+    embed chunks with Azure OpenAI
+    store embeddings in Chroma
+
+  rfp_engine.py
+    retrieve similar RFPs
+    estimate RFP effort
+    match against director capacity
+    rank recommended directors
+
+PRESENTATION LAYER
+  Streamlit app
+    Page 1: Director Capacity Dashboard
+    Page 2: RFP Assignment Tool
+```
+
+## Dashboard Design
+
+Page 1: Director Capacity Dashboard
+
+``` text
+capacity score by director
+capacity label: Available / At Capacity / Overextended
+current load vs historical average
+open opportunities
+weighted pipeline
+estimated delivery commitments
+late-stage opportunities
+trend over time
+owner-level view with optional manager metadata
+```
+
+Filters:
+
+``` text
+territory
+opportunity owner
+opportunity manager
+status
+sales stage
+opportunity type
+sales model
+date range
+```
+
+Page 2: RFP Assignment Tool
+
+``` text
+upload or paste RFP text
+estimated effort level
+retrieved similar historical RFPs
+recommended directors
+capacity explanation
+experience match explanation
+risk flags
+```
+
+## Evaluation and Refinement
+
+The project does not train a supervised ML model, but it still needs business-facing evaluation. Evaluation should focus on whether the dashboard outputs and RFP recommendations match CGI stakeholder expectations.
+
+Recommended evaluation methods:
+
+``` text
+CGI stakeholder review
+sanity checks against known director workload
+capacity threshold sensitivity analysis
+recommendation justification review
+qualitative feedback loop
+case studies on selected RFPs and directors
+```
+
+Capacity labels and RFP recommendation weights should be refined after CGI reviews early director-level outputs. The feedback loop should test whether specific directors labeled `Available`, `At Capacity`, or `Overextended` align with business intuition.
+
+## Build Phases
+
+| Phase | Work                                | Output                 |
+|-------|-------------------------------------|------------------------|
+| 1     | Clean and merge opportunity data    | `opportunity_df`       |
+| 2     | Resolve owner-level director entity | `director_df`          |
+| 3     | Build historical baseline           | `baseline_df`          |
+| 4     | Build current capacity scoring      | `director_capacity_df` |
+| 5     | Build Streamlit capacity dashboard  | Deliverable 1          |
+| 6     | Chunk and embed historical RFPs     | Chroma vector store    |
+| 7     | Build RFP effort estimator          | `rfp_engine.py`        |
+| 8     | Build director assignment ranking   | Deliverable 2          |
+| 9     | Add LLM-generated explanations      | Stretch goal           |
+
+## Design Notes
+
+The architecture reflects these EDA findings and CGI meeting decisions:
+
+1.  The current prototype is scoped to CGI Atlantic / Media Atlantic, not all CGI Canada.
+2.  Only a small share of opportunities are currently open, so current load cannot rely only on `status = Open`.
+3.  `opportunity_owner` is the director-level capacity entity confirmed by CGI.
+4.  `opportunity_manager` should be retained as optional metadata, but it is not part of MVP scoring.
+5.  Won opportunities can be used as a delivery-load proxy for the corresponding `opportunity_owner`.
+6.  Proposal and RFP documents require chunking before embedding.
+7.  `total_estimated_revenue` or matched opportunity-level total revenue is the authoritative revenue input; do not add service-solution revenue to opportunity total revenue.
+8.  Some fields are too sparse for capacity scoring, including `proposal_submission_date`, `rfp_release_date`, `comments`, and `free_field_text_2`.
