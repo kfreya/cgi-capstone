@@ -19,9 +19,12 @@ The tool uses sales opportunity data from CGI's CRM and past RFP/proposal docume
 ```text
 cgi-capstone/
 ├── app/                        # Streamlit web app
+│   ├── app.py                  # dashboard entrypoint
+│   └── mock_data.py            # synthetic dashboard data for Week 1 UI
 ├── src/                        # reusable data, Azure, and analysis modules
 ├── notebooks/                  # exploratory analysis
 ├── docs/
+│   ├── architecture.md         # system architecture and dashboard design notes
 │   └── team_charter.md         # team contract and collaboration guidelines
 ├── tests/                      # unit tests for src modules
 ├── data/                       # local folder for CGI-provided project data
@@ -30,6 +33,8 @@ cgi-capstone/
 │   ├── proposals_responses.json # local proposal/RFP data, ignored by Git
 │   ├── processed/              # local processed data outputs, ignored by Git
 │   └── vector_store/           # local vector database artifacts, ignored by Git
+├── .streamlit/
+│   └── config.toml             # Streamlit theme configuration
 ├── .env.example                # template for required environment variables
 ├── environment.yml             # recommended conda environment
 └── requirements.txt            # optional pip alternative
