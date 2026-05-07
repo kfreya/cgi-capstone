@@ -1,0 +1,361 @@
+from __future__ import annotations
+
+import re
+from pathlib import Path
+
+import pandas as pd
+
+
+PROJECT_ROOT = Path(__file__).resolve().parents[1]
+DATA_DIR = PROJECT_ROOT / "data"
+CSV_DIR = DATA_DIR / "csv_files"
+PROCESSED_DIR = DATA_DIR / "processed"
+
+OPPS1_PATH = CSV_DIR / "anonymized_opps_1.xlsx"
+OPPS2_PATH = CSV_DIR / "anonymized_opps_2.xlsx"
+EXCEL_SHEET_NAME = "Data"
+JOIN_KEY = "opportunity_id"
+
+SUPPLEMENTAL_FIELDS = [
+    "opportunity_product",
+    "service_solution",
+    "service_solution_estimated_revenue",
+    "ip",
+    "delivery_territory_center",
+]
+
+
+def clean_column_name(column: str) -> str:
+    """Normalize a source column name to snake_case."""
+    normalized = str(column).strip().lower()
+    normalized = re.sub(r"\(do not modify\)", "", normalized, flags=re.IGNORECASE)
+    normalized = normalized.replace("&", " and ")
+    normalized = re.sub(r"[^a-z0-9]+", "_", normalized)
+    normalized = re.sub(r"_+", "_", normalized).strip("_")
+    return normalized
+
+
+def _make_unique_column_names(columns: list[str]) -> list[str]:
+    counts: dict[str, int] = {}
+    unique_columns: list[str] = []
+
+    for column in columns:
+        count = counts.get(column, 0)
+        if count == 0:
+            unique_columns.append(column)
+        else:
+            unique_columns.append(f"{column}_{count + 1}")
+        counts[column] = count + 1
+
+    return unique_columns
+
+
+def clean_column_names(df: pd.DataFrame) -> pd.DataFrame:
+    """Return a copy of df with normalized, unique column names."""
+    cleaned = df.copy()
+    normalized_columns = [clean_column_name(column) for column in cleaned.columns]
+    cleaned.columns = _make_unique_column_names(normalized_columns)
+    return cleaned
+
+
+def load_opportunity_files() -> tuple[pd.DataFrame, pd.DataFrame]:
+    """Load the local opportunity Excel workbooks."""
+    missing_files = [path for path in [OPPS1_PATH, OPPS2_PATH] if not path.exists()]
+    if missing_files:
+        missing = ", ".join(str(path.relative_to(PROJECT_ROOT)) for path in missing_files)
+        raise FileNotFoundError(f"Missing required opportunity file(s): {missing}")
+
+    opps1 = pd.read_excel(OPPS1_PATH, sheet_name=EXCEL_SHEET_NAME)
+    opps2 = pd.read_excel(OPPS2_PATH, sheet_name=EXCEL_SHEET_NAME)
+    return opps1, opps2
+
+
+def compare_schemas(opps1: pd.DataFrame, opps2: pd.DataFrame) -> pd.DataFrame:
+    """Compare normalized schemas between both opportunity tables."""
+    opps1_columns = set(clean_column_names(opps1).columns)
+    opps2_columns = set(clean_column_names(opps2).columns)
+    all_columns = sorted(opps1_columns | opps2_columns)
+
+    records = []
+    for column in all_columns:
+        in_opps1 = column in opps1_columns
+        in_opps2 = column in opps2_columns
+        if in_opps1 and in_opps2:
+            location = "both"
+        elif in_opps1:
+            location = "opps1_only"
+        else:
+            location = "opps2_only"
+
+        records.append(
+            {
+                "column": column,
+                "in_opps1": in_opps1,
+                "in_opps2": in_opps2,
+                "location": location,
+            }
+        )
+
+    return pd.DataFrame(records)
+
+
+def _require_join_key(df: pd.DataFrame, table_name: str) -> None:
+    if JOIN_KEY not in df.columns:
+        columns_preview = ", ".join(df.columns[:10])
+        raise KeyError(
+            f"Required join key '{JOIN_KEY}' was not found in {table_name} after "
+            f"column normalization. First normalized columns: {columns_preview}"
+        )
+
+
+def _unique_non_null_count(series: pd.Series) -> int:
+    return int(series.dropna().nunique())
+
+
+def _id_set(series: pd.Series) -> set[object]:
+    return set(series.dropna().unique())
+
+
+def _first_non_missing(series: pd.Series) -> object:
+    non_missing = series.dropna()
+    if non_missing.empty:
+        return pd.NA
+
+    if pd.api.types.is_string_dtype(non_missing):
+        non_missing = non_missing[non_missing.astype(str).str.strip() != ""]
+    else:
+        non_missing = non_missing[
+            ~non_missing.map(lambda value: isinstance(value, str) and value.strip() == "")
+        ]
+
+    if non_missing.empty:
+        return pd.NA
+
+    return non_missing.iloc[0]
+
+
+def collapse_supplemental_fields(
+    opps1: pd.DataFrame,
+    join_key: str,
+    supplemental_fields: list[str],
+) -> pd.DataFrame:
+    """Collapse opps1 detail rows to one supplemental row per opportunity.
+
+    opps1 may contain service/product-level detail, but opportunity_df must
+    remain opportunity-level for downstream owner capacity scoring. For each
+    opportunity and supplemental field, keep the first non-null, non-empty value.
+    """
+    if join_key not in opps1.columns:
+        raise KeyError(f"Required join key '{join_key}' was not found in opps1.")
+
+    fields_found = [field for field in supplemental_fields if field in opps1.columns]
+    collapse_columns = [join_key, *fields_found]
+    if not fields_found:
+        return opps1[[join_key]].drop_duplicates(subset=[join_key], keep="first").copy()
+
+    return (
+        opps1[collapse_columns]
+        .groupby(join_key, as_index=False, sort=False, dropna=False)
+        .agg({field: _first_non_missing for field in fields_found})
+    )
+
+
+def _duplicate_id_count(df: pd.DataFrame) -> int:
+    return int((df[JOIN_KEY].value_counts(dropna=False) > 1).sum())
+
+
+def _duplicate_row_count(df: pd.DataFrame) -> int:
+    return int(df[JOIN_KEY].duplicated(keep=False).sum())
+
+
+def _build_merge_summary(
+    opps1: pd.DataFrame,
+    opps2: pd.DataFrame,
+    opportunity_df: pd.DataFrame,
+    supplemental_fields_found: list[str],
+) -> pd.DataFrame:
+    opps1_ids = _id_set(opps1[JOIN_KEY])
+    opps2_ids = _id_set(opps2[JOIN_KEY])
+    matched_ids = opps1_ids & opps2_ids
+    opps1_exclusive_ids = opps1_ids - opps2_ids
+    opps2_unmatched_ids = opps2_ids - opps1_ids
+    expected_no_expansion_row_count = len(opps2) + len(opps1_exclusive_ids)
+
+    rows = [
+        ("join_key_used", JOIN_KEY),
+        ("opps1_row_count", len(opps1)),
+        ("opps2_row_count", len(opps2)),
+        ("opps1_unique_ids", _unique_non_null_count(opps1[JOIN_KEY])),
+        ("opps2_unique_ids", _unique_non_null_count(opps2[JOIN_KEY])),
+        ("matched_ids", len(matched_ids)),
+        ("opps1_exclusive_ids", len(opps1_exclusive_ids)),
+        ("opps2_base_unmatched_ids", len(opps2_unmatched_ids)),
+        ("expected_no_expansion_row_count", expected_no_expansion_row_count),
+        ("opportunity_df_row_count", len(opportunity_df)),
+        ("row_count_matches_no_expansion", len(opportunity_df) == expected_no_expansion_row_count),
+        ("duplicate_join_key_row_count", int(opportunity_df["is_duplicate_join_key"].sum())),
+        ("opps1_duplicate_id_count", _duplicate_id_count(opps1)),
+        ("opps1_duplicate_row_count", _duplicate_row_count(opps1)),
+        ("opps2_duplicate_id_count", _duplicate_id_count(opps2)),
+        ("opps2_duplicate_row_count", _duplicate_row_count(opps2)),
+        ("supplemental_fields_found", ", ".join(supplemental_fields_found)),
+    ]
+
+    return pd.DataFrame(rows, columns=["metric", "value"])
+
+
+def merge_opportunity_tables(opps1: pd.DataFrame, opps2: pd.DataFrame) -> tuple[pd.DataFrame, pd.DataFrame]:
+    """Merge opportunity tables using opps2 as the opportunity-level base.
+
+    opps1 can contain service/product-level detail rows. It is collapsed before
+    the merge so final opportunity_df does not multiply opps2 base records.
+    """
+    opps1_clean = clean_column_names(opps1)
+    opps2_clean = clean_column_names(opps2)
+
+    _require_join_key(opps1_clean, "opps1")
+    _require_join_key(opps2_clean, "opps2")
+
+    supplemental_fields_found = [
+        field for field in SUPPLEMENTAL_FIELDS if field in opps1_clean.columns
+    ]
+    opps1_supplement = collapse_supplemental_fields(
+        opps1_clean,
+        JOIN_KEY,
+        supplemental_fields_found,
+    )
+
+    opps1_ids = _id_set(opps1_clean[JOIN_KEY])
+    opps2_ids = _id_set(opps2_clean[JOIN_KEY])
+
+    base = opps2_clean.copy()
+    base["source_table"] = "opps2_base"
+    base["merge_status_opps2_base"] = base[JOIN_KEY].isin(opps1_ids).map(
+        {True: "matched_opps1", False: "unmatched_opps2_base"}
+    )
+    base["is_opps1_exclusive"] = False
+    base["is_unmatched_opps2_base"] = ~base[JOIN_KEY].isin(opps1_ids)
+
+    merged_base = base.merge(
+        opps1_supplement,
+        on=JOIN_KEY,
+        how="left",
+        suffixes=("", "_opps1"),
+    )
+
+    opps1_exclusive_ids = opps1_ids - opps2_ids
+    opps1_exclusive_fields = [column for column in opps1_clean.columns if column != JOIN_KEY]
+    opps1_collapsed = collapse_supplemental_fields(
+        opps1_clean,
+        JOIN_KEY,
+        opps1_exclusive_fields,
+    )
+    opps1_exclusive = opps1_collapsed[opps1_collapsed[JOIN_KEY].isin(opps1_exclusive_ids)].copy()
+    opps1_exclusive["source_table"] = "opps1_exclusive"
+    opps1_exclusive["merge_status_opps2_base"] = "opps1_exclusive"
+    opps1_exclusive["is_opps1_exclusive"] = True
+    opps1_exclusive["is_unmatched_opps2_base"] = False
+
+    opportunity_df = pd.concat([merged_base, opps1_exclusive], ignore_index=True, sort=False)
+    opportunity_df["is_duplicate_join_key"] = opportunity_df.duplicated(
+        subset=[JOIN_KEY],
+        keep=False,
+    )
+
+    diagnostic_columns = [
+        "source_table",
+        "merge_status_opps2_base",
+        "is_duplicate_join_key",
+        "is_opps1_exclusive",
+        "is_unmatched_opps2_base",
+    ]
+    front_columns = [JOIN_KEY, *diagnostic_columns]
+    remaining_columns = [column for column in opportunity_df.columns if column not in front_columns]
+    opportunity_df = opportunity_df[[*front_columns, *remaining_columns]]
+
+    merge_summary = _build_merge_summary(
+        opps1_clean,
+        opps2_clean,
+        opportunity_df,
+        supplemental_fields_found,
+    )
+    return opportunity_df, merge_summary
+
+
+def build_opportunity_df() -> tuple[pd.DataFrame, pd.DataFrame, pd.DataFrame, dict[str, pd.DataFrame]]:
+    """Run the full opportunity data merge pipeline."""
+    opps1, opps2 = load_opportunity_files()
+    schema_comparison = compare_schemas(opps1, opps2)
+    opportunity_df, merge_summary = merge_opportunity_tables(opps1, opps2)
+
+    opps1_clean = clean_column_names(opps1)
+    opps2_clean = clean_column_names(opps2)
+    supplemental_fields_found = [
+        field for field in SUPPLEMENTAL_FIELDS if field in opps1_clean.columns
+    ]
+    audit_tables = {
+        "opps1_duplicate_records": opps1_clean[opps1_clean[JOIN_KEY].duplicated(keep=False)],
+        "opps2_duplicate_records": opps2_clean[opps2_clean[JOIN_KEY].duplicated(keep=False)],
+        "opps1_supplemental_detail": opps1_clean[[JOIN_KEY, *supplemental_fields_found]].copy(),
+    }
+    return opportunity_df, schema_comparison, merge_summary, audit_tables
+
+
+def write_outputs(
+    opportunity_df: pd.DataFrame,
+    schema_comparison: pd.DataFrame,
+    merge_summary: pd.DataFrame,
+    audit_tables: dict[str, pd.DataFrame] | None = None,
+    output_dir: Path = PROCESSED_DIR,
+) -> list[Path]:
+    """Write local, ignored pipeline artifacts under data/processed."""
+    output_dir.mkdir(parents=True, exist_ok=True)
+    audit_tables = audit_tables or {}
+
+    outputs = {
+        "opportunity_df.csv": opportunity_df,
+        "schema_comparison.csv": schema_comparison,
+        "merge_summary.csv": merge_summary,
+        "duplicate_records.csv": opportunity_df[opportunity_df["is_duplicate_join_key"]],
+        "opps1_duplicate_records.csv": audit_tables.get(
+            "opps1_duplicate_records",
+            pd.DataFrame(),
+        ),
+        "opps2_duplicate_records.csv": audit_tables.get(
+            "opps2_duplicate_records",
+            pd.DataFrame(),
+        ),
+        "opps1_supplemental_detail.csv": audit_tables.get(
+            "opps1_supplemental_detail",
+            pd.DataFrame(),
+        ),
+        "opps1_exclusive_records.csv": opportunity_df[opportunity_df["is_opps1_exclusive"]],
+        "unmatched_records.csv": opportunity_df[opportunity_df["is_unmatched_opps2_base"]],
+    }
+
+    written_paths = []
+    for filename, df in outputs.items():
+        path = output_dir / filename
+        df.to_csv(path, index=False)
+        written_paths.append(path)
+
+    return written_paths
+
+
+def main() -> None:
+    opportunity_df, schema_comparison, merge_summary, audit_tables = build_opportunity_df()
+    written_paths = write_outputs(opportunity_df, schema_comparison, merge_summary, audit_tables)
+
+    print("Opportunity merge complete.")
+    print()
+    print("Merge summary:")
+    for row in merge_summary.itertuples(index=False):
+        print(f"- {row.metric}: {row.value}")
+    print()
+    print("Local outputs written:")
+    for path in written_paths:
+        print(f"- {path.relative_to(PROJECT_ROOT)}")
+
+
+if __name__ == "__main__":
+    main()

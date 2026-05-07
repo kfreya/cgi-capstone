@@ -12,6 +12,7 @@ chroma_db/
 
 # Python
 __pycache__/
+.pytest_cache/
 *.pyc
 *.py[cod]
 *.egg-info/
