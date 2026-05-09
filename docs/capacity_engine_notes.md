@@ -38,10 +38,7 @@ The output is a director-level dataframe (`director_df`) used later by the dashb
 
 The current prototype uses:
 
-sales_load_i =
-stage_weight
-× probability
-× log1p(revenue)
+$$sales load_i = stage weight \times probability \times log1p(revenue)$$
 
 This approximates pre-sales effort.
 
@@ -56,7 +53,7 @@ Current assumptions:
 
 The current prototype delivery component uses Won opportunities as a proxy for ongoing delivery responsibility.
 
-The current implementation is intentionally simple and will likely change after CGI validation.
+The current implementation is relatively simple and will likely change after CGI validation.
 
 ---
 
@@ -64,8 +61,7 @@ The current implementation is intentionally simple and will likely change after 
 
 Director-level load is currently:
 
-current_load_owner =
-sum(sales_load_i + delivery_load_i)
+$$current_load_owner \eq sum(sales_load_i + delivery_load_i)$$
 
 grouped by `opportunity_owner`.
 
@@ -89,8 +85,7 @@ A reliability flag is added for owners with limited historical coverage.
 
 Current implementation:
 
-relative_load_owner =
-current_load_owner / historical_mean_load
+$$relative_load_owner \eq \frac{current_load_owner}{historical_mean_load}$$
 
 This keeps director workload relative to their own historical pattern.
 
@@ -100,8 +95,7 @@ This keeps director workload relative to their own historical pattern.
 
 Current implementation:
 
-capacity_score_owner =
-min(1 / relative_load_owner, 1)
+$$capacity_score_owner \eq min(\frac{1}{relative_load_owner}, 1)$$
 
 This intentionally compresses values once directors exceed baseline.
 
@@ -109,7 +103,7 @@ This intentionally compresses values once directors exceed baseline.
 
 ### Capacity Labels
 
-Current thresholds:
+Current thresholds (still needs to be adjusted):
 
 - Available:
   capacity_score ≥ 0.65
