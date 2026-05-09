@@ -83,7 +83,7 @@ def compute_sales_load(
     )
 
     sales_load = np.where(
-        df["status"].astype(str).str.lower() == "won",
+        df["status_reason"].astype(str).str.lower() == "won",
         0,
         sales_load,
     )
@@ -150,7 +150,7 @@ def compute_delivery_load(
     )
 
     delivery_load = np.where(
-        df["status"].astype(str).str.lower() == "won",
+        df["status_reason"].astype(str).str.lower() == "won",
         delivery_load,
         0,
     )
@@ -177,6 +177,33 @@ def compute_current_load_by_owner(
         + working_df["delivery_load"]
     )
 
+    working_df["is_late_stage"] = (
+        working_df["sales_stage"]
+        .isin([
+            "4-Proposal",
+            "5-Client Decision",
+            "6-Negotiation&Signature",
+        ])
+    )
+
+    working_df["weighted_pipeline_revenue"] = (
+        pd.to_numeric(
+            working_df["total_estimated_revenue"],
+            errors="coerce",
+        ).fillna(0)
+        * (
+            pd.to_numeric(
+                working_df["probability"],
+                errors="coerce",
+            ).fillna(0)
+            / 100
+        )
+    )
+
+    working_df["inferred_delivery_commitments"] = (
+        working_df["delivery_load"]
+    )
+
     grouped = (
         working_df
         .groupby("opportunity_owner", dropna=False)
@@ -194,6 +221,26 @@ def compute_current_load_by_owner(
                 ),
             ),
             opportunity_count=("opportunity_id", "count"),
+
+            territory=(
+                "delivery_territory_center",
+                "first",
+            ),
+
+            late_stage_deal_count=(
+                "is_late_stage",
+                "sum",
+            ),
+
+            weighted_pipeline_revenue=(
+                "weighted_pipeline_revenue",
+                "sum",
+            ),
+
+            inferred_delivery_commitments=(
+                "inferred_delivery_commitments",
+                "sum",
+            ),
         )
         .reset_index()
     )
@@ -235,10 +282,10 @@ def compute_historical_baseline(
         grouped
         .groupby("opportunity_owner", dropna=False)
         .agg(
-            historical_mean_load=("quarterly_load", "mean"),
+            historical_avg_load=("quarterly_load", "mean"),
             historical_std_load=("quarterly_load", "std"),
             historical_max_load=("quarterly_load", "max"),
-            quarters_seen=("quarter", "nunique"),
+            quarters_of_data=("quarter", "nunique"),
         )
         .reset_index()
     )
@@ -248,8 +295,8 @@ def compute_historical_baseline(
         .fillna(0)
     )
 
-    baseline["baseline_reliability_flag"] = (
-        baseline["quarters_seen"] >= 4
+    baseline["baseline_reliability"] = (
+        baseline["quarters_of_data"] >= 4
     )
 
     return baseline
@@ -267,7 +314,7 @@ def compute_relative_load(
 
     baseline_mean = (
         pd.to_numeric(
-            merged["historical_mean_load"],
+            merged["historical_avg_load"],
             errors="coerce",
         )
         .replace(0, np.nan)
@@ -286,13 +333,18 @@ def compute_capacity_score(
 ) -> pd.DataFrame:
     working_df = df.copy()
 
+    capped_relative_load = (
+        working_df["relative_load"]
+        .clip(upper=1)
+    )
+
     working_df["capacity_score"] = (
-        1 / working_df["relative_load"]
+        1 - capped_relative_load
     )
 
     working_df["capacity_score"] = (
         working_df["capacity_score"]
-        .replace([np.inf, -np.inf], np.nan)
+        .clip(lower=0)
     )
 
     return working_df
