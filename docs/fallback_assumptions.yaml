@@ -1,0 +1,145 @@
+# Fallback assumptions for capacity scoring.
+#
+# This file is the machine-readable companion to docs/role2_validation_notes.md.
+# Each rule documents a specific data-quality decision the architecture
+# (docs/architecture.md) requires capacity scoring to make. Lyken's
+# capacity_engine.py and any future RFP-side scoring should read these
+# values via yaml.safe_load rather than hardcoding their own defaults, so
+# the rules stay aligned across modules.
+#
+# All counts in `evidence` are computed on the full merged opportunity_df
+# produced by src.opportunity_cleaner.build_opportunity_df() as of
+# 2026-05-08 (8,746 rows). Re-run notebooks/role2_validation.ipynb to
+# regenerate.
+
+- rule_id: revenue_hierarchy
+  field_resolved: authoritative_revenue
+  primary: total_estimated_revenue
+  fallback: opportunity_estimated_revenue_base_cad
+  when_to_use_fallback: total_estimated_revenue is null
+  if_both_missing: row excluded from any load calculation; flag in audit
+  helper: src.data_validator.apply_revenue_hierarchy(df)
+  evidence:
+    n_total: 8746
+    n_primary_null: 51
+    n_fallback_null: 8695
+    n_both_null: 0
+    note: >
+      In the merged opportunity_df the two fields are mutually exclusive,
+      not redundant. Rows from opps2 carry total_estimated_revenue;
+      opps1-exclusive rows (~51) carry opportunity_estimated_revenue_base_cad.
+      The fallback is therefore essential, not cosmetic.
+  risk: low
+
+- rule_id: do_not_sum_service_solution_revenue
+  field_resolved: authoritative_revenue
+  rule: never sum service_solution_estimated_revenue onto authoritative_revenue
+  reason: >
+    service_solution_estimated_revenue is a service-line breakdown that has
+    been collapsed to one row per opportunity in opportunity_cleaner. Adding
+    it on top of total_estimated_revenue would double-count revenue.
+  evidence:
+    n_service_null: 3833
+    n_service_zero: 148
+  risk: low
+
+- rule_id: delivery_window
+  field_resolved: delivery_active
+  primary_start: revenue_start_date
+  fallback_start: close_date
+  duration_field: project_duration_number_of_months
+  when_to_use_fallback: revenue_start_date is null
+  if_both_missing: delivery_active = 0; flag in audit; do not impute
+  active_predicate: effective_start <= as_of <= effective_start + duration_months
+  evidence:
+    n_won_total: 5275
+    n_won_resolvable_via_primary: 5275
+    n_won_resolvable_via_fallback: 0
+    n_won_unresolvable: 0
+    note: >
+      In the current data every Won opportunity has revenue_start_date
+      populated, so the close_date fallback is currently unused. Keep it
+      defined for new CRM rows that may not.
+  risk: low
+
+- rule_id: missing_duration
+  field_resolved: project_duration_number_of_months
+  primary: actual value
+  fallback: 12 months
+  when_to_use_fallback: value is null OR <= 0
+  rationale: >
+    Median Won-deal duration is 12 months in the current data; using it as
+    a default keeps short and long projects from collapsing to zero load.
+  evidence:
+    n_duration_null: 852
+    n_duration_zero: 43
+    n_duration_over_60_months: 152
+  risk: medium
+  notes_for_lyken: >
+    capacity_engine.compute_sales_load and compute_delivery_load already
+    fillna(12) silently. Recommend adding a counter that exposes how many
+    rows triggered the default so we can tell "zero sales effort" rows
+    apart from "missing data" rows.
+
+- rule_id: missing_probability
+  field_resolved: probability
+  primary: actual value
+  fallback: 0
+  when_to_use_fallback: value is null
+  rationale: >
+    A null probability is treated as "no committed sales effort" so the
+    pipeline term collapses to zero, matching the architecture's intent
+    for unscored deals.
+  evidence:
+    n_probability_null: 77
+    n_probability_negative: 0
+    n_probability_above_100: 0
+  risk: medium
+  notes_for_lyken: same default-fill counter recommendation as duration.
+
+- rule_id: won_detection
+  field_resolved: is_won
+  primary: status_reason == "Won"
+  fallback: none
+  rationale: >
+    Architecture (docs/architecture.md, "Status mapping") names
+    status_reason as the canonical field for delivery-load routing.
+    capacity_engine.py currently uses status == "won" instead.
+  evidence:
+    n_status_won_vs_status_reason_won_disagreement: 15
+    note: >
+      Practical impact is small (15 rows out of 8,746) but the discrepancy
+      should be reconciled before final delivery-load numbers are reported.
+  risk: low
+
+- rule_id: late_stage_definition
+  field_resolved: late_stage_deal_count
+  values:
+    - "4-Proposal"
+    - "5-Client Decision"
+    - "6-Negotiation&Signature"
+  scope: status == "Open"
+  rationale: >
+    Architecture distinguishes late-stage open opportunities (which carry
+    near-term winning probability) from earlier stages. Won deals are
+    explicitly excluded — they belong to delivery load.
+  risk: low
+
+- rule_id: baseline_reliability
+  field_resolved: baseline_reliability
+  thresholds:
+    high: quarters_of_data >= 8
+    medium: 4 <= quarters_of_data < 8
+    low: quarters_of_data < 4
+  rationale: >
+    Owners with fewer than four quarters of CRM activity have a noisy
+    historical baseline; capacity scores derived against that baseline
+    should be displayed with a reliability tag in the dashboard.
+  evidence:
+    n_owners_total: 24
+    n_owners_with_under_10_lifetime_opps: 7
+  risk: medium
+
+# Use of Generative AI: Anthropic Claude (Opus 4.7) was used for drafting
+# and editing assistance. All rule definitions, evidence values, and risk
+# assignments are my own.
