@@ -91,7 +91,7 @@ This is expected at the prototype stage and does not necessarily indicate a bug 
 
 Current implementation combines:
 
-$$capacity \eq sales load + delivery load$$
+$$capacity = sales load + delivery load$$
 
 However:
 - sales load reflects pre-sales / proposal effort
