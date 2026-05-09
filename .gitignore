@@ -1,0 +1,31 @@
+# Environment and secrets
+.env
+data/.env
+*.env
+
+# Raw data files and generated artifacts
+data/csv_files/
+data/processed/
+data/vector_store/
+data/proposals_responses.json
+chroma_db/
+
+# Python
+__pycache__/
+.pytest_cache/
+*.pyc
+*.py[cod]
+*.egg-info/
+.venv/
+env/
+venv/
+dist/
+build/
+
+# Jupyter
+.ipynb_checkpoints/
+
+# OS / IDE
+.DS_Store
+.vscode/
+.idea/
