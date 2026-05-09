@@ -8,6 +8,10 @@ from src.data_validator import (
     apply_revenue_hierarchy,
     build_owner_aggregates,
     summarize_missingness,
+    validate_categorical_fields,
+    validate_date_duration_fields,
+    validate_owner_identity,
+    validate_revenue_fields,
 )
 
 
@@ -98,3 +102,50 @@ def test_build_owner_aggregates_schema_matches_dashboard_contract():
     assert bob["inferred_delivery_commitments"] == 1
     assert bob["late_stage_deal_count"] == 0
     assert bob["weighted_pipeline_revenue"] == 0
+
+
+def test_validate_revenue_fields_returns_metric_value_summary():
+    df = _minimal_validated_df()
+
+    result = validate_revenue_fields(df)
+
+    assert list(result.columns) == ["metric", "value"]
+    metrics = dict(zip(result["metric"], result["value"]))
+    assert metrics["n_total"] == 2
+    assert metrics["n_primary_null"] == 1
+    assert metrics["n_fallback_null"] == 1
+    assert metrics["n_unscoreable_both_null"] == 0
+
+
+def test_validate_date_duration_flags_close_before_created():
+    df = _minimal_validated_df()
+    df.loc[0, Fields.CLOSE_DATE] = pd.Timestamp("2023-01-01")  # before created_on
+
+    result = validate_date_duration_fields(
+        df, as_of=pd.Timestamp("2024-09-01")
+    )
+
+    metrics = dict(zip(result["metric"], result["value"]))
+    assert metrics["n_close_before_created"] == 1
+
+
+def test_validate_categorical_fields_detects_status_disagreement():
+    df = _minimal_validated_df()
+    df.loc[0, Fields.STATUS] = "Won"
+    df.loc[0, Fields.STATUS_REASON] = "Lost"
+
+    result = validate_categorical_fields(df)
+
+    metrics = dict(zip(result["metric"], result["value"]))
+    assert metrics["n_status_won_vs_status_reason_won_disagreement"] == 1
+
+
+def test_validate_owner_identity_counts_overlap():
+    df = _minimal_validated_df()
+    df.loc[0, Fields.MANAGER] = "Alice"
+
+    result = validate_owner_identity(df)
+
+    metrics = dict(zip(result["metric"], result["value"]))
+    assert metrics["n_owner_equals_manager"] == 1
+    assert metrics["n_distinct_owner_raw"] == 2
