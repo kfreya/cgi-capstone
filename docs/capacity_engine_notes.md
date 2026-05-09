@@ -61,7 +61,7 @@ The current implementation is relatively simple and will likely change after CGI
 
 Director-level load is currently:
 
-$$current_load_owner \eq sum(sales_load_i + delivery_load_i)$$
+$$current load owner \eq sum(sales load_i + delivery load_i)$$
 
 grouped by `opportunity_owner`.
 
@@ -85,7 +85,7 @@ A reliability flag is added for owners with limited historical coverage.
 
 Current implementation:
 
-$$relative_load_owner \eq \frac{current_load_owner}{historical_mean_load}$$
+$$relative load owner \eq \frac{current load owner}{historical mean load}$$
 
 This keeps director workload relative to their own historical pattern.
 
@@ -95,7 +95,7 @@ This keeps director workload relative to their own historical pattern.
 
 Current implementation:
 
-$$capacity_score_owner \eq min(\frac{1}{relative_load_owner}, 1)$$
+$$capacity score owner \eq min(\frac{1}{relative load owner}, 1)$$
 
 This intentionally compresses values once directors exceed baseline.
 
