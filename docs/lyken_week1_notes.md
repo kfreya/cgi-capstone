@@ -12,6 +12,7 @@ Implemented the first (prototype) version of the following functions:
 - `compute_historical_baseline`
 - `compute_relative_load`
 - `assign_capacity_label`
+- `compute_capacity_score`
 
 The functions were designed to operate directly on `opportunity_df` and return dashboard-friendly outputs.
 
@@ -30,7 +31,7 @@ Current output columns include:
 - current_load
 - sales_load
 - delivery_load
-- historical_mean_load
+- historical_avg_load
 - historical_std_load
 - relative_load
 - capacity_score
@@ -45,11 +46,11 @@ This structure is intended to become the base input for the Streamlit dashboard.
 Implemented a first-pass quarterly historical baseline calculation.
 
 Current outputs:
-- historical_mean_load
+- historical_avg_load
 - historical_std_load
 - historical_max_load
-- quarters_seen
-- baseline_reliability_flag
+- quarters_of_data
+- baseline_reliability
 
 The purpose is to compare directors against their own historical workload patterns instead of against global averages.
 
