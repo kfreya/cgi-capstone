@@ -2,9 +2,9 @@
 
 ## Goal
 
-The purpose of `capacity_engine.py` is to build the first **prototype** workflow for director-level capacity scoring.  
+The purpose of `capacity_engine.py` is to build the first prototype workflow for director-level capacity scoring.
 
-The Week 1 version is intentionally lightweight and formula-based. The focus is on defining:
+The Week 1 version is intentionally lightweight and formula-based. The main goal is to define:
 
 - module structure
 - function interfaces
@@ -28,7 +28,7 @@ opportunity_df
 → capacity_score_owner  
 → capacity_label
 
-The output is a director-level dataframe (`director_df`) used later by the dashboard and RFP assignment tool.
+The output is a director-level dataframe (`director_df`) that can later feed into the dashboard and RFP assignment workflow.
 
 ---
 
@@ -38,32 +38,50 @@ The output is a director-level dataframe (`director_df`) used later by the dashb
 
 The current prototype uses:
 
-$$sales load_i = stage weight \times probability \times log1p(revenue)$$
+sales_load_i =  
+stage_weight × probability × log1p(revenue) × duration_weight
 
-This approximates pre-sales effort.
+This approximates pre-sales workload intensity.
 
 Current assumptions:
-- later stages imply higher effort
-- larger deals imply higher effort
-- higher probability implies more commitment
+- later sales stages imply higher effort
+- larger opportunities imply higher coordination effort
+- longer projects imply more planning complexity
+- higher probability implies higher commitment
+
+Won opportunities are excluded from sales load because they are assumed to have moved into delivery.
 
 ---
 
 ### Delivery Load
 
-The current prototype delivery component uses Won opportunities as a proxy for ongoing delivery responsibility.
+The delivery component currently uses Won opportunities as a proxy for active delivery responsibility.
 
-The current implementation is relatively simple and will likely change after CGI validation.
+Delivery load is based on:
+- estimated monthly revenue
+- inferred active delivery window
+- revenue start date / close date
+- project duration
+
+Current implementation is intentionally simple and will likely evolve after validation feedback.
 
 ---
 
 ### Current Load
 
-Director-level load is currently:
+Director-level workload is currently defined as:
 
-$$current load owner \eq sum(sales load_i + delivery load_i)$$
+current_load = sales_load + delivery_load
 
-grouped by `opportunity_owner`.
+aggregated by `opportunity_owner`.
+
+Additional owner-level prototype fields currently include:
+- territory
+- late_stage_deal_count
+- weighted_pipeline_revenue
+- inferred_delivery_commitments
+
+These were added mainly to support downstream dashboard views.
 
 ---
 
@@ -72,12 +90,12 @@ grouped by `opportunity_owner`.
 Historical baseline is computed from quarterly aggregated load.
 
 Current outputs:
-- historical_mean_load
+- historical_avg_load
 - historical_std_load
 - historical_max_load
-- quarters_seen
+- quarters_of_data
 
-A reliability flag is added for owners with limited historical coverage.
+A reliability flag is also included for owners with limited historical coverage.
 
 ---
 
@@ -85,9 +103,10 @@ A reliability flag is added for owners with limited historical coverage.
 
 Current implementation:
 
-$$relative load owner \eq \frac{current load owner}{historical mean load}$$
+relative_load =  
+current_load / historical_avg_load
 
-This keeps director workload relative to their own historical pattern.
+This keeps workload relative to each director’s own historical pattern rather than comparing all directors globally.
 
 ---
 
@@ -95,71 +114,94 @@ This keeps director workload relative to their own historical pattern.
 
 Current implementation:
 
-$$capacity score owner \eq min(\frac{1}{relative load owner}, 1)$$
+capacity_score = 1 - min(relative_load, 1)
 
-This intentionally compresses values once directors exceed baseline.
+The current version intentionally compresses overloaded cases toward zero.
+
+Interpretation:
+- closer to 1 → more available capacity
+- closer to 0 → heavily loaded
+
+This is still prototype logic and not business validated.
 
 ---
 
 ### Capacity Labels
 
-Current thresholds (still needs to be adjusted):
-
+Current thresholds:
 - Available:
-  capacity_score ≥ 0.65
+  relative_load < 0.8
 
 - At Capacity:
-  0.35 ≤ capacity_score < 0.65
+  0.8 ≤ relative_load < 1.2
 
 - Overextended:
-  capacity_score < 0.35
+  relative_load ≥ 1.2
 
-These thresholds are placeholders and expected to change after stakeholder review.
+Thresholds are placeholders and expected to change after stakeholder review.
 
 ---
 
 ## Known Issues / Open Questions
 
-### 1. Most directors are currently labeled "Overextended"
+### 1. Large Number of "Overextended" Labels
 
-The current prototype produces many relative_load values around 5–8x baseline.
+The current prototype still produces many directors labeled as "Overextended".
 
 Possible reasons:
-- historical baseline window is too small
-- current pipeline snapshot is unusually dense
-- Won deals may still be contributing to sales load
-- sales and delivery load may be double-counting effort
-- baseline logic may not reflect real operational workload
+- historical baseline window may be too small
+- current CRM snapshot may be unusually dense
+- delivery assumptions may be overestimating active commitments
+- sales and delivery effort may partially overlap
+- workload formulas are not yet calibrated
 
-This is expected at the prototype stage and will be revisited in Week 2.
+At this stage this is expected and does not necessarily indicate a bug.
 
 ---
 
-### 2. Sales vs Delivery Capacity
+### 2. Missing and Zero Values
+
+Some directors currently have:
+- missing historical baselines
+- zero delivery load
+- zero or near-zero capacity scores
+
+This appears to be mostly driven by CRM data sparsity rather than code failures.
+
+Week 2 validation work should clarify:
+- whether fallback assumptions are needed
+- which revenue/date fields are reliable
+- whether some owners should be excluded from scoring
+
+---
+
+### 3. Sales vs Delivery Capacity
 
 The current model combines:
 
 capacity = sales_load + delivery_load
 
-However, these likely represent different business constraints:
-- sales capacity → pre-sales / proposal bandwidth
-- delivery capacity → post-sale execution responsibility
+However, these likely represent different operational constraints:
+- sales bandwidth
+- delivery execution responsibility
 
-This distinction may become important for the RFP recommendation system.
+This distinction may become important later for RFP assignment recommendations.
 
 ---
 
-### 3. Historical CRM Limitations
+### 4. CRM Limitations
 
 The CRM extracts do not contain:
+- staffing allocation
+- actual utilization
+- time tracking
 - historical stage transitions
-- true utilization
-- staffing allocations
-- actual hours worked
+- resource assignments
 
-Therefore, current capacity scores should be interpreted as:
+Therefore, current scores should be interpreted as:
 "CRM-derived workload proxies"
-rather than true operational utilization.
+
+rather than true operational utilization metrics.
 
 ---
 
@@ -172,8 +214,9 @@ Week 1 intentionally prioritizes:
 - dashboard-ready interfaces
 
 over:
-- final calibrated formulas
-- business-validated thresholds
-- optimized recommendation logic
+- finalized formulas
+- calibrated thresholds
+- business-approved scoring logic
+- production recommendation quality
 
-Formula refinement and stakeholder validation are planned for Week 2+.
+Formula refinement and validation are expected in Week 2+.
