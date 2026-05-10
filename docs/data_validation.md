@@ -1,4 +1,4 @@
-# Sprint 1 Role 2 — Data Validation Findings
+# Data Validation
 
 **Author:** Kian (Data Validation Owner)
 **Issue:** [#6 Sprint 1: Validate scoring and owner-level fields](../../issues/6)
@@ -7,12 +7,18 @@
 - `src/data_validator.py` — reusable validation + owner-aggregate functions
 - `tests/test_data_validator.py` — contract tests
 - `notebooks/role2_validation.ipynb` — full re-runnable analysis
-- `docs/fallback_assumptions.yaml` — machine-readable fallback rules for Lyken
+- `config/fallback_assumptions.yaml` — machine-readable fallback rules for validation/scoring
 
 This document covers the six issue-#6 deliverables in order: missingness, revenue
 hierarchy, date/duration validation, fallback assumptions, owner-level summary,
 and the reliable-vs-risky list. A short list of open questions for Lyken and CGI
 sits at the end.
+
+The machine-readable fallback rules now live in
+[`config/fallback_assumptions.yaml`](../config/fallback_assumptions.yaml). Longer
+interpretation and review notes remain in this document. Generative AI drafting
+assistance was used for the original fallback-rules note; rule definitions,
+evidence values, and risk assignments were reviewed by the validation owner.
 
 ---
 
@@ -132,7 +138,8 @@ these — they currently inflate `duration_weight` substantially.
 
 ## 4. Fallback assumptions
 
-Full machine-readable rules are in [`docs/fallback_assumptions.yaml`](fallback_assumptions.yaml).
+Full machine-readable rules are in
+[`config/fallback_assumptions.yaml`](../config/fallback_assumptions.yaml).
 Summary:
 
 | rule_id | primary | fallback | when fallback applies | risk |

@@ -1,4 +1,4 @@
-# Week 1 Yixiao Merge Notes
+# Opportunity Merge
 
 ## Goal
 

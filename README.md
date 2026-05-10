@@ -33,7 +33,16 @@ cgi-capstone/
 │   ├── rfp_preprocessor.py     # RFP/proposal text extraction and chunking
 │   └── vector_store.py         # in-memory and Chroma vector retrieval helpers
 ├── tests/                      # unit tests for Week 1 src modules
-├── docs/                       # architecture, validation, pipeline, and team notes
+├── config/
+│   └── fallback_assumptions.yaml # shared fallback rules for validation/scoring
+├── docs/
+│   ├── architecture.md         # system architecture and modeling approach
+│   ├── opportunity_merge.md    # opportunity Excel merge strategy and outputs
+│   ├── data_validation.md      # field validation findings and fallback notes
+│   ├── capacity_scoring.md     # capacity scoring workflow and assumptions
+│   ├── dashboard_requirements.md # dashboard data and UI contracts
+│   ├── rfp_pipeline.md         # RFP preprocessing and retrieval pipeline
+│   ├── team_charter.md         # team working agreement
 │   └── time_management/        # weekly time-stamped report PDFs
 ├── notebooks/                  # EDA and validation notebooks
 ├── data/                       # local-only CGI data and generated outputs, ignored by Git

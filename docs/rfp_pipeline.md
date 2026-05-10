@@ -1,9 +1,9 @@
-# RFP Preprocessing and Retrieval Notes
+# RFP Pipeline
 
 ## Purpose
 
-My part of the capstone is to build the first version of the RFP retrieval
-pipeline. The goal is to take historical proposal and response text, break it
+This document describes the first version of the RFP retrieval pipeline. The
+goal is to take historical proposal and response text, break it
 into searchable chunks, and prepare those chunks for embedding-based retrieval.
 
 This supports the larger CGI Capacity Analyzer project by giving the future RFP
