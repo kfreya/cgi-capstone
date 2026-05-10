@@ -1,102 +1,171 @@
-# CGI Capacity Analyzer Dashboard
+# CGI Capacity Analyzer
 
-UBC Capstone project in partnership with CGI.
+UBC MDS Capstone 2025/2026 project in partnership with CGI Atlantic / Media Atlantic.
 
-## What This Project Does
+## Project Overview
 
-CGI has many directors and senior managers across Canada who are responsible for both running existing projects and winning new business. The problem is that there is no clear, real-time view of who is overloaded and who has room for more work. This is currently tracked manually and inconsistently.
+CGI Capacity Analyzer is a decision-support tool for understanding director capacity and supporting new RFP assignment decisions. It is intended to surface useful workload, pipeline, and retrieval signals for leadership and delivery teams; it does not replace business judgment or CGI's internal decision processes.
 
-This project builds a two-part tool:
+The prototype emphasizes transparency, reproducibility, and stakeholder review rather than fully automated decision-making.
 
-1. **Capacity Dashboard** - shows each director's current workload compared to their own historical average, so leadership can quickly see who is at capacity and who is available.
+The project has two core deliverables:
 
-2. **RFP Assignment Tool** - when a new project proposal (RFP) comes in, the tool estimates how much effort it requires and recommends the best available director to take it on.
+1. **Director Capacity Dashboard**  
+   Uses CRM opportunity data to summarize director workload, historical baseline, relative load, capacity score, and capacity labels.
 
-The tool uses sales opportunity data from CGI's CRM and past RFP/proposal documents. It integrates with Azure OpenAI for document analysis and reasoning.
+2. **RFP Assignment Tool**  
+   Uses proposal/RFP text and structured opportunity data to support RFP effort estimation, similar RFP retrieval, and director recommendations.
 
-## Repo Structure
+## Repository Structure
 
 ```text
 cgi-capstone/
-├── app/                        # Streamlit web app
-│   ├── app.py                  # dashboard entrypoint
-│   └── mock_data.py            # synthetic dashboard data for Week 1 UI
-├── src/                        # reusable data, Azure, and analysis modules
-├── notebooks/                  # exploratory analysis
-├── docs/
-│   ├── architecture.md         # system architecture and dashboard design notes
-│   └── team_charter.md         # team contract and collaboration guidelines
-├── tests/                      # unit tests for src modules
-├── data/                       # local folder for CGI-provided project data
-│   ├── .env                    # local API keys and Azure endpoints, ignored by Git
-│   ├── csv_files/              # local opportunity Excel files, ignored by Git
-│   ├── proposals_responses.json # local proposal/RFP data, ignored by Git
-│   ├── processed/              # local processed data outputs, ignored by Git
-│   └── vector_store/           # local vector database artifacts, ignored by Git
+├── app/
+│   ├── app.py                  # Week 1 Streamlit dashboard skeleton
+│   └── mock_data.py            # synthetic data for dashboard prototyping
+├── src/
+│   ├── azure_client.py         # Azure/OpenAI environment validation helper
+│   ├── check_env.py            # local environment variable check script
+│   ├── data_loader.py          # local data loading helpers
+│   ├── opportunity_cleaner.py  # opportunity Excel merge/cleaning pipeline
+│   ├── data_validator.py       # validation summaries and owner aggregates
+│   ├── capacity_engine.py      # first-pass capacity scoring functions
+│   ├── rfp_preprocessor.py     # RFP/proposal text extraction and chunking
+│   └── vector_store.py         # in-memory and Chroma vector retrieval helpers
+├── tests/                      # unit tests for Week 1 src modules
+├── docs/                       # architecture, validation, pipeline, and team notes
+│   └── time_management/        # weekly time-stamped report PDFs
+├── notebooks/                  # EDA and validation notebooks
+├── data/                       # local-only CGI data and generated outputs, ignored by Git
 ├── .streamlit/
-│   └── config.toml             # Streamlit theme configuration
-├── .env.example                # template for required environment variables
+│   └── config.toml             # Streamlit configuration
+├── .env.example                # environment variable template, no secrets
 ├── environment.yml             # recommended conda environment
-└── requirements.txt            # optional pip alternative
+└── requirements.txt            # optional pip fallback
 ```
+
+The `data/` directory is for local CGI-provided files and generated artifacts only. It is ignored by Git and must not be committed.
 
 ## Setup
 
-Create and activate the recommended conda environment:
+Conda is the recommended setup path:
 
 ```bash
 conda env create -f environment.yml
 conda activate cgi-capstone
 ```
 
-### Data setup
-
-The `data/` directory is the local folder for CGI-provided project data. CGI-provided data files are intentionally not tracked in Git. Team members should place their local copies of the CGI files there.
-
-Expected local files include:
-
-- `data/.env`
-- `data/csv_files/`
-- `data/proposals_responses.json`
-
-These files are ignored by Git and should not be committed.
-
-Create the local data folders if they are missing:
+To update an existing environment after dependency changes:
 
 ```bash
-mkdir -p data/csv_files
+conda env update -f environment.yml --prune
 ```
 
-Copy the CGI-provided `.env` into `data/.env`.
-
-Put the opportunity Excel files into `data/csv_files/`.
-
-Put `proposals_responses.json` into `data/proposals_responses.json`.
-
-If you do not have a CGI-provided `.env` yet, create a local placeholder from the template:
-
-```bash
-cp .env.example data/.env
-```
-
-Fill in `data/.env` locally with the required Azure OpenAI and OpenAI values. Real API keys, endpoints, secrets, and data files must never be committed.
-
-Verify that the environment variables are configured:
-
-```bash
-python src/check_env.py
-```
-
-The Streamlit app entrypoint will be `app/app.py` later in the project.
-
-### Optional pip setup
-
-Conda is the recommended setup path for this project. If you cannot use conda, `requirements.txt` is kept as an optional pip alternative:
+If conda is not available, use the optional pip fallback:
 
 ```bash
 pip install -r requirements.txt
 ```
 
+## Data Setup
+
+Create the expected local data folders:
+
+```bash
+mkdir -p data/csv_files data/processed data/vector_store
+```
+
+Expected local files:
+
+```text
+data/.env
+data/csv_files/anonymized_opps_1.xlsx
+data/csv_files/anonymized_opps_2.xlsx
+data/proposals_responses.json
+```
+
+The Excel filenames should match the listed names exactly because the Week 1 data pipeline reads from those expected paths.
+
+Generated local output folders:
+
+```text
+data/processed/
+data/vector_store/
+```
+
+These files and folders are not committed. If you do not yet have a local `data/.env`, create a placeholder from the template and fill it in locally:
+
+```bash
+cp .env.example data/.env
+```
+
+## Common Commands
+
+Check local environment variables:
+
+```bash
+python src/check_env.py
+```
+
+Build the merged opportunity dataset:
+
+```bash
+python src/opportunity_cleaner.py
+```
+
+Run the Streamlit app:
+
+```bash
+streamlit run app/app.py
+```
+
+Run all tests:
+
+```bash
+python -m pytest tests
+```
+
+Run a selected test file:
+
+```bash
+python -m pytest tests/test_opportunity_cleaner.py
+```
+
+## Week 1 Status
+
+Week 1 established the project foundations:
+
+- Opportunity merge pipeline for the two anonymized opportunity Excel workbooks.
+- Data validation notes and reusable validation helpers for field quality checks and owner-level aggregates.
+- Capacity scoring engine skeleton as a first-pass foundation for sales load, delivery load, historical baseline, relative load, scores, and labels.
+- Streamlit dashboard skeleton with mock data for the Director Capacity Dashboard and RFP Assignment Tool views.
+- RFP preprocessing and vector store skeletons as first-pass foundations for proposal/response extraction, chunking, and retrieval experiments.
+- Architecture, dashboard input, validation, capacity engine, RFP pipeline, team charter, and time management documentation.
+
+These are Week 1 foundations and skeletons. Final model behavior, production integration, and validated business rules are still in progress.
+
+## Data Security
+
+Never commit:
+
+- `data/.env`
+- CGI Excel files in `data/csv_files/`
+- `data/proposals_responses.json`
+- `data/processed/`
+- `data/vector_store/`
+- `chroma_db/`
+
+Do not print or expose API keys, endpoints, secrets, or row-level CGI data. Generated data should be reproducible locally from code.
+
+To check that no local data files are tracked, run:
+
+```bash
+git ls-files data
+```
+
+This should return no output.
+
 ## Team
 
-Freya, Kian, Lyken, Yixiao - UBC MDS Capstone 2025/2026
+Freya Kan, Qian Yang, Junxian Lin, Yixiao Jing, Jai  
+UBC MDS Capstone 2025/2026
