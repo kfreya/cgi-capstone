@@ -32,8 +32,8 @@ DEFAULT_STAGE_WEIGHTS = {
 
 
 DEFAULT_LABEL_THRESHOLDS = {
-    "available": 0.8,
-    "at_capacity": 1.2,
+    "available": 0.65,
+    "at_capacity": 0.35,
 }
 
 
@@ -52,8 +52,14 @@ def compute_sales_load(
         .clip(lower=0)
     )
 
+    revenue_source = (
+        df["authoritative_revenue"]
+        if "authoritative_revenue" in df.columns
+        else df["total_estimated_revenue"]
+    )
+
     revenue = (
-        pd.to_numeric(df["total_estimated_revenue"], errors="coerce")
+        pd.to_numeric(revenue_source, errors="coerce")
         .fillna(0)
         .clip(lower=0)
     )
@@ -104,8 +110,14 @@ def compute_delivery_load(
 
     current_date = pd.Timestamp(current_date)
 
+    revenue_source = (
+        df["authoritative_revenue"]
+        if "authoritative_revenue" in df.columns
+        else df["total_estimated_revenue"]
+    )
+
     revenue = (
-        pd.to_numeric(df["total_estimated_revenue"], errors="coerce")
+        pd.to_numeric(revenue_source, errors="coerce")
         .fillna(0)
         .clip(lower=0)
     )
@@ -184,11 +196,28 @@ def compute_current_load_by_owner(
             "5-Client Decision",
             "6-Negotiation&Signature",
         ])
+    #    &
+    #    (
+    #        working_df["status_reason"]
+    #        .astype(str)
+    #        .str.lower()
+    #    )
     )
 
-    working_df["weighted_pipeline_revenue"] = (
+    revenue_source = (
+        working_df["authoritative_revenue"]
+        if "authoritative_revenue" in working_df.columns
+        else working_df["total_estimated_revenue"]
+    )
+
+    working_df["weighted_pipeline_revenue"] = np.where(
+        working_df["status_reason"]
+        .astype(str)
+        .str.lower()
+        != "won",
+
         pd.to_numeric(
-            working_df["total_estimated_revenue"],
+            revenue_source,
             errors="coerce",
         ).fillna(0)
         * (
@@ -197,11 +226,14 @@ def compute_current_load_by_owner(
                 errors="coerce",
             ).fillna(0)
             / 100
-        )
+        ),
+
+        0,
     )
 
     working_df["inferred_delivery_commitments"] = (
-        working_df["delivery_load"]
+        working_df["delivery_active"]
+        .astype(int)
     )
 
     grouped = (
@@ -211,8 +243,9 @@ def compute_current_load_by_owner(
             current_load=("current_load", "sum"),
             sales_load=("sales_load", "sum"),
             delivery_load=("delivery_load", "sum"),
+
             open_deal_count=(
-                "status",
+                "status_reason",
                 lambda x: (
                     x.astype(str)
                     .str.lower()
@@ -220,6 +253,7 @@ def compute_current_load_by_owner(
                     .sum()
                 ),
             ),
+
             opportunity_count=("opportunity_id", "count"),
 
             territory=(
@@ -322,7 +356,7 @@ def compute_relative_load(
 
     merged["relative_load"] = (
         merged["current_load"]
-        / baseline_mean
+        / (baseline_mean * 3)
     )
 
     return merged
@@ -360,11 +394,11 @@ def assign_capacity_label(
         thresholds = DEFAULT_LABEL_THRESHOLDS
 
     conditions = [
-        working_df["relative_load"] < thresholds["available"],
-        (
-            working_df["relative_load"]
-            < thresholds["at_capacity"]
-        ),
+        working_df["capacity_score"]
+        >= thresholds["available"],
+
+        working_df["capacity_score"]
+        >= thresholds["at_capacity"],
     ]
 
     labels = [
@@ -378,7 +412,13 @@ def assign_capacity_label(
         default="Overextended",
     )
 
+    working_df.loc[
+        working_df["capacity_score"].isna(),
+        "capacity_label"
+    ] = "Unknown"
+
     return working_df
+
 
 if __name__ == "__main__":
     opportunity_df = pd.read_csv(
