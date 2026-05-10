@@ -1,4 +1,4 @@
-# Week 1 `capacity_engine.py` Notes
+# Capacity Scoring
 
 ## Goal
 
@@ -12,6 +12,23 @@ The Week 1 version is intentionally lightweight and formula-based. The main goal
 - owner-level aggregation workflow
 
 rather than final business-calibrated scoring.
+
+---
+
+## Implemented Functions
+
+The Week 1 prototype implements the following functions:
+
+- `compute_sales_load`
+- `compute_delivery_load`
+- `compute_current_load_by_owner`
+- `compute_historical_baseline`
+- `compute_relative_load`
+- `assign_capacity_label`
+- `compute_capacity_score`
+
+These functions operate on `opportunity_df` and return dashboard-friendly
+owner/director-level outputs.
 
 ---
 
@@ -94,6 +111,7 @@ Current outputs:
 - historical_std_load
 - historical_max_load
 - quarters_of_data
+- baseline_reliability
 
 A reliability flag is also included for owners with limited historical coverage.
 
@@ -189,7 +207,24 @@ This distinction may become important later for RFP assignment recommendations.
 
 ---
 
-### 4. CRM Limitations
+### 4. Structured Experience Signals
+
+The current architecture relies heavily on text similarity for RFP assignment
+fit. A future refinement should combine semantic similarity with structured
+experience signals such as:
+
+- win rate
+- successful similar deals
+- average deal size
+- client tier
+- stage progression behavior
+
+This may improve recommendation quality and reduce bias toward directors with
+high volume but low success.
+
+---
+
+### 5. CRM Limitations
 
 The CRM extracts do not contain:
 - staffing allocation
@@ -202,6 +237,21 @@ Therefore, current scores should be interpreted as:
 "CRM-derived workload proxies"
 
 rather than true operational utilization metrics.
+
+---
+
+## Tests
+
+`tests/test_capacity_engine.py` covers:
+
+- sales load calculation
+- delivery load calculation
+- owner-level aggregation
+- historical baseline generation
+- relative load calculation
+- capacity label assignment
+
+The initial Week 1 test suite included 11 capacity-engine tests.
 
 ---
 
@@ -220,3 +270,14 @@ over:
 - production recommendation quality
 
 Formula refinement and validation are expected in Week 2+.
+
+---
+
+## Next Steps
+
+- Connect the scoring workflow to the cleaned `opportunity_df`.
+- Refine delivery logic after validation and stakeholder review.
+- Improve historical baseline logic.
+- Review threshold behavior.
+- Integrate capacity outputs into the dashboard.
+- Explore structured experience features for RFP assignment.

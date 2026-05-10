@@ -1,4 +1,4 @@
-# Dashboard Input Requirements
+# Dashboard Requirements
 
 ## Summary
 
