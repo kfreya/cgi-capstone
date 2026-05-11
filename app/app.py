@@ -15,6 +15,7 @@ from __future__ import annotations
 import sys
 from pathlib import Path
 
+import numpy as np
 import plotly.graph_objects as go
 import streamlit as st
 
@@ -417,6 +418,12 @@ if page == "Director Capacity Dashboard":
         sdf = fdf.sort_values("capacity_score")
 
         fig_bar = go.Figure()
+        customdata = np.column_stack([
+            sdf["capacity_score"].values,
+            sdf["relative_load"].values,
+            sdf["capacity_label"].values,
+        ])
+
         fig_bar.add_trace(go.Bar(
             y=sdf["opportunity_owner"],
             x=sdf["capacity_score"],
@@ -426,14 +433,37 @@ if page == "Director Capacity Dashboard":
             text=[f"  {v:.0%}" for v in sdf["capacity_score"]],
             textposition="outside",
             textfont=dict(size=11, color="#57534E", family="Inter"),
-            customdata=sdf[["relative_load", "capacity_label"]].values,
+            customdata=customdata,
             hovertemplate=(
                 "<b>%{y}</b><br>"
-                "Capacity Score: %{x:.0%}<br>"
-                "Relative Load: %{customdata[0]:.0%}<br>"
-                "Label: %{customdata[1]}<extra></extra>"
+                "Capacity Score: %{customdata[0]:.0%}<br>"
+                "Relative Load: %{customdata[1]:.0%}<br>"
+                "Label: %{customdata[2]}<extra></extra>"
             ),
         ))
+
+        # Invisible scatter at x=0 for zero-score owners so hover works near their name.
+        zero_sdf = sdf[sdf["capacity_score"] == 0]
+        if not zero_sdf.empty:
+            zero_customdata = np.column_stack([
+                zero_sdf["capacity_score"].values,
+                zero_sdf["relative_load"].values,
+                zero_sdf["capacity_label"].values,
+            ])
+            fig_bar.add_trace(go.Scatter(
+                y=zero_sdf["opportunity_owner"],
+                x=[0] * len(zero_sdf),
+                mode="markers",
+                marker=dict(opacity=0, size=16),
+                customdata=zero_customdata,
+                hovertemplate=(
+                    "<b>%{y}</b><br>"
+                    "Capacity Score: %{customdata[0]:.0%}<br>"
+                    "Relative Load: %{customdata[1]:.0%}<br>"
+                    "Label: %{customdata[2]}<extra></extra>"
+                ),
+                showlegend=False,
+            ))
 
         # Threshold lines — softer dash, paler stroke, semantic colours from new palette.
         for x_val, color in [(0.35, LABEL_COLORS["Available"]),
@@ -470,7 +500,7 @@ if page == "Director Capacity Dashboard":
             xaxis=dict(
                 title=dict(text="Capacity Score", font=dict(size=11, color="#78716C")),
                 tickformat=".0%",
-                range=[0, 1.2],
+                range=[0, 1.05],
                 gridcolor=_GRID_COLOR,
                 showgrid=True,
                 zeroline=False,
@@ -480,6 +510,7 @@ if page == "Director Capacity Dashboard":
             yaxis=dict(title="", tickfont=dict(size=12, color="#1C1917"), showgrid=False),
             font=_CHART_FONT,
             hoverlabel=_HOVER,
+            showlegend=False,
         )
         st.plotly_chart(fig_bar, width="stretch", config={"displayModeBar": False})
 
