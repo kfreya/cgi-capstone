@@ -33,6 +33,7 @@ def test_compute_sales_load_creates_positive_sales_load():
     df = pd.DataFrame(
         {
             "status": ["open"],
+            "status_reason": ["Open"],
             "sales_stage": ["4-Proposal"],
             "probability": [80],
             "total_estimated_revenue": [100000],
@@ -49,7 +50,8 @@ def test_compute_sales_load_creates_positive_sales_load():
 def test_compute_sales_load_sets_won_status_to_zero():
     df = pd.DataFrame(
         {
-            "status": ["won"],
+            "status": ["closed"],
+            "status_reason": ["Won"],
             "sales_stage": ["6-Negotiation&Signature"],
             "probability": [100],
             "total_estimated_revenue": [500000],
@@ -65,7 +67,8 @@ def test_compute_sales_load_sets_won_status_to_zero():
 def test_compute_delivery_load_creates_active_delivery_load():
     df = pd.DataFrame(
         {
-            "status": ["won"],
+            "status": ["closed"],
+            "status_reason": ["Won"],
             "total_estimated_revenue": [1200000],
             "project_duration_number_of_months": [12],
             "revenue_start_date": ["2026-01-01"],
@@ -87,6 +90,7 @@ def test_compute_delivery_load_sets_non_won_status_to_zero():
     df = pd.DataFrame(
         {
             "status": ["open"],
+            "status_reason": ["Open"],
             "total_estimated_revenue": [500000],
             "project_duration_number_of_months": [12],
             "revenue_start_date": ["2026-01-01"],
@@ -107,7 +111,8 @@ def test_compute_current_load_by_owner_aggregates_owner_loads():
         {
             "opportunity_id": ["A", "B"],
             "opportunity_owner": ["Owner 1", "Owner 1"],
-            "status": ["open", "won"],
+            "status": ["open", "closed"],
+            "status_reason": ["Open", "Won"],
             "sales_stage": [
                 "4-Proposal",
                 "6-Negotiation&Signature",
@@ -117,6 +122,10 @@ def test_compute_current_load_by_owner_aggregates_owner_loads():
             "project_duration_number_of_months": [12, 12],
             "revenue_start_date": ["2026-01-01", "2026-01-01"],
             "close_date": ["2025-12-01", "2025-12-01"],
+            "delivery_territory_center": [
+                "Atlantic",
+                "Atlantic",
+            ],
         }
     )
 
@@ -126,6 +135,7 @@ def test_compute_current_load_by_owner_aggregates_owner_loads():
     assert list(result["opportunity_owner"]) == ["Owner 1"]
     assert result.loc[0, "current_load"] > 0
     assert result.loc[0, "opportunity_count"] == 2
+    assert result.loc[0, "late_stage_deal_count"] == 2
 
 
 def test_compute_historical_baseline_returns_owner_level_statistics():
@@ -154,10 +164,10 @@ def test_compute_historical_baseline_returns_owner_level_statistics():
     result = compute_historical_baseline(df)
 
     assert len(result) == 1
-    assert result.loc[0, "historical_mean_load"] > 0
+    assert result.loc[0, "historical_avg_load"] > 0
     assert result.loc[0, "historical_max_load"] > 0
-    assert result.loc[0, "quarters_seen"] == 3
-    assert bool(result.loc[0, "baseline_reliability_flag"]) is False
+    assert result.loc[0, "quarters_of_data"] == 3
+    assert bool(result.loc[0, "baseline_reliability"]) is False
 
 
 def test_compute_relative_load_divides_current_by_baseline():
@@ -171,7 +181,7 @@ def test_compute_relative_load_divides_current_by_baseline():
     baseline_df = pd.DataFrame(
         {
             "opportunity_owner": ["Owner 1"],
-            "historical_mean_load": [10],
+            "historical_avg_load": [10],
         }
     )
 
@@ -183,7 +193,7 @@ def test_compute_relative_load_divides_current_by_baseline():
     assert result.loc[0, "relative_load"] == 2
 
 
-def test_compute_capacity_score_inverts_relative_load():
+def test_compute_capacity_score_caps_at_zero():
     df = pd.DataFrame(
         {
             "relative_load": [2.0],
@@ -192,7 +202,7 @@ def test_compute_capacity_score_inverts_relative_load():
 
     result = compute_capacity_score(df)
 
-    assert result.loc[0, "capacity_score"] == 0.5
+    assert result.loc[0, "capacity_score"] == 0
 
 
 def test_assign_capacity_label_returns_available():
