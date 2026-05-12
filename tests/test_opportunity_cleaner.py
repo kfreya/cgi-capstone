@@ -1,11 +1,14 @@
 import pandas as pd
 
 from src.opportunity_cleaner import (
+    build_owner_base_summary,
     clean_column_name,
     clean_column_names,
+    clean_opportunity_df,
     collapse_supplemental_fields,
     compare_schemas,
     merge_opportunity_tables,
+    write_outputs,
 )
 
 
@@ -128,3 +131,271 @@ def test_opps1_duplicates_do_not_expand_matching_opps2_row():
     assert summary["expected_no_expansion_row_count"] == 1
     assert summary["opportunity_df_row_count"] == 1
     assert summary["row_count_matches_no_expansion"] is True
+
+
+def test_clean_opportunity_df_adds_sprint2_flags_without_mutating_input():
+    opportunity_df = pd.DataFrame(
+        {
+            "opportunity_id": ["A", "B", "C"],
+            "source_table": ["opps2_base", "opps2_base", "opps1_exclusive"],
+            "is_duplicate_join_key": [False, True, False],
+            "is_unmatched_opps2_base": [False, True, False],
+            "is_opps1_exclusive": [False, False, True],
+            "opportunity_owner": ["Alice", " ", None],
+            "probability": ["75", "105", "bad"],
+            "total_estimated_revenue": ["1000", None, None],
+            "opportunity_estimated_revenue_base_cad": [None, None, "500"],
+            "service_solution_estimated_revenue": ["20", "bad", None],
+            "project_duration_number_of_months": ["12", "0", None],
+            "created_on": ["2024-01-10", "2024-02-01", "not a date"],
+            "close_date": ["2024-02-10", "2024-01-15", "2024-03-01"],
+            "revenue_start_date": ["2024-03-01", None, "bad"],
+        }
+    )
+    original = opportunity_df.copy(deep=True)
+
+    cleaned = clean_opportunity_df(opportunity_df)
+
+    pd.testing.assert_frame_equal(opportunity_df, original)
+
+    for column in original.columns:
+        assert column in cleaned.columns
+
+    assert list(cleaned["source_table"]) == list(original["source_table"])
+    assert list(cleaned["source_file_flag"]) == [
+        "opps2_base",
+        "opps2_base",
+        "opps1_exclusive",
+    ]
+    assert list(cleaned["duplicate_flag"]) == [False, True, False]
+    assert list(cleaned["unmatched_flag"]) == [False, True, False]
+    assert list(cleaned["opps1_exclusive_flag"]) == [False, False, True]
+
+    assert pd.api.types.is_numeric_dtype(cleaned["probability"])
+    assert cleaned.loc[0, "probability"] == 75
+    assert pd.isna(cleaned.loc[2, "probability"])
+    assert pd.api.types.is_numeric_dtype(cleaned["service_solution_estimated_revenue"])
+    assert pd.isna(cleaned.loc[1, "service_solution_estimated_revenue"])
+
+    assert pd.api.types.is_datetime64_any_dtype(cleaned["created_on"])
+    assert cleaned.loc[0, "created_on"] == pd.Timestamp("2024-01-10")
+    assert pd.isna(cleaned.loc[2, "created_on"])
+
+    expected_quality_flags = [
+        "missing_owner_flag",
+        "missing_probability_flag",
+        "invalid_probability_flag",
+        "missing_revenue_flag",
+        "missing_duration_flag",
+        "invalid_duration_flag",
+        "missing_revenue_start_date_flag",
+        "close_before_created_flag",
+    ]
+    for flag in expected_quality_flags:
+        assert flag in cleaned.columns
+
+    assert list(cleaned["missing_owner_flag"]) == [False, True, True]
+    assert list(cleaned["missing_probability_flag"]) == [False, False, True]
+    assert list(cleaned["invalid_probability_flag"]) == [False, True, False]
+    assert list(cleaned["missing_revenue_flag"]) == [False, True, False]
+    assert list(cleaned["missing_duration_flag"]) == [False, False, True]
+    assert list(cleaned["invalid_duration_flag"]) == [False, True, False]
+    assert list(cleaned["missing_revenue_start_date_flag"]) == [False, True, True]
+    assert list(cleaned["close_before_created_flag"]) == [False, True, False]
+
+
+def test_clean_opportunity_df_uses_safe_defaults_when_week1_columns_missing():
+    cleaned = clean_opportunity_df(pd.DataFrame({"opportunity_id": ["A"]}))
+
+    assert cleaned.loc[0, "source_file_flag"] == "unknown"
+    assert bool(cleaned.loc[0, "duplicate_flag"]) is False
+    assert bool(cleaned.loc[0, "unmatched_flag"]) is False
+    assert bool(cleaned.loc[0, "opps1_exclusive_flag"]) is False
+
+
+def test_build_owner_base_summary_groups_cleaned_opportunities_without_mutating_input():
+    cleaned_df = pd.DataFrame(
+        {
+            "opportunity_id": ["A", "B", "C", "D"],
+            "opportunity_owner": ["Alice", "Alice", " ", None],
+            "status": ["Open", "Closed Won", "Closed Lost", "In Progress"],
+            "probability": [50, None, 20, 80],
+            "missing_probability_flag": [False, True, False, False],
+            "missing_revenue_flag": [False, True, False, False],
+            "missing_duration_flag": [False, True, False, True],
+            "duplicate_flag": [False, True, False, True],
+            "unmatched_flag": [False, True, False, False],
+            "opps1_exclusive_flag": [False, False, True, False],
+            "total_estimated_revenue": [1000, None, None, None],
+            "opportunity_estimated_revenue_base_cad": [None, None, 500, None],
+            "service_solution_estimated_revenue": [5, 10, 15, 20],
+        }
+    )
+    original = cleaned_df.copy(deep=True)
+
+    summary = build_owner_base_summary(cleaned_df)
+
+    pd.testing.assert_frame_equal(cleaned_df, original)
+
+    expected_columns = [
+        "opportunity_owner",
+        "opportunity_count",
+        "open_opportunity_count",
+        "won_opportunity_count",
+        "lost_opportunity_count",
+        "avg_probability",
+        "missing_probability_count",
+        "missing_revenue_count",
+        "missing_duration_count",
+        "duplicate_count",
+        "unmatched_count",
+        "opps1_exclusive_count",
+        "total_estimated_revenue_sum",
+        "opportunity_estimated_revenue_base_cad_sum",
+    ]
+    assert list(summary.columns) == expected_columns
+    assert list(summary["opportunity_owner"]) == ["Alice", "Unknown"]
+
+    alice = summary[summary["opportunity_owner"] == "Alice"].iloc[0]
+    assert alice["opportunity_count"] == 2
+    assert alice["open_opportunity_count"] == 1
+    assert alice["won_opportunity_count"] == 1
+    assert alice["lost_opportunity_count"] == 0
+    assert alice["avg_probability"] == 50
+    assert alice["missing_probability_count"] == 1
+    assert alice["missing_revenue_count"] == 1
+    assert alice["missing_duration_count"] == 1
+    assert alice["duplicate_count"] == 1
+    assert alice["unmatched_count"] == 1
+    assert alice["opps1_exclusive_count"] == 0
+    assert alice["total_estimated_revenue_sum"] == 1000
+    assert pd.isna(alice["opportunity_estimated_revenue_base_cad_sum"])
+
+    unknown = summary[summary["opportunity_owner"] == "Unknown"].iloc[0]
+    assert unknown["opportunity_count"] == 2
+    assert unknown["open_opportunity_count"] == 1
+    assert unknown["won_opportunity_count"] == 0
+    assert unknown["lost_opportunity_count"] == 1
+    assert unknown["missing_probability_count"] == 0
+    assert unknown["missing_revenue_count"] == 0
+    assert unknown["missing_duration_count"] == 1
+    assert unknown["duplicate_count"] == 1
+    assert unknown["unmatched_count"] == 0
+    assert unknown["opps1_exclusive_count"] == 1
+    assert pd.isna(unknown["total_estimated_revenue_sum"])
+    assert unknown["opportunity_estimated_revenue_base_cad_sum"] == 500
+    assert "authoritative_revenue" not in summary.columns
+
+
+def test_build_owner_base_summary_uses_safe_fallbacks_for_missing_optional_columns():
+    cleaned_df = pd.DataFrame(
+        {
+            "opportunity_id": ["A", "B"],
+            "probability": ["bad", "25"],
+            "total_estimated_revenue": [None, "200"],
+            "project_duration_number_of_months": [None, "6"],
+            "is_duplicate_join_key": [True, False],
+        }
+    )
+
+    summary = build_owner_base_summary(cleaned_df)
+
+    assert list(summary["opportunity_owner"]) == ["Unknown"]
+    row = summary.iloc[0]
+    assert row["opportunity_count"] == 2
+    assert row["missing_probability_count"] == 1
+    assert row["missing_revenue_count"] == 1
+    assert row["missing_duration_count"] == 1
+    assert row["duplicate_count"] == 1
+    assert row["unmatched_count"] == 0
+    assert row["opps1_exclusive_count"] == 0
+    assert row["total_estimated_revenue_sum"] == 200
+
+
+def test_write_outputs_writes_week1_and_sprint2_artifacts_to_temp_dir(tmp_path):
+    opportunity_df = pd.DataFrame(
+        {
+            "opportunity_id": ["A", "B"],
+            "source_table": ["opps2_base", "opps1_exclusive"],
+            "merge_status_opps2_base": ["matched_opps1", "opps1_exclusive"],
+            "is_duplicate_join_key": [False, False],
+            "is_opps1_exclusive": [False, True],
+            "is_unmatched_opps2_base": [False, False],
+            "opportunity_owner": ["Alice", "Bob"],
+            "status": ["Open", "Closed Won"],
+            "probability": ["50", "100"],
+            "total_estimated_revenue": ["1000", None],
+            "opportunity_estimated_revenue_base_cad": [None, "500"],
+            "project_duration_number_of_months": ["12", "6"],
+            "created_on": ["2024-01-01", "2024-02-01"],
+            "close_date": ["2024-03-01", "2024-04-01"],
+            "revenue_start_date": ["2024-05-01", None],
+        }
+    )
+    schema_comparison = pd.DataFrame(
+        {
+            "column": ["opportunity_id"],
+            "in_opps1": [True],
+            "in_opps2": [True],
+            "location": ["both"],
+        }
+    )
+    merge_summary = pd.DataFrame(
+        {
+            "metric": ["opportunity_df_row_count"],
+            "value": [2],
+        }
+    )
+
+    written_paths = write_outputs(
+        opportunity_df,
+        schema_comparison,
+        merge_summary,
+        output_dir=tmp_path,
+    )
+    written_names = {path.name for path in written_paths}
+
+    expected_week1_outputs = {
+        "opportunity_df.csv",
+        "schema_comparison.csv",
+        "merge_summary.csv",
+        "duplicate_records.csv",
+        "opps1_duplicate_records.csv",
+        "opps2_duplicate_records.csv",
+        "opps1_supplemental_detail.csv",
+        "opps1_exclusive_records.csv",
+        "unmatched_records.csv",
+    }
+    expected_sprint2_outputs = {
+        "cleaned_opportunity_df.csv",
+        "owner_base_summary.csv",
+    }
+
+    assert expected_week1_outputs.issubset(written_names)
+    assert expected_sprint2_outputs.issubset(written_names)
+    for filename in expected_week1_outputs | expected_sprint2_outputs:
+        assert (tmp_path / filename).exists()
+
+    cleaned_written = pd.read_csv(tmp_path / "cleaned_opportunity_df.csv")
+    owner_summary_written = pd.read_csv(tmp_path / "owner_base_summary.csv")
+
+    assert "source_file_flag" in cleaned_written.columns
+    assert "duplicate_flag" in cleaned_written.columns
+    assert "missing_revenue_flag" in cleaned_written.columns
+
+    expected_owner_columns = {
+        "opportunity_owner",
+        "opportunity_count",
+        "open_opportunity_count",
+        "won_opportunity_count",
+        "missing_probability_count",
+        "missing_revenue_count",
+        "missing_duration_count",
+        "duplicate_count",
+        "unmatched_count",
+        "opps1_exclusive_count",
+        "total_estimated_revenue_sum",
+        "opportunity_estimated_revenue_base_cad_sum",
+    }
+    assert expected_owner_columns.issubset(set(owner_summary_written.columns))
+    assert set(owner_summary_written["opportunity_owner"]) == {"Alice", "Bob"}
