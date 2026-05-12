@@ -209,6 +209,13 @@ def compute_current_load_by_owner(
         + working_df["delivery_load"]
     )
 
+    working_df["is_open"] = (
+        working_df["status_reason"]
+        .astype(str)
+        .str.lower()
+        .eq("open")
+    )
+
     working_df["is_late_stage"] = (
         working_df["sales_stage"]
         .isin([
@@ -216,18 +223,21 @@ def compute_current_load_by_owner(
             "5-Client Decision",
             "6-Negotiation&Signature",
         ])
+        & working_df["is_open"]
     )
 
-    working_df["weighted_pipeline_revenue"] = (
-        _get_revenue_series(working_df).fillna(0)
-        * (
-            pd.to_numeric(
-                working_df["probability"],
-                errors="coerce",
-            ).fillna(0)
-            / 100
+    working_df["weighted_pipeline_revenue"] = np.where(
+        working_df["is_open"],
+        (
+            _get_revenue_series(working_df).fillna(0)
+            * (
+                pd.to_numeric(
+                    working_df["probability"],
+                    errors="coerce",
+                ).fillna(0)
+                / 100
+            )
         ),
-
         0,
     )
 
@@ -418,7 +428,7 @@ def assign_capacity_label(
 
 if __name__ == "__main__":
     opportunity_df = pd.read_csv(
-        "data/processed/opportunity_df.csv"
+        "data/processed/cleaned_opportunity_df.csv"
     )
 
     opportunity_df = compute_sales_load(
@@ -451,8 +461,10 @@ if __name__ == "__main__":
     )
 
     director_df.to_csv(
-        "data/processed/director_df.csv",
+        "data/processed/week2_director_df.csv",
         index=False,
     )
 
-    print("director_df generated successfully")
+    print("(Week 2)director_df generated successfully")
+    print(len(opportunity_df))
+    print(len(current_df))
