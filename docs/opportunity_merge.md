@@ -20,6 +20,7 @@ These files are local-only and not committed.
 - `opportunity_product`
 - `service_solution`
 - `service_solution_estimated_revenue`
+- `opportunity_estimated_revenue_base_cad`
 - `ip`
 - `delivery_territory_center`
 
@@ -51,7 +52,7 @@ These files are local-only and not committed.
 - opps1_duplicate_row_count: 1417
 - opps2_duplicate_id_count: 0
 - opps2_duplicate_row_count: 0
-- supplemental_fields_found: opportunity_product, service_solution, service_solution_estimated_revenue, ip, delivery_territory_center
+- supplemental_fields_found: opportunity_product, service_solution, service_solution_estimated_revenue, opportunity_estimated_revenue_base_cad, ip, delivery_territory_center
 
 ## Local Outputs Generated
 
@@ -99,15 +100,23 @@ It also adds lightweight data-quality flags for missing owner, probability,
 revenue, duration, revenue start date, invalid probability/duration, and
 `close_date < created_on`.
 
-The revenue fallback hierarchy is intentionally not finalized in this Sprint 2
-cleaning pass. Validation owns the authoritative revenue decision, and this
-cleaner does not create an authoritative revenue field or sum
-`total_estimated_revenue` with `service_solution_estimated_revenue`.
+The cleaned dataframe includes `authoritative_revenue` as the non-additive
+opportunity-level revenue fallback:
+
+```text
+total_estimated_revenue
+else opportunity_estimated_revenue_base_cad
+```
+
+`service_solution_estimated_revenue` remains separate and is not summed into
+`authoritative_revenue`. Kian still owns validation and reliability review of
+the revenue semantics.
 
 `src/opportunity_cleaner.py::build_owner_base_summary()` creates the Sprint 2
 Role 1 owner-level handoff artifact from `cleaned_opportunity_df`. It groups
 records by `opportunity_owner` and summarizes opportunity counts, simple status
-buckets, missing-data counts, merge/source flags, and separate revenue totals.
+buckets using both `status` and `status_reason`, missing-data counts,
+merge/source flags, and separate revenue totals.
 
 This owner base summary is intended for Kian's validation checks and Lyken's
 scoring sanity checks. It is not final capacity scoring: it does not compute

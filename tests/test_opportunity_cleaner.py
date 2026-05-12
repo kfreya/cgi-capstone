@@ -50,6 +50,7 @@ def test_merge_opportunity_tables_uses_opps2_base_and_flags_records():
             "(Do Not Modify) Opportunity - Product": ["p1", "p2", "p3"],
             "Service / solution": ["s1", "s2", "s3"],
             "Service / Solution Estimated revenue": [10, 20, 30],
+            "Opportunity Estimated Revenue Base CAD": [90, 95, 300],
             "IP": ["i1", "i2", "i3"],
             "Delivery Territory / Center": ["d1", "d2", "d3"],
         }
@@ -80,8 +81,10 @@ def test_merge_opportunity_tables_uses_opps2_base_and_flags_records():
     duplicate_rows = opportunity_df[opportunity_df["is_duplicate_join_key"]]
     exclusive_rows = opportunity_df[opportunity_df["is_opps1_exclusive"]]
     unmatched_rows = opportunity_df[opportunity_df["is_unmatched_opps2_base"]]
+    matched_row = opportunity_df[opportunity_df["opportunity_id"] == "A"].iloc[0]
 
     assert duplicate_rows.empty
+    assert matched_row["opportunity_estimated_revenue_base_cad"] == 90
     assert list(exclusive_rows["opportunity_id"]) == ["C"]
     assert list(unmatched_rows["opportunity_id"]) == ["B"]
 
@@ -144,7 +147,7 @@ def test_clean_opportunity_df_adds_sprint2_flags_without_mutating_input():
             "opportunity_owner": ["Alice", " ", None],
             "probability": ["75", "105", "bad"],
             "total_estimated_revenue": ["1000", None, None],
-            "opportunity_estimated_revenue_base_cad": [None, None, "500"],
+            "opportunity_estimated_revenue_base_cad": ["900", None, "500"],
             "service_solution_estimated_revenue": ["20", "bad", None],
             "project_duration_number_of_months": ["12", "0", None],
             "created_on": ["2024-01-10", "2024-02-01", "not a date"],
@@ -176,6 +179,14 @@ def test_clean_opportunity_df_adds_sprint2_flags_without_mutating_input():
     assert pd.isna(cleaned.loc[2, "probability"])
     assert pd.api.types.is_numeric_dtype(cleaned["service_solution_estimated_revenue"])
     assert pd.isna(cleaned.loc[1, "service_solution_estimated_revenue"])
+    assert "authoritative_revenue" in cleaned.columns
+    assert cleaned.loc[0, "authoritative_revenue"] == 1000
+    assert pd.isna(cleaned.loc[1, "authoritative_revenue"])
+    assert cleaned.loc[2, "authoritative_revenue"] == 500
+    assert cleaned.loc[0, "authoritative_revenue"] != (
+        cleaned.loc[0, "total_estimated_revenue"]
+        + cleaned.loc[0, "service_solution_estimated_revenue"]
+    )
 
     assert pd.api.types.is_datetime64_any_dtype(cleaned["created_on"])
     assert cleaned.loc[0, "created_on"] == pd.Timestamp("2024-01-10")
@@ -216,19 +227,20 @@ def test_clean_opportunity_df_uses_safe_defaults_when_week1_columns_missing():
 def test_build_owner_base_summary_groups_cleaned_opportunities_without_mutating_input():
     cleaned_df = pd.DataFrame(
         {
-            "opportunity_id": ["A", "B", "C", "D"],
-            "opportunity_owner": ["Alice", "Alice", " ", None],
-            "status": ["Open", "Closed Won", "Closed Lost", "In Progress"],
-            "probability": [50, None, 20, 80],
-            "missing_probability_flag": [False, True, False, False],
-            "missing_revenue_flag": [False, True, False, False],
-            "missing_duration_flag": [False, True, False, True],
-            "duplicate_flag": [False, True, False, True],
-            "unmatched_flag": [False, True, False, False],
-            "opps1_exclusive_flag": [False, False, True, False],
-            "total_estimated_revenue": [1000, None, None, None],
-            "opportunity_estimated_revenue_base_cad": [None, None, 500, None],
-            "service_solution_estimated_revenue": [5, 10, 15, 20],
+            "opportunity_id": ["A", "B", "C", "D", "E"],
+            "opportunity_owner": ["Alice", "Alice", " ", None, None],
+            "status": ["Open", "Closed", "Closed", "Open", "Active"],
+            "status_reason": ["In Progress", "Won", "Lost", "Cancelled", "Duplicated"],
+            "probability": [50, None, 20, 80, 60],
+            "missing_probability_flag": [False, True, False, False, False],
+            "missing_revenue_flag": [False, True, False, False, True],
+            "missing_duration_flag": [False, True, False, True, False],
+            "duplicate_flag": [False, True, False, True, False],
+            "unmatched_flag": [False, True, False, False, False],
+            "opps1_exclusive_flag": [False, False, True, False, False],
+            "total_estimated_revenue": [1000, None, None, None, None],
+            "opportunity_estimated_revenue_base_cad": [None, None, 500, 300, None],
+            "service_solution_estimated_revenue": [5, 10, 15, 20, 25],
         }
     )
     original = cleaned_df.copy(deep=True)
@@ -272,18 +284,18 @@ def test_build_owner_base_summary_groups_cleaned_opportunities_without_mutating_
     assert pd.isna(alice["opportunity_estimated_revenue_base_cad_sum"])
 
     unknown = summary[summary["opportunity_owner"] == "Unknown"].iloc[0]
-    assert unknown["opportunity_count"] == 2
-    assert unknown["open_opportunity_count"] == 1
+    assert unknown["opportunity_count"] == 3
+    assert unknown["open_opportunity_count"] == 0
     assert unknown["won_opportunity_count"] == 0
-    assert unknown["lost_opportunity_count"] == 1
+    assert unknown["lost_opportunity_count"] == 3
     assert unknown["missing_probability_count"] == 0
-    assert unknown["missing_revenue_count"] == 0
+    assert unknown["missing_revenue_count"] == 1
     assert unknown["missing_duration_count"] == 1
     assert unknown["duplicate_count"] == 1
     assert unknown["unmatched_count"] == 0
     assert unknown["opps1_exclusive_count"] == 1
     assert pd.isna(unknown["total_estimated_revenue_sum"])
-    assert unknown["opportunity_estimated_revenue_base_cad_sum"] == 500
+    assert unknown["opportunity_estimated_revenue_base_cad_sum"] == 800
     assert "authoritative_revenue" not in summary.columns
 
 
@@ -382,6 +394,7 @@ def test_write_outputs_writes_week1_and_sprint2_artifacts_to_temp_dir(tmp_path):
     assert "source_file_flag" in cleaned_written.columns
     assert "duplicate_flag" in cleaned_written.columns
     assert "missing_revenue_flag" in cleaned_written.columns
+    assert "authoritative_revenue" in cleaned_written.columns
 
     expected_owner_columns = {
         "opportunity_owner",

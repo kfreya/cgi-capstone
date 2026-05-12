@@ -6,7 +6,7 @@ Yixiao's Week 2 Role 1 work turns the Week 1 merged opportunity dataset into a
 cleaner handoff layer for validation, scoring sanity checks, and future
 dashboard integration.
 
-This work does not finalize validation, scoring, revenue fallback decisions, or
+This work does not finalize validation, scoring, revenue reliability review, or
 `director_capacity_df`.
 
 ## What Changed From Week 1
@@ -55,7 +55,10 @@ It adds:
 - missing/invalid data-quality flags for owner, probability, revenue, duration,
   revenue start date, and close-before-created anomalies
 
-It also coerces known numeric and date fields when present.
+It also coerces known numeric and date fields when present and creates
+`authoritative_revenue` using `total_estimated_revenue` first, then
+`opportunity_estimated_revenue_base_cad` when the primary value is missing.
+`service_solution_estimated_revenue` remains separate and is not summed.
 
 ### `build_owner_base_summary(cleaned_df)`
 
@@ -64,7 +67,7 @@ Creates an owner-level summary grouped by `opportunity_owner`.
 It includes:
 
 - opportunity counts
-- simple open/won/lost status buckets
+- simple open/won/lost status buckets using both `status` and `status_reason`
 - average probability
 - missing-data counts
 - duplicate/unmatched/opps1-exclusive counts
@@ -99,15 +102,18 @@ It now also writes the Sprint 2 handoff artifacts:
   for the merge audit trail.
 - Blank or missing `opportunity_owner` values are grouped as `Unknown` in
   `owner_base_summary`.
-- Owner summary status buckets use simple matching on `status` values such as
-  open, in progress, active, won, and lost.
-- Revenue fields remain separate.
+- Owner summary status buckets use simple matching on both `status` and
+  `status_reason` values such as open, in progress, active, won, lost,
+  cancelled, canceled, duplicated, and duplicate.
+- `authoritative_revenue` is a non-additive opportunity-level fallback:
+  `total_estimated_revenue`, then `opportunity_estimated_revenue_base_cad`.
+- `service_solution_estimated_revenue` remains separate.
 
 ## Unresolved Issues
 
-- The authoritative revenue fallback hierarchy is not finalized here.
 - `service_solution_estimated_revenue` should not be summed with
   `total_estimated_revenue` unless validation confirms the semantics.
+- Kian still owns validation and reliability review of the revenue fields.
 - Final delivery-window fallback decisions remain validation/scoring work.
 - Final capacity scoring and `director_capacity_df` remain scoring module work.
 - Status bucket logic may need refinement after validation reviews CRM status
@@ -117,8 +123,8 @@ It now also writes the Sprint 2 handoff artifacts:
 
 - Confirm data-quality flag definitions and whether more validation flags are
   needed.
-- Review revenue field semantics and finalize the authoritative revenue
-  hierarchy outside the cleaner.
+- Review revenue field semantics and reliability of the `authoritative_revenue`
+  fallback.
 - Confirm whether `service_solution_estimated_revenue` is service-line detail
   or another opportunity-level candidate.
 - Review date anomalies, especially `close_before_created_flag`.
@@ -127,7 +133,8 @@ It now also writes the Sprint 2 handoff artifacts:
 ## What Lyken Should Know For Scoring
 
 - Use `cleaned_opportunity_df.csv` as the prepared opportunity-level handoff,
-  but do not assume revenue fallback is already finalized.
+  with `authoritative_revenue` available as the non-additive opportunity-level
+  revenue fallback.
 - `owner_base_summary.csv` is useful for sanity checks only. It is not a final
   scoring table.
 - The cleaner does not compute `capacity_score`, `relative_load`, or
