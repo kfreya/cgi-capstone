@@ -1,5 +1,5 @@
 """
-Week 1 
+Week 1
 
 Capacity scoring engine for CGI Capacity Analyzer.
 
@@ -11,7 +11,6 @@ This module takes in the cleaned `opportunity_df` and defines the first-pass wor
 - relative load
 - capacity score
 - capacity labels
-
 """
 
 from __future__ import annotations
@@ -37,6 +36,27 @@ DEFAULT_LABEL_THRESHOLDS = {
 }
 
 
+def _get_revenue_series(df: pd.DataFrame) -> pd.Series:
+    """Return the revenue series used for capacity scoring.
+
+    Prefer Sprint 2 cleaned `authoritative_revenue` when available.
+    Fall back to Week 1 `total_estimated_revenue` for backward compatibility.
+    """
+    if "authoritative_revenue" in df.columns:
+        return pd.to_numeric(
+            df["authoritative_revenue"],
+            errors="coerce",
+        )
+
+    if "total_estimated_revenue" in df.columns:
+        return pd.to_numeric(
+            df["total_estimated_revenue"],
+            errors="coerce",
+        )
+
+    return pd.Series(pd.NA, index=df.index, dtype="Float64")
+
+
 def compute_sales_load(
     df: pd.DataFrame,
     stage_weights: dict | None = None,
@@ -59,7 +79,7 @@ def compute_sales_load(
     )
 
     revenue = (
-        pd.to_numeric(revenue_source, errors="coerce")
+        _get_revenue_series(df)
         .fillna(0)
         .clip(lower=0)
     )
@@ -117,7 +137,7 @@ def compute_delivery_load(
     )
 
     revenue = (
-        pd.to_numeric(revenue_source, errors="coerce")
+        _get_revenue_series(df)
         .fillna(0)
         .clip(lower=0)
     )
@@ -196,30 +216,10 @@ def compute_current_load_by_owner(
             "5-Client Decision",
             "6-Negotiation&Signature",
         ])
-    #    &
-    #    (
-    #        working_df["status_reason"]
-    #        .astype(str)
-    #        .str.lower()
-    #    )
     )
 
-    revenue_source = (
-        working_df["authoritative_revenue"]
-        if "authoritative_revenue" in working_df.columns
-        else working_df["total_estimated_revenue"]
-    )
-
-    working_df["weighted_pipeline_revenue"] = np.where(
-        working_df["status_reason"]
-        .astype(str)
-        .str.lower()
-        != "won",
-
-        pd.to_numeric(
-            revenue_source,
-            errors="coerce",
-        ).fillna(0)
+    working_df["weighted_pipeline_revenue"] = (
+        _get_revenue_series(working_df).fillna(0)
         * (
             pd.to_numeric(
                 working_df["probability"],
@@ -255,22 +255,18 @@ def compute_current_load_by_owner(
             ),
 
             opportunity_count=("opportunity_id", "count"),
-
             territory=(
                 "delivery_territory_center",
                 "first",
             ),
-
             late_stage_deal_count=(
                 "is_late_stage",
                 "sum",
             ),
-
             weighted_pipeline_revenue=(
                 "weighted_pipeline_revenue",
                 "sum",
             ),
-
             inferred_delivery_commitments=(
                 "inferred_delivery_commitments",
                 "sum",

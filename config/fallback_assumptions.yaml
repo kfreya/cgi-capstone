@@ -1,16 +1,6 @@
-# Fallback assumptions for capacity scoring.
-#
-# This file is the machine-readable companion to docs/role2_validation_notes.md.
-# Each rule documents a specific data-quality decision the architecture
-# (docs/architecture.md) requires capacity scoring to make. Lyken's
-# capacity_engine.py and any future RFP-side scoring should read these
-# values via yaml.safe_load rather than hardcoding their own defaults, so
-# the rules stay aligned across modules.
-#
-# All counts in `evidence` are computed on the full merged opportunity_df
-# produced by src.opportunity_cleaner.build_opportunity_df() as of
-# 2026-05-08 (8,746 rows). Re-run notebooks/role2_validation.ipynb to
-# regenerate.
+# Shared fallback assumptions for validation and scoring.
+# Evidence counts are aggregate validation outputs from the merged opportunity
+# dataset as of 2026-05-08. Re-run notebooks/role2_validation.ipynb to refresh.
 
 - rule_id: revenue_hierarchy
   field_resolved: authoritative_revenue
@@ -139,7 +129,3 @@
     n_owners_total: 24
     n_owners_with_under_10_lifetime_opps: 7
   risk: medium
-
-# Use of Generative AI: Anthropic Claude (Opus 4.7) was used for drafting
-# and editing assistance. All rule definitions, evidence values, and risk
-# assignments are my own.
