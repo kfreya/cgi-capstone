@@ -30,9 +30,10 @@ DEFAULT_STAGE_WEIGHTS = {
 }
 
 
+# Band edges on capacity_score (see docs/architecture.md).
 DEFAULT_LABEL_THRESHOLDS = {
-    "available": 0.65,
-    "at_capacity": 0.35,
+    "score_available_min": 0.35,
+    "score_at_capacity_min": 0.15,
 }
 
 
@@ -72,11 +73,11 @@ def compute_sales_load(
         .clip(lower=0)
     )
 
-    revenue_source = (
-        df["authoritative_revenue"]
-        if "authoritative_revenue" in df.columns
-        else df["total_estimated_revenue"]
-    )
+    #revenue_source = (
+    #    df["authoritative_revenue"]
+    #    if "authoritative_revenue" in df.columns
+    #    else df["total_estimated_revenue"]
+    #)
 
     revenue = (
         _get_revenue_series(df)
@@ -130,11 +131,11 @@ def compute_delivery_load(
 
     current_date = pd.Timestamp(current_date)
 
-    revenue_source = (
-        df["authoritative_revenue"]
-        if "authoritative_revenue" in df.columns
-        else df["total_estimated_revenue"]
-    )
+    #revenue_source = (
+    #    df["authoritative_revenue"]
+    #    if "authoritative_revenue" in df.columns
+    #    else df["total_estimated_revenue"]
+    #)
 
     revenue = (
         _get_revenue_series(df)
@@ -226,19 +227,19 @@ def compute_current_load_by_owner(
         & working_df["is_open"]
     )
 
+    # Explicit scalars (avoid accidental tuple from parenthesis/comma layout).
+    _rev = _get_revenue_series(working_df).fillna(0)
+    _prob_w = (
+        pd.to_numeric(
+            working_df["probability"],
+            errors="coerce",
+        ).fillna(0)
+        / 100.0
+    )
     working_df["weighted_pipeline_revenue"] = np.where(
         working_df["is_open"],
-        (
-            _get_revenue_series(working_df).fillna(0)
-            * (
-                pd.to_numeric(
-                    working_df["probability"],
-                    errors="coerce",
-                ).fillna(0)
-                / 100
-            )
-        ),
-        0,
+        _rev * _prob_w,
+        0.0,
     )
 
     working_df["inferred_delivery_commitments"] = (
@@ -360,9 +361,10 @@ def compute_relative_load(
         .replace(0, np.nan)
     )
 
+    # Architecture: relative_load_owner = current_load / historical_avg_load
     merged["relative_load"] = (
         merged["current_load"]
-        / (baseline_mean * 3)
+        / baseline_mean
     )
 
     return merged
@@ -399,72 +401,84 @@ def assign_capacity_label(
     if thresholds is None:
         thresholds = DEFAULT_LABEL_THRESHOLDS
 
-    conditions = [
-        working_df["capacity_score"]
-        >= thresholds["available"],
+    lo = thresholds["score_at_capacity_min"]
+    hi = thresholds["score_available_min"]
+    score = working_df["capacity_score"]
 
-        working_df["capacity_score"]
-        >= thresholds["at_capacity"],
-    ]
-
-    labels = [
-        "Available",
-        "At Capacity",
-    ]
-
-    working_df["capacity_label"] = np.select(
-        conditions,
-        labels,
+    # Exactly three labels (architecture / dashboard contract).
+    labeled = np.select(
+        [
+            score >= hi,
+            (score >= lo) & (score < hi),
+        ],
+        [
+            "Available",
+            "At Capacity",
+        ],
         default="Overextended",
     )
-
-    working_df.loc[
-        working_df["capacity_score"].isna(),
-        "capacity_label"
-    ] = "Unknown"
+    working_df["capacity_label"] = labeled
+    # Missing score: no usable baseline — neutral band for UI (not a 4th label).
+    working_df.loc[score.isna(), "capacity_label"] = "At Capacity"
 
     return working_df
 
 
+DIRECTOR_CAPACITY_DASHBOARD_COLUMNS = [
+    "opportunity_owner",
+    "territory",
+    "historical_avg_load",
+    "relative_load",
+    "current_load",
+    "capacity_score",
+    "capacity_label",
+    "open_deal_count",
+    "late_stage_deal_count",
+    "weighted_pipeline_revenue",
+    "inferred_delivery_commitments",
+    "quarters_of_data",
+    "baseline_reliability",
+]
+
+
+def build_director_capacity_df(
+    opportunity_df: pd.DataFrame,
+) -> pd.DataFrame:
+    """End-to-end owner-level table matching dashboard contract."""
+    df = opportunity_df.copy()
+    df = compute_sales_load(df)
+    df = compute_delivery_load(df)
+    current_df = compute_current_load_by_owner(df)
+    baseline_df = compute_historical_baseline(df)
+    out = compute_relative_load(current_df, baseline_df)
+    out = compute_capacity_score(out)
+    out = assign_capacity_label(out)
+    missing = [
+        c for c in DIRECTOR_CAPACITY_DASHBOARD_COLUMNS
+        if c not in out.columns
+    ]
+    if missing:
+        raise ValueError(
+            "build_director_capacity_df: missing columns: "
+            + ", ".join(missing)
+        )
+    return out[DIRECTOR_CAPACITY_DASHBOARD_COLUMNS].copy()
+
+
 if __name__ == "__main__":
-    opportunity_df = pd.read_csv(
-        "data/processed/cleaned_opportunity_df.csv"
-    )
+    from pathlib import Path
 
-    opportunity_df = compute_sales_load(
-        opportunity_df
-    )
+    csv_path = Path("data/processed/cleaned_opportunity_df.csv")
+    opportunity_df = pd.read_csv(csv_path)
 
-    opportunity_df = compute_delivery_load(
-        opportunity_df
-    )
+    director_capacity_df = build_director_capacity_df(opportunity_df)
 
-    current_df = compute_current_load_by_owner(
-        opportunity_df
-    )
+    out_path = Path("data/processed/director_capacity_df.csv")
+    out_path.parent.mkdir(parents=True, exist_ok=True)
+    director_capacity_df.to_csv(out_path, index=False)
 
-    baseline_df = compute_historical_baseline(
-        opportunity_df
-    )
+    example_path = Path("data/processed/director_capacity_df_example.csv")
+    director_capacity_df.head(12).to_csv(example_path, index=False)
 
-    director_df = compute_relative_load(
-        current_df,
-        baseline_df,
-    )
-
-    director_df = compute_capacity_score(
-        director_df
-    )
-
-    director_df = assign_capacity_label(
-        director_df
-    )
-
-    director_df.to_csv(
-        "data/processed/week2_director_df.csv",
-        index=False,
-    )
-
-    print("(Week 2)director_df generated successfully")
-    print(len(opportunity_df))
-    print(len(current_df))
+    print(f"Wrote {out_path} ({len(director_capacity_df)} owners)")
+    print(f"Wrote {example_path} (sample rows)")
