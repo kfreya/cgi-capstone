@@ -27,18 +27,6 @@ from src.capacity_engine import (
     compute_sales_load,
 )
 
-import pandas as pd
-
-from src.capacity_engine import (
-    assign_capacity_label,
-    compute_capacity_score,
-    compute_current_load_by_owner,
-    compute_delivery_load,
-    compute_historical_baseline,
-    compute_relative_load,
-    compute_sales_load,
-)
-
 
 def test_compute_sales_load_creates_positive_sales_load():
     df = pd.DataFrame(
@@ -214,7 +202,8 @@ def test_compute_current_load_by_owner_aggregates_owner_loads():
     assert list(result["opportunity_owner"]) == ["Owner 1"]
     assert result.loc[0, "current_load"] > 0
     assert result.loc[0, "opportunity_count"] == 2
-    assert result.loc[0, "late_stage_deal_count"] == 2
+    # Late stage counts open opportunities only (Won row is not open).
+    assert result.loc[0, "late_stage_deal_count"] == 1
 
 
 def test_compute_historical_baseline_returns_owner_level_statistics():
@@ -269,8 +258,7 @@ def test_compute_relative_load_divides_current_by_baseline():
         baseline_df,
     )
 
-    assert result.loc[0, "relative_load"] > 0
-    assert result.loc[0, "relative_load"] <= 1
+    assert result.loc[0, "relative_load"] == 2.0
 
 
 def test_compute_capacity_score_caps_at_zero():
@@ -302,7 +290,19 @@ def test_assign_capacity_label_returns_at_capacity():
     df = pd.DataFrame(
         {
             "relative_load": [1.0],
-            "capacity_score": [0.4],
+            "capacity_score": [0.25],
+        }
+    )
+
+    result = assign_capacity_label(df)
+
+    assert result.loc[0, "capacity_label"] == "At Capacity"
+
+
+def test_assign_capacity_label_nan_score_uses_at_capacity():
+    df = pd.DataFrame(
+        {
+            "capacity_score": [float("nan")],
         }
     )
 
