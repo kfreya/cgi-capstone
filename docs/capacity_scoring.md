@@ -146,17 +146,13 @@ This is still prototype logic and not business validated.
 
 ### Capacity Labels
 
-Current thresholds:
-- Available:
-  relative_load < 0.8
+Label bands are applied to **`capacity_score`**, not raw `relative_load`, per `docs/architecture.md`:
 
-- At Capacity:
-  0.8 ≤ relative_load < 1.2
+- **Available**: `capacity_score >= 0.35`
+- **At Capacity**: `0.15 <= capacity_score < 0.35`
+- **Overextended**: `capacity_score < 0.15`
 
-- Overextended:
-  relative_load ≥ 1.2
-
-Thresholds are placeholders and expected to change after stakeholder review.
+Earlier drafts used `relative_load` placeholder cutoffs; those are superseded by the architecture contract. Thresholds remain configurable in code.
 
 ---
 
