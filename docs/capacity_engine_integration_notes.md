@@ -14,7 +14,7 @@
 3. `compute_current_load_by_owner` → one row per `opportunity_owner` with sums and dashboard drivers (`open_deal_count`, `late_stage_deal_count`, `weighted_pipeline_revenue`, `inferred_delivery_commitments`, `territory`, …).
 4. `compute_historical_baseline` (opportunity-level rows with `current_load`) → `historical_avg_load`, `quarters_of_data`, `baseline_reliability`, etc.
 5. `compute_relative_load` → merge current + baseline on `opportunity_owner`.
-6. `compute_capacity_score` → `capacity_score` from capped `relative_load`.
+6. `compute_capacity_score` → `capacity_score` computed via **sigmoid soft scoring over `relative_load` (k=3.0, centered at 1.0)**.
 7. `assign_capacity_label` → exactly **Available / At Capacity / Overextended**; NaN `capacity_score` → **At Capacity** (see `capacity_engine_scoring_notes.md`).
 
 Final column order is fixed by `DIRECTOR_CAPACITY_DASHBOARD_COLUMNS`.
