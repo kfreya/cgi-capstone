@@ -7,6 +7,7 @@ from src.data_validator import (
     JOIN_KEY,
     Fields,
     apply_revenue_hierarchy,
+    build_field_reliability_report,
     build_owner_aggregates,
     classify_opportunity_outcome,
     summarize_missingness,
@@ -136,6 +137,60 @@ def test_summarize_missingness_returns_one_row_per_validated_field():
     assert primary_row["n_null"] == 1
     assert primary_row["pct_null"] == 50.0
     assert primary_row["family"] == "revenue"
+
+
+def test_build_field_reliability_report_structure():
+    df = _minimal_validated_df()
+
+    report = build_field_reliability_report(df)
+
+    assert list(report["field"]) == Fields.ALL_VALIDATED
+    assert list(report.columns) == [
+        "field",
+        "family",
+        "pct_null",
+        "n_anomalies",
+        "anomaly_kind",
+        "reliability",
+        "usable_for_scoring",
+        "fallback_rule",
+        "notes",
+    ]
+    assert set(report["reliability"]) <= {"reliable", "use_with_care", "not_yet"}
+    # A "not_yet" field is never offered as usable for scoring.
+    not_yet = report[report["reliability"] == "not_yet"]
+    assert not not_yet["usable_for_scoring"].any()
+
+
+def test_build_field_reliability_report_rating_tiers():
+    # 100 rows: owner fully populated -> reliable; close_date 10% null ->
+    # use_with_care; primary revenue 50% null -> not_yet / not usable.
+    n = 100
+    df = pd.DataFrame(
+        {
+            Fields.REVENUE_PRIMARY: [1000.0] * 50 + [None] * 50,
+            Fields.REVENUE_FALLBACK: [None] * n,
+            Fields.REVENUE_SERVICE: [None] * n,
+            Fields.CREATED_ON: pd.to_datetime(["2024-01-01"] * n),
+            Fields.CLOSE_DATE: pd.to_datetime(["2024-03-01"] * 90 + [None] * 10),
+            Fields.REVENUE_START_DATE: pd.to_datetime(["2024-04-01"] * n),
+            Fields.DURATION_MONTHS: [12] * n,
+            Fields.STATUS: ["Open"] * n,
+            Fields.STATUS_REASON: ["Open"] * n,
+            Fields.SALES_STAGE: ["4-Proposal"] * n,
+            Fields.PROBABILITY: [50] * n,
+            Fields.OWNER: ["Alice"] * n,
+            Fields.MANAGER: ["Bob"] * n,
+        }
+    )
+
+    report = build_field_reliability_report(df).set_index("field")
+
+    assert report.loc[Fields.OWNER, "reliability"] == "reliable"
+    assert report.loc[Fields.CLOSE_DATE, "reliability"] == "use_with_care"
+    assert report.loc[Fields.REVENUE_PRIMARY, "reliability"] == "not_yet"
+    assert not report.loc[Fields.REVENUE_PRIMARY, "usable_for_scoring"]
+    assert report.loc[Fields.REVENUE_PRIMARY, "fallback_rule"] == "revenue_hierarchy"
 
 
 def test_build_owner_aggregates_schema_matches_dashboard_contract():
