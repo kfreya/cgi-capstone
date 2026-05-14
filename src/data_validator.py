@@ -392,6 +392,15 @@ def validate_date_duration_fields(
     revenue_start = pd.to_datetime(df[Fields.REVENUE_START_DATE], errors="coerce")
     duration = _coerce_numeric(df[Fields.DURATION_MONTHS])
 
+    # `created_on` carries a full timestamp; `close_date` is recorded at
+    # midnight. Comparing the raw timestamps counts a deal created and closed
+    # on the same calendar day as "closed before created" (the created_on
+    # time-of-day is always > 00:00:00). Normalize both to calendar date
+    # before any ordering comparison — the un-normalized version inflated
+    # `n_close_before_created` roughly eightfold (3,049 vs ~379).
+    created_date = created.dt.normalize()
+    close_date_norm = close.dt.normalize()
+
     is_won = df[Fields.STATUS_REASON].astype(str).str.strip().str.lower() == "won"
 
     delivery_resolvable_primary = is_won & revenue_start.notna()
@@ -412,11 +421,17 @@ def validate_date_duration_fields(
         ("n_duration_over_60_months", int((duration > 60).sum())),
         (
             "n_close_before_created",
-            int(((close.notna()) & (created.notna()) & (close < created)).sum()),
+            int(
+                (
+                    close_date_norm.notna()
+                    & created_date.notna()
+                    & (close_date_norm < created_date)
+                ).sum()
+            ),
         ),
         (
             "n_created_after_today",
-            int(((created.notna()) & (created > as_of)).sum()),
+            int((created_date.notna() & (created_date > as_of)).sum()),
         ),
         ("n_won_total", int(is_won.sum())),
         ("n_won_window_resolvable_primary", int(delivery_resolvable_primary.sum())),
