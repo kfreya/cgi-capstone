@@ -4,6 +4,7 @@ import pandas as pd
 import pytest
 
 from src.data_validator import (
+    JOIN_KEY,
     Fields,
     apply_revenue_hierarchy,
     build_owner_aggregates,
@@ -11,6 +12,7 @@ from src.data_validator import (
     validate_categorical_fields,
     validate_date_duration_fields,
     validate_owner_identity,
+    validate_quality_flags,
     validate_revenue_fields,
 )
 
@@ -59,6 +61,32 @@ def _minimal_validated_df() -> pd.DataFrame:
     )
 
 
+def _cleaned_validated_df() -> pd.DataFrame:
+    """Flag-bearing fixture mimicking `clean_opportunity_df` output.
+
+    Extends the minimal business-field frame with the `opportunity_id` join
+    key, the four merge-provenance flags, and the eight data-quality flags
+    that `clean_opportunity_df` adds. Kept separate from
+    `_minimal_validated_df` so the flag-less back-compat path stays tested.
+    """
+    df = _minimal_validated_df()
+    df[Fields.TERRITORY] = ["CAN ATL Atlantic", "CAN ATL Atlantic"]
+    df[JOIN_KEY] = ["OPP-1", "OPP-2"]
+    df["source_file_flag"] = ["opps2_base", "opps2_base"]
+    df["duplicate_flag"] = [False, False]
+    df["unmatched_flag"] = [False, False]
+    df["opps1_exclusive_flag"] = [False, False]
+    df["missing_owner_flag"] = [False, False]
+    df["missing_probability_flag"] = [False, False]
+    df["invalid_probability_flag"] = [False, False]
+    df["missing_revenue_flag"] = [False, False]
+    df["missing_duration_flag"] = [False, False]
+    df["invalid_duration_flag"] = [False, False]
+    df["missing_revenue_start_date_flag"] = [False, True]
+    df["close_before_created_flag"] = [False, False]
+    return df
+
+
 def test_summarize_missingness_returns_one_row_per_validated_field():
     df = _minimal_validated_df()
 
@@ -102,6 +130,45 @@ def test_build_owner_aggregates_schema_matches_dashboard_contract():
     assert bob["inferred_delivery_commitments"] == 1
     assert bob["late_stage_deal_count"] == 0
     assert bob["weighted_pipeline_revenue"] == 0
+
+
+def test_build_owner_aggregates_deduplicates_duplicate_join_key_rows():
+    df = _cleaned_validated_df()
+    # Duplicate Alice's row under the same opportunity_id, flagged as a dup.
+    duplicate_row = df.iloc[[0]].copy()
+    duplicate_row["duplicate_flag"] = True
+    df.loc[0, "duplicate_flag"] = True
+    dup_df = pd.concat([df, duplicate_row], ignore_index=True)
+
+    result = build_owner_aggregates(dup_df, as_of=pd.Timestamp("2024-09-01"))
+
+    alice = result[result[Fields.OWNER] == "Alice"].iloc[0]
+    # Without dedup the single late-stage open deal would be counted twice
+    # and its weighted revenue ($500) would be doubled.
+    assert alice["late_stage_deal_count"] == 1
+    assert alice["weighted_pipeline_revenue"] == 500.0
+
+
+def test_validate_quality_flags_counts_and_cross_checks():
+    df = _cleaned_validated_df()
+
+    result = validate_quality_flags(df)
+
+    assert list(result.columns) == ["metric", "value"]
+    metrics = dict(zip(result["metric"], result["value"]))
+    assert metrics["n_total"] == 2
+    assert metrics["source_file_flag::opps2_base"] == 2
+    assert metrics["missing_revenue_start_date_flag_count"] == 1
+    assert metrics["duplicate_flag_count"] == 0
+    # Cross-checks reconcile to zero on clean fixture data.
+    assert metrics["flag_discrepancy_missing_revenue"] == 0
+    assert metrics["flag_discrepancy_close_before_created"] == 0
+
+
+def test_validate_quality_flags_requires_flag_columns():
+    df = _minimal_validated_df()  # business fields only, no flag columns
+    with pytest.raises(KeyError, match="source_file_flag"):
+        validate_quality_flags(df)
 
 
 def test_validate_revenue_fields_returns_metric_value_summary():
