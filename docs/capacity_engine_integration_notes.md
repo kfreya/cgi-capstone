@@ -14,7 +14,7 @@
 3. `compute_current_load_by_owner` → one row per `opportunity_owner` with sums and dashboard drivers (`open_deal_count`, `late_stage_deal_count`, `weighted_pipeline_revenue`, `inferred_delivery_commitments`, `territory`, …).
 4. `compute_historical_baseline` (opportunity-level rows with `current_load`) → `historical_avg_load`, `quarters_of_data`, `baseline_reliability`, etc.
 5. `compute_relative_load` → merge current + baseline on `opportunity_owner`.
-6. `compute_capacity_score` → `capacity_score` computed via **sigmoid soft scoring over `relative_load` (k=3.0, centered at 1.0)**.
+6. `compute_capacity_score` → `capacity_score = max(0, 1 - min(relative_load, 1))` using capped `relative_load`.
 7. `assign_capacity_label` → exactly **Available / At Capacity / Overextended**; NaN `capacity_score` → **At Capacity** (see `capacity_engine_scoring_notes.md`).
 
 Final column order is fixed by `DIRECTOR_CAPACITY_DASHBOARD_COLUMNS`.
@@ -59,7 +59,8 @@ The output of `build_director_capacity_df()` is strictly **one row per `opportun
 
 - If historical baseline is missing or near zero, the metric becomes noisy or undefined
 - This is expected for low-data or new owners, not a bug
-- These cases will directly affect `capacity_score` --- expecting further optimizations
+- These cases may collapse `capacity_score` toward 0 because the scoring logic caps `relative_load` at 1
+- Fine-grained overload severity should be interpreted using `relative_load` directly
 
 ---
 

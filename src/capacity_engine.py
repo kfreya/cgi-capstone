@@ -372,15 +372,22 @@ def compute_relative_load(
 
 def compute_capacity_score(
     df: pd.DataFrame,
-    k: float = 3.0,
 ) -> pd.DataFrame:
     working_df = df.copy()
 
-    rel = working_df["relative_load"].replace([np.inf, -np.inf], np.nan)
+    capped_relative_load = (
+        working_df["relative_load"]
+        .clip(upper=1)
+    )
 
-    working_df["capacity_score"] = 1 / (1 + np.exp(k * (rel - 1)))
+    working_df["capacity_score"] = (
+        1 - capped_relative_load
+    )
 
-    working_df["capacity_score"] = working_df["capacity_score"].fillna(0.5)
+    working_df["capacity_score"] = (
+        working_df["capacity_score"]
+        .clip(lower=0)
+    )
 
     return working_df
 
