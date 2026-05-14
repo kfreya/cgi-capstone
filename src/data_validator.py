@@ -1,11 +1,17 @@
 """Field-level validation utilities for the CGI capacity dashboard.
 
-This module sits between Yixiao's `opportunity_cleaner` (which produces the
-merged `opportunity_df`) and Lyken's `capacity_engine` (which scores it). It
-provides the field-quality summaries called out in Sprint 1 issue #6 and adds
-two reusable helpers — `apply_revenue_hierarchy` and `build_owner_aggregates`
-— that downstream code can import directly so the architecture's fallback
-rules and dashboard-target columns are not reimplemented per role.
+This module sits between Yixiao's `opportunity_cleaner` and Lyken's
+`capacity_engine`. As of Sprint 2 (issue #21) the expected input is the
+*cleaned* opportunity table — `clean_opportunity_df(opportunity_df)` — which
+preserves every business field from the Week 1 merge and adds merge-provenance
+flags, data-quality flags, and a precomputed `authoritative_revenue`. The
+field validators read only the 13 business fields, so they also accept the
+raw merged `opportunity_df`; `validate_quality_flags` requires the cleaned
+frame because it reads the flag columns.
+
+Reusable helpers downstream code can import directly so the architecture's
+fallback rules and dashboard-target columns are not reimplemented per role:
+`apply_revenue_hierarchy` and `build_owner_aggregates`.
 """
 
 from __future__ import annotations
@@ -47,6 +53,11 @@ class Fields:
 
     TERRITORY = "delivery_territory_center"
 
+    # Sprint 2: clean_opportunity_df folds the revenue fallback into one
+    # precomputed column. apply_revenue_hierarchy still recomputes it from
+    # source so the validator stays independent of the cleaner's version.
+    AUTHORITATIVE_REVENUE = "authoritative_revenue"
+
     ALL_VALIDATED = (
         REVENUE_FIELDS
         + DATE_FIELDS
@@ -54,6 +65,42 @@ class Fields:
         + CATEGORICAL_FIELDS
         + OWNER_FIELDS
     )
+
+    # Sprint 2: clean_opportunity_df adds merge-provenance flags and
+    # data-quality flags. These are deliberately NOT part of ALL_VALIDATED —
+    # that list drives summarize_missingness over the business fields only.
+    # `source_file_flag` is a provenance label ("opps2_base" /
+    # "opps1_exclusive" / "unknown"); every other flag is boolean.
+    MERGE_FLAG_COLUMNS = [
+        "source_file_flag",
+        "duplicate_flag",
+        "unmatched_flag",
+        "opps1_exclusive_flag",
+    ]
+    QUALITY_FLAG_COLUMNS = [
+        "missing_owner_flag",
+        "missing_probability_flag",
+        "invalid_probability_flag",
+        "missing_revenue_flag",
+        "missing_duration_flag",
+        "invalid_duration_flag",
+        "missing_revenue_start_date_flag",
+        "close_before_created_flag",
+    ]
+    FLAG_COLUMNS = MERGE_FLAG_COLUMNS + QUALITY_FLAG_COLUMNS
+    BOOLEAN_FLAG_COLUMNS = [
+        "duplicate_flag",
+        "unmatched_flag",
+        "opps1_exclusive_flag",
+        "missing_owner_flag",
+        "missing_probability_flag",
+        "invalid_probability_flag",
+        "missing_revenue_flag",
+        "missing_duration_flag",
+        "invalid_duration_flag",
+        "missing_revenue_start_date_flag",
+        "close_before_created_flag",
+    ]
 
 
 # Architecture's late-stage definition (see docs/architecture.md). Used for
@@ -90,6 +137,21 @@ def _is_blank_string(series: pd.Series) -> pd.Series:
     return series.map(
         lambda value: isinstance(value, str) and value.strip() == ""
     )
+
+
+def _count_close_before_created(df: pd.DataFrame) -> int:
+    """Rows where `close_date` precedes `created_on` on a calendar-date basis.
+
+    `created_on` carries a full timestamp; `close_date` is recorded at
+    midnight. Both series are normalized to calendar date before the
+    comparison so a deal created and closed on the same day is not falsely
+    counted (the un-normalized comparison inflated this roughly eightfold —
+    3,049 vs the true ~379). Shared by `validate_date_duration_fields` and
+    `validate_quality_flags` so the corrected count has a single definition.
+    """
+    created = pd.to_datetime(df[Fields.CREATED_ON], errors="coerce").dt.normalize()
+    close = pd.to_datetime(df[Fields.CLOSE_DATE], errors="coerce").dt.normalize()
+    return int((created.notna() & close.notna() & (close < created)).sum())
 
 
 def apply_revenue_hierarchy(df: pd.DataFrame) -> pd.DataFrame:
@@ -207,6 +269,11 @@ def build_owner_aggregates(
         `status == "Open"` (case-insensitive).
       * `baseline_reliability` is a coarse signal — High if the owner has
         ≥ 8 quarters of created opportunities, Medium for ≥ 4, else Low.
+      * Duplicate join-key rows (`duplicate_flag` / `is_duplicate_join_key`)
+        are deduplicated on `opportunity_id` (keep first) before aggregation
+        so revenue and deal counts are not double-counted for the affected
+        owner. `unmatched_flag` and `opps1_exclusive_flag` rows are kept —
+        they are legitimate distinct opportunities.
     """
     required = [
         Fields.OWNER,
@@ -228,6 +295,15 @@ def build_owner_aggregates(
         as_of = pd.Timestamp.today().normalize()
 
     work = df.copy()
+
+    # Sprint 2: cleaned_opportunity_df may carry duplicate join-key rows
+    # (marked by `duplicate_flag` / `is_duplicate_join_key`). Aggregating them
+    # as-is double-counts revenue and deal counts for the affected owner, so
+    # deduplicate on the join key (keep first) when it is present. Guarded so
+    # the function still accepts the flag-less minimal fixture used in the
+    # validator tests and any raw frame without `opportunity_id`.
+    if JOIN_KEY in work.columns:
+        work = work.drop_duplicates(subset=[JOIN_KEY], keep="first")
 
     revenue_resolved = apply_revenue_hierarchy(work)
     work["_authoritative_revenue"] = revenue_resolved["authoritative_revenue"]
@@ -392,14 +468,11 @@ def validate_date_duration_fields(
     revenue_start = pd.to_datetime(df[Fields.REVENUE_START_DATE], errors="coerce")
     duration = _coerce_numeric(df[Fields.DURATION_MONTHS])
 
-    # `created_on` carries a full timestamp; `close_date` is recorded at
-    # midnight. Comparing the raw timestamps counts a deal created and closed
-    # on the same calendar day as "closed before created" (the created_on
-    # time-of-day is always > 00:00:00). Normalize both to calendar date
-    # before any ordering comparison — the un-normalized version inflated
-    # `n_close_before_created` roughly eightfold (3,049 vs ~379).
+    # `created_on` carries a full timestamp; normalize to calendar date so a
+    # row created earlier today is not counted as "created after today"
+    # (`as_of` is midnight-normalized). The close/created ordering check uses
+    # `_count_close_before_created`, which applies the same normalization.
     created_date = created.dt.normalize()
-    close_date_norm = close.dt.normalize()
 
     is_won = df[Fields.STATUS_REASON].astype(str).str.strip().str.lower() == "won"
 
@@ -419,16 +492,7 @@ def validate_date_duration_fields(
         ("n_duration_zero", int((duration == 0).sum())),
         ("n_duration_negative", int((duration < 0).sum())),
         ("n_duration_over_60_months", int((duration > 60).sum())),
-        (
-            "n_close_before_created",
-            int(
-                (
-                    close_date_norm.notna()
-                    & created_date.notna()
-                    & (close_date_norm < created_date)
-                ).sum()
-            ),
-        ),
+        ("n_close_before_created", _count_close_before_created(df)),
         (
             "n_created_after_today",
             int((created_date.notna() & (created_date > as_of)).sum()),
@@ -552,4 +616,75 @@ def validate_owner_identity(df: pd.DataFrame) -> pd.DataFrame:
         ),
         ("n_owners_with_under_10_opps", n_owners_with_under_10_opps),
     ]
+    return _summary_frame(rows)
+
+
+def validate_quality_flags(df: pd.DataFrame) -> pd.DataFrame:
+    """Sprint 2 merge-flag and data-quality-flag summary as a metric/value table.
+
+    Requires the cleaned opportunity frame (`clean_opportunity_df`), which
+    carries the merge-provenance flags and data-quality flags;
+    `_require_columns` fails fast if a raw frame is passed instead. Reports a
+    count for each boolean flag, the `source_file_flag` provenance breakdown,
+    and two cross-checks against the field validators:
+
+      * `missing_revenue_flag` should equal `validate_revenue_fields`'
+        `n_unscoreable_both_null` — both mean "no opportunity-level revenue
+        candidate for `authoritative_revenue`". The signed gap is reported as
+        `flag_discrepancy_missing_revenue` (expected 0).
+      * `close_before_created_flag` is computed by the cleaner with an
+        un-normalized timestamp comparison — the same bug fixed in
+        `validate_date_duration_fields`. The flag sum is compared against the
+        corrected calendar-date count from `_count_close_before_created`; the
+        gap is reported as `flag_discrepancy_close_before_created`. This is a
+        documented finding for Yixiao's `opportunity_cleaner.py`, not an edit
+        to another owner's module.
+    """
+    _require_columns(df, Fields.FLAG_COLUMNS)
+
+    rows: list[tuple[str, object]] = [("n_total", len(df))]
+
+    # source_file_flag is a provenance label, not a boolean — break it down.
+    source_counts = df["source_file_flag"].astype(str).value_counts(dropna=False)
+    for label, count in source_counts.items():
+        rows.append((f"source_file_flag::{label}", int(count)))
+
+    for flag in Fields.BOOLEAN_FLAG_COLUMNS:
+        rows.append(
+            (f"{flag}_count", int(df[flag].fillna(False).astype(bool).sum()))
+        )
+
+    # Cross-check 1: missing_revenue_flag vs the revenue validator.
+    missing_revenue_flag_count = int(
+        df["missing_revenue_flag"].fillna(False).astype(bool).sum()
+    )
+    revenue_summary = validate_revenue_fields(df)
+    revenue_metrics = dict(
+        zip(revenue_summary["metric"], revenue_summary["value"])
+    )
+    n_unscoreable_both_null = int(revenue_metrics["n_unscoreable_both_null"])
+    rows.append(
+        (
+            "flag_discrepancy_missing_revenue",
+            missing_revenue_flag_count - n_unscoreable_both_null,
+        )
+    )
+
+    # Cross-check 2: the cleaner's close_before_created_flag (un-normalized
+    # timestamp comparison) vs the corrected calendar-date count. The flag
+    # count itself is already emitted by the boolean-flag loop above.
+    flag_close_before_created = int(
+        df["close_before_created_flag"].fillna(False).astype(bool).sum()
+    )
+    corrected_close_before_created = _count_close_before_created(df)
+    rows.append(
+        ("n_close_before_created_corrected", corrected_close_before_created)
+    )
+    rows.append(
+        (
+            "flag_discrepancy_close_before_created",
+            flag_close_before_created - corrected_close_before_created,
+        )
+    )
+
     return _summary_frame(rows)
