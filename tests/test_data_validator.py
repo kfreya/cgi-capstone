@@ -8,6 +8,7 @@ from src.data_validator import (
     Fields,
     apply_revenue_hierarchy,
     build_owner_aggregates,
+    classify_opportunity_outcome,
     summarize_missingness,
     validate_categorical_fields,
     validate_date_duration_fields,
@@ -39,6 +40,41 @@ def test_apply_revenue_hierarchy_raises_on_missing_columns():
     df = pd.DataFrame({Fields.REVENUE_PRIMARY: [1.0]})
     with pytest.raises(KeyError, match="opportunity_estimated_revenue_base_cad"):
         apply_revenue_hierarchy(df)
+
+
+def test_classify_opportunity_outcome_buckets():
+    df = pd.DataFrame(
+        {
+            Fields.STATUS: [
+                "Won", "Closed", "Closed", "Closed", "Open",
+                "Won", "Closed", "Open", "Something",
+            ],
+            Fields.STATUS_REASON: [
+                "Won", "LOST-Price", "Cancelled by Customer", "Duplicated",
+                "Open", None, None, None, None,
+            ],
+        }
+    )
+
+    outcome = classify_opportunity_outcome(df)
+
+    assert list(outcome) == [
+        "won",        # status_reason "Won"
+        "lost",       # status_reason "LOST-Price" (prefix match)
+        "lost",       # status_reason "Cancelled by Customer" (Option B)
+        "duplicate",  # status_reason "Duplicated"
+        "open",       # status_reason "Open"
+        "won",        # null reason -> status "Won" (won-detection fallback)
+        "lost",       # null reason -> status "Closed" (ended unwon)
+        "open",       # null reason -> status "Open"
+        "unknown",    # null reason -> unrecognized status
+    ]
+
+
+def test_classify_opportunity_outcome_requires_columns():
+    df = pd.DataFrame({Fields.STATUS: ["Won"]})
+    with pytest.raises(KeyError, match="status_reason"):
+        classify_opportunity_outcome(df)
 
 
 def _minimal_validated_df() -> pd.DataFrame:
@@ -115,6 +151,9 @@ def test_build_owner_aggregates_schema_matches_dashboard_contract():
         "late_stage_deal_count",
         "weighted_pipeline_revenue",
         "inferred_delivery_commitments",
+        "open_opportunity_count",
+        "lost_opportunity_count",
+        "duplicate_opportunity_count",
         "quarters_of_data",
         "baseline_reliability",
     ]
@@ -125,11 +164,14 @@ def test_build_owner_aggregates_schema_matches_dashboard_contract():
     assert alice["late_stage_deal_count"] == 1
     assert alice["weighted_pipeline_revenue"] == 500.0
     assert alice["inferred_delivery_commitments"] == 0
+    assert alice["open_opportunity_count"] == 1
+    assert alice["lost_opportunity_count"] == 0
 
     bob = result[result[Fields.OWNER] == "Bob"].iloc[0]
     assert bob["inferred_delivery_commitments"] == 1
     assert bob["late_stage_deal_count"] == 0
     assert bob["weighted_pipeline_revenue"] == 0
+    assert bob["open_opportunity_count"] == 0
 
 
 def test_build_owner_aggregates_deduplicates_duplicate_join_key_rows():

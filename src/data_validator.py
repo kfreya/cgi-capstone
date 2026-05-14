@@ -112,6 +112,27 @@ LATE_STAGE_VALUES = {
 }
 
 
+# status_reason / status outcome taxonomy (Sprint 2, issue #21).
+# `status_reason` is the architecture-canonical outcome field; its values are
+# free-text CRM labels, so the "lost" and "cancelled" families are matched by
+# prefix while the won/open/duplicate labels are exact. Yixiao's
+# `build_owner_base_summary` and Lyken's scoring should import
+# `classify_opportunity_outcome` rather than re-deriving these buckets.
+#   - WON_REASONS / OPEN_REASONS: exact status_reason (and status fallback).
+#   - DUPLICATE_REASONS: a CRM data-quality label. Profiling found zero
+#     overlap with the merge-level `duplicate_flag` and only ~3 owners
+#     affected, so it is NOT a merge artefact and NOT a win/loss business
+#     outcome. It gets its own bucket so callers can exclude it from
+#     win/lost/open counts (the Sprint 2 "Option B" decision -- see
+#     docs/data_validation.md).
+#   - LOST_REASON_PREFIXES: "lost-..." and "cancelled ..." labels. A
+#     cancelled pursuit ended unwon, so it is treated as lost-like.
+WON_REASONS = {"won"}
+OPEN_REASONS = {"open"}
+DUPLICATE_REASONS = {"duplicated", "duplicate"}
+LOST_REASON_PREFIXES = ("lost", "cancelled", "canceled")
+
+
 def _require_columns(df: pd.DataFrame, expected: list[str]) -> None:
     """Raise a clear KeyError if any expected column is missing.
 
@@ -192,6 +213,62 @@ def apply_revenue_hierarchy(df: pd.DataFrame) -> pd.DataFrame:
     )
 
 
+def classify_opportunity_outcome(df: pd.DataFrame) -> pd.Series:
+    """Classify each opportunity into a single outcome bucket.
+
+    Returns a Series aligned to `df.index` with values:
+        "won" | "lost" | "open" | "duplicate" | "unknown"
+
+    `status_reason` is the architecture-canonical outcome field and is read
+    first; `status` is the fallback for the ~51 rows where `status_reason`
+    is null/blank. This is the shared Sprint 2 (issue #21) taxonomy helper —
+    Yixiao's `build_owner_base_summary` and Lyken's scoring should import it
+    rather than re-deriving outcome buckets with their own string checks.
+
+    Taxonomy ("Option B" — see docs/data_validation.md):
+      * status_reason "won"                  -> won
+      * status_reason "open"                 -> open
+      * status_reason "duplicated"           -> duplicate. A CRM data-quality
+        label, not a win/loss business outcome (zero overlap with the
+        merge-level `duplicate_flag`). Its own bucket so callers can exclude
+        it from win/lost/open counts.
+      * status_reason prefix "lost"          -> lost
+      * status_reason prefix "cancelled"/"canceled" -> lost. A cancelled
+        pursuit ended unwon, so it is lost-like.
+      * status_reason null/blank -> fall back to `status`: "won" -> won,
+        "open" -> open, "closed" -> lost (the opportunity ended unwon; the
+        reason is simply unrecorded), anything else -> unknown.
+
+    This subsumes the Sprint 1 `won_detection` fallback rule: the 15 rows
+    with `status == "Won"` but a null `status_reason` now resolve to "won".
+    """
+    _require_columns(df, [Fields.STATUS, Fields.STATUS_REASON])
+
+    reason = (
+        df[Fields.STATUS_REASON].astype("string").str.strip().str.lower().fillna("")
+    )
+    status = (
+        df[Fields.STATUS].astype("string").str.strip().str.lower().fillna("")
+    )
+
+    outcome = pd.Series("unknown", index=df.index, dtype="object")
+
+    # status fallback first; the canonical status_reason rules below override.
+    outcome = outcome.mask(status.isin(WON_REASONS), "won")
+    outcome = outcome.mask(status.isin(OPEN_REASONS), "open")
+    outcome = outcome.mask(status == "closed", "lost")
+
+    # status_reason is canonical. An empty string (null/blank reason) matches
+    # none of these, so the status fallback is preserved for those rows.
+    is_lost_reason = reason.str.startswith(LOST_REASON_PREFIXES).fillna(False)
+    outcome = outcome.mask(is_lost_reason, "lost")
+    outcome = outcome.mask(reason.isin(DUPLICATE_REASONS), "duplicate")
+    outcome = outcome.mask(reason.isin(OPEN_REASONS), "open")
+    outcome = outcome.mask(reason.isin(WON_REASONS), "won")
+
+    return outcome
+
+
 def summarize_missingness(df: pd.DataFrame) -> pd.DataFrame:
     """Per-field null/blank/zero/negative counts across all validated fields.
 
@@ -257,16 +334,20 @@ def build_owner_aggregates(
     Returns columns:
         opportunity_owner, territory, late_stage_deal_count,
         weighted_pipeline_revenue, inferred_delivery_commitments,
-        quarters_of_data, baseline_reliability
+        open_opportunity_count, lost_opportunity_count,
+        duplicate_opportunity_count, quarters_of_data, baseline_reliability
 
     Decisions worth flagging in the validation notes:
-      * `inferred_delivery_commitments` uses `status_reason == "Won"` per
-        the architecture spec, not Lyken's `status == "won"`. Document any
-        row count divergence in the validation notes.
+      * Won / lost / open / duplicate are all derived from the shared
+        `classify_opportunity_outcome` helper, not from ad-hoc string
+        checks. `inferred_delivery_commitments` therefore counts the
+        canonical "won" set (status_reason "Won", plus the won-detection
+        fallback for null-reason rows). `duplicate_opportunity_count` is
+        surfaced so the Option B taxonomy decision is auditable per owner.
       * `weighted_pipeline_revenue` uses the architecture's revenue fallback
         (via `apply_revenue_hierarchy`), not just `total_estimated_revenue`.
       * Open opps for `weighted_pipeline_revenue` are defined as
-        `status == "Open"` (case-insensitive).
+        `_outcome == "open"` (equivalent to `status == "Open"` in this data).
       * `baseline_reliability` is a coarse signal — High if the owner has
         ≥ 8 quarters of created opportunities, Medium for ≥ 4, else Low.
       * Duplicate join-key rows (`duplicate_flag` / `is_duplicate_join_key`)
@@ -308,13 +389,14 @@ def build_owner_aggregates(
     revenue_resolved = apply_revenue_hierarchy(work)
     work["_authoritative_revenue"] = revenue_resolved["authoritative_revenue"]
 
-    work["_status_lc"] = work[Fields.STATUS].astype(str).str.strip().str.lower()
-    work["_status_reason_norm"] = (
-        work[Fields.STATUS_REASON].astype(str).str.strip()
-    )
-
-    work["_is_open"] = work["_status_lc"] == "open"
-    work["_is_won"] = work["_status_reason_norm"].str.lower() == "won"
+    # Single source of truth for won/lost/open/duplicate — see
+    # classify_opportunity_outcome. Replaces the Sprint 1 ad-hoc
+    # `status_reason == "won"` check and applies the won-detection fallback.
+    work["_outcome"] = classify_opportunity_outcome(work)
+    work["_is_open"] = work["_outcome"] == "open"
+    work["_is_won"] = work["_outcome"] == "won"
+    work["_is_lost"] = work["_outcome"] == "lost"
+    work["_is_duplicate"] = work["_outcome"] == "duplicate"
     work["_is_late_stage"] = work[Fields.SALES_STAGE].isin(LATE_STAGE_VALUES)
 
     probability = _coerce_numeric(work[Fields.PROBABILITY]).fillna(0).clip(lower=0)
@@ -357,6 +439,9 @@ def build_owner_aggregates(
             ),
             "weighted_pipeline_revenue": grouped["_weighted_revenue"].sum().round(2),
             "inferred_delivery_commitments": grouped["_delivery_active"].sum().astype(int),
+            "open_opportunity_count": grouped["_is_open"].sum().astype(int),
+            "lost_opportunity_count": grouped["_is_lost"].sum().astype(int),
+            "duplicate_opportunity_count": grouped["_is_duplicate"].sum().astype(int),
             "quarters_of_data": grouped["_quarter"].nunique(dropna=True).astype(int),
         }
     ).reset_index()
@@ -371,6 +456,9 @@ def build_owner_aggregates(
         "late_stage_deal_count",
         "weighted_pipeline_revenue",
         "inferred_delivery_commitments",
+        "open_opportunity_count",
+        "lost_opportunity_count",
+        "duplicate_opportunity_count",
         "quarters_of_data",
         "baseline_reliability",
     ]
@@ -474,7 +562,9 @@ def validate_date_duration_fields(
     # `_count_close_before_created`, which applies the same normalization.
     created_date = created.dt.normalize()
 
-    is_won = df[Fields.STATUS_REASON].astype(str).str.strip().str.lower() == "won"
+    # Use the shared taxonomy so the validator's "won" set matches
+    # build_owner_aggregates and the architecture's won-detection fallback.
+    is_won = classify_opportunity_outcome(df) == "won"
 
     delivery_resolvable_primary = is_won & revenue_start.notna()
     delivery_resolvable_fallback = (
