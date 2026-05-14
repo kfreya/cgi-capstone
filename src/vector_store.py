@@ -24,6 +24,21 @@ except ModuleNotFoundError:
 
 
 EmbeddingFunction = Callable[[Sequence[str]], list[list[float]]]
+_DEFAULT_STORE: "InMemoryVectorStore | None" = None
+_LOCAL_EMBEDDING_TERMS = [
+    "cloud",
+    "azure",
+    "data",
+    "analytics",
+    "dashboard",
+    "security",
+    "migration",
+    "application",
+    "managed",
+    "service",
+    "delivery",
+    "support",
+]
 
 
 @dataclass(frozen=True)
@@ -320,7 +335,7 @@ def build_dashboard_payload(
     results: Sequence[SearchResult],
     rfp_summary: str = "",
     recommended_directors: Sequence[dict[str, Any]] | None = None,
-    notes: Sequence[str] | None = None,
+    notes: str = "This is a mock output for dashboard integration.",
 ) -> dict[str, Any]:
     """Create a stable mock output shape for downstream dashboard work.
 
@@ -328,17 +343,49 @@ def build_dashboard_payload(
     @param results: Retrieved chunks that support the recommendation.
     @param rfp_summary: Optional summary of the new RFP.
     @param recommended_directors: Optional director ranking records.
-    @param notes: Optional notes about assumptions or missing data.
+    @param notes: Optional note about assumptions or missing data.
     @return: Dictionary shaped like the future dashboard/API response.
     """
 
+    supporting_chunks = [result.chunk.text for result in results]
+    directors = [
+        _dashboard_director_record(director, supporting_chunks)
+        for director in recommended_directors or []
+    ]
+
     return {
         "rfp_summary": rfp_summary,
-        "query_text": query_text,
-        "recommended_directors": list(recommended_directors or []),
-        "supporting_chunks": [result.to_dict() for result in results],
-        "notes": list(notes or []),
+        "recommended_directors": directors,
+        "notes": notes,
     }
+
+
+def build_vector_store(chunks: list[dict[str, Any]]) -> InMemoryVectorStore:
+    """Build the local vector store expected by the dashboard placeholder.
+
+    @param chunks: Chunk dictionaries from `prepare_rfp_chunks`.
+    @return: In-memory vector store populated with those chunks.
+    """
+
+    global _DEFAULT_STORE
+
+    store = InMemoryVectorStore(_local_embedding)
+    store.add_chunks([_chunk_from_dict(chunk) for chunk in chunks])
+    _DEFAULT_STORE = store
+    return store
+
+
+def retrieve_relevant_chunks(query: str, top_k: int = 5) -> list[dict[str, Any]]:
+    """Retrieve chunks from the most recently built local vector store.
+
+    @param query: RFP text or query text to search with.
+    @param top_k: Maximum number of chunks to return.
+    @return: Ranked chunk dictionaries with similarity scores.
+    """
+
+    if _DEFAULT_STORE is None:
+        return []
+    return [result.to_dict() for result in _DEFAULT_STORE.query(query, top_k=top_k)]
 
 
 def _chroma_metadata(chunk: RFPChunk) -> dict[str, str | int | float | bool]:
@@ -368,3 +415,49 @@ def _chroma_metadata(chunk: RFPChunk) -> dict[str, str | int | float | bool]:
             metadata[key] = json.dumps(value, sort_keys=True)
 
     return metadata
+
+
+def _chunk_from_dict(chunk: dict[str, Any]) -> RFPChunk:
+    """Convert a dashboard chunk dictionary back into an RFPChunk object."""
+
+    return RFPChunk(
+        chunk_id=str(chunk["chunk_id"]),
+        document_id=str(chunk["document_id"]),
+        title=str(chunk["title"]),
+        section=str(chunk["section"]),
+        chunk_index=int(chunk["chunk_index"]),
+        text=str(chunk["text"]),
+        metadata=dict(chunk.get("metadata", {})),
+    )
+
+
+def _local_embedding(texts: Sequence[str]) -> list[list[float]]:
+    """Create small deterministic embeddings for local dashboard testing."""
+
+    embeddings: list[list[float]] = []
+    for text in texts:
+        lower_text = text.lower()
+        vector = [float(term in lower_text) for term in _LOCAL_EMBEDDING_TERMS]
+        vector.append(float(len(lower_text.split())) / 1_000)
+        embeddings.append(vector)
+    return embeddings
+
+
+def _dashboard_director_record(
+    director: dict[str, Any],
+    supporting_chunks: list[str],
+) -> dict[str, Any]:
+    """Normalize director records to Freya's dashboard contract."""
+
+    return {
+        "director_name": director.get(
+            "director_name",
+            director.get("name", "Director A"),
+        ),
+        "match_reason": director.get(
+            "match_reason",
+            director.get("reason", "Relevant experience and available capacity"),
+        ),
+        "capacity_label": director.get("capacity_label", "Available"),
+        "supporting_chunks": director.get("supporting_chunks", supporting_chunks[:2]),
+    }

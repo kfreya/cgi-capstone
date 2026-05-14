@@ -13,9 +13,11 @@ import pytest
 from src.rfp_preprocessor import RFPChunk
 from src.vector_store import (
     InMemoryVectorStore,
+    build_vector_store,
     build_dashboard_payload,
     build_retrieval_context,
     cosine_similarity,
+    retrieve_relevant_chunks,
 )
 
 
@@ -124,9 +126,35 @@ def test_build_dashboard_payload_has_stable_output_shape():
         query_text="Need Azure delivery support",
         results=results,
         rfp_summary="Azure support request",
-        recommended_directors=[{"name": "TBD", "reason": "mock"}],
+        recommended_directors=[
+            {
+                "director_name": "TBD",
+                "match_reason": "mock",
+                "capacity_label": "Available",
+            }
+        ],
     )
 
     assert payload["rfp_summary"] == "Azure support request"
-    assert payload["supporting_chunks"][0]["chunk_id"] == "chunk_1"
-    assert payload["recommended_directors"][0]["name"] == "TBD"
+    assert payload["recommended_directors"][0]["director_name"] == "TBD"
+    assert payload["recommended_directors"][0]["match_reason"] == "mock"
+    assert payload["recommended_directors"][0]["capacity_label"] == "Available"
+    assert payload["recommended_directors"][0]["supporting_chunks"] == [
+        "Azure security"
+    ]
+    assert payload["notes"] == "This is a mock output for dashboard integration."
+
+
+def test_build_and_retrieve_vector_store_match_dashboard_interface():
+    """Check Freya's expected vector-store wrapper functions."""
+
+    chunks = [
+        make_chunk("chunk_1", "Cloud", "Azure migration and security").to_dict(),
+        make_chunk("chunk_2", "Dashboard", "Executive dashboard reporting").to_dict(),
+    ]
+
+    build_vector_store(chunks)
+    results = retrieve_relevant_chunks("Need Azure security", top_k=1)
+
+    assert results[0]["chunk_id"] == "chunk_1"
+    assert "score" in results[0]

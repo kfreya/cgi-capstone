@@ -16,6 +16,7 @@ from src.rfp_preprocessor import (
     estimate_token_count,
     extract_rfp_documents,
     normalize_text_content,
+    prepare_rfp_chunks,
     preprocess_proposals,
 )
 
@@ -98,3 +99,18 @@ def test_preprocess_proposals_returns_traceable_chunk_metadata():
     assert "chunk_start_token" in chunks[0].metadata
     assert "approx_tokens" in chunks[0].metadata
     assert chunks[0].chunk_id.endswith("__chunk_0000")
+
+
+def test_prepare_rfp_chunks_matches_dashboard_interface():
+    """Check the public chunk wrapper expected by the dashboard contract."""
+
+    chunks = prepare_rfp_chunks(
+        "Need Azure migration support and dashboard reporting.",
+        max_tokens=4,
+        overlap_tokens=1,
+    )
+
+    assert isinstance(chunks, list)
+    assert chunks[0]["title"] == "New RFP"
+    assert chunks[0]["metadata"]["source_type"] == "new_rfp"
+    assert "text" in chunks[0]

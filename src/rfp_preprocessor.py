@@ -282,6 +282,41 @@ def preprocess_proposals(
     )
 
 
+def prepare_rfp_chunks(
+    rfp_text: str,
+    max_tokens: int = DEFAULT_MAX_TOKENS,
+    overlap_tokens: int = DEFAULT_OVERLAP_TOKENS,
+) -> list[dict[str, Any]]:
+    """Prepare pasted RFP text for the dashboard retrieval interface.
+
+    This wrapper matches the Role 5 dashboard contract. It uses the same
+    chunking logic as the historical proposal pipeline, but the input is one
+    new RFP text string instead of the full proposals JSON.
+
+    @param rfp_text: New RFP text pasted or uploaded in the dashboard.
+    @param max_tokens: Maximum approximate tokens per chunk.
+    @param overlap_tokens: Approximate tokens repeated between chunks.
+    @return: List of chunk dictionaries for vector-store input.
+    """
+
+    document = RFPDocument(
+        document_id="new_rfp__proposal",
+        title="New RFP",
+        section="proposal",
+        text=normalize_text_content(rfp_text),
+        metadata={
+            "source_title": "New RFP",
+            "source_type": "new_rfp",
+        },
+    )
+    chunks = chunk_rfp_documents(
+        [document],
+        max_tokens=max_tokens,
+        overlap_tokens=overlap_tokens,
+    )
+    return [chunk.to_dict() for chunk in chunks]
+
+
 def estimate_token_count(text: str) -> int:
     """Return the same approximate token count used by the chunker.
 
