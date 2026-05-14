@@ -36,6 +36,7 @@ def test_compute_sales_load_creates_positive_sales_load():
             "sales_stage": ["4-Proposal"],
             "probability": [80],
             "total_estimated_revenue": [100000],
+            "authoritative_revenue": [100000],
             "project_duration_number_of_months": [12],
         }
     )
@@ -54,6 +55,7 @@ def test_compute_sales_load_sets_won_status_to_zero():
             "sales_stage": ["6-Negotiation&Signature"],
             "probability": [100],
             "total_estimated_revenue": [500000],
+            "authoritative_revenue": [500000],
             "project_duration_number_of_months": [24],
         }
     )
@@ -69,6 +71,7 @@ def test_compute_delivery_load_creates_active_delivery_load():
             "status": ["closed"],
             "status_reason": ["Won"],
             "total_estimated_revenue": [1200000],
+            "authoritative_revenue": [1200000],
             "project_duration_number_of_months": [12],
             "revenue_start_date": ["2026-01-01"],
             "close_date": ["2025-12-01"],
@@ -91,6 +94,7 @@ def test_compute_delivery_load_sets_non_won_status_to_zero():
             "status": ["open"],
             "status_reason": ["Open"],
             "total_estimated_revenue": [500000],
+            "authoritative_revenue": [500000],
             "project_duration_number_of_months": [12],
             "revenue_start_date": ["2026-01-01"],
             "close_date": ["2025-12-01"],
@@ -181,6 +185,7 @@ def test_compute_current_load_by_owner_aggregates_owner_loads():
             ],
             "probability": [80, 100],
             "total_estimated_revenue": [100000, 300000],
+            "authoritative_revenue": [100000, 300000],
             "project_duration_number_of_months": [12, 12],
             "revenue_start_date": ["2026-01-01", "2026-01-01"],
             "close_date": ["2025-12-01", "2025-12-01"],
@@ -197,7 +202,8 @@ def test_compute_current_load_by_owner_aggregates_owner_loads():
     assert list(result["opportunity_owner"]) == ["Owner 1"]
     assert result.loc[0, "current_load"] > 0
     assert result.loc[0, "opportunity_count"] == 2
-    assert result.loc[0, "late_stage_deal_count"] == 2
+    # Late stage counts open opportunities only (Won row is not open).
+    assert result.loc[0, "late_stage_deal_count"] == 1
 
 
 def test_compute_historical_baseline_returns_owner_level_statistics():
@@ -252,25 +258,28 @@ def test_compute_relative_load_divides_current_by_baseline():
         baseline_df,
     )
 
-    assert result.loc[0, "relative_load"] == 2
+    assert result.loc[0, "relative_load"] == 2.0
 
 
-def test_compute_capacity_score_caps_at_zero():
+def test_compute_capacity_score_uses_hard_capped_scoring():
     df = pd.DataFrame(
         {
-            "relative_load": [2.0],
+            "relative_load": [0.5, 1.0, 2.0],
         }
     )
 
     result = compute_capacity_score(df)
 
-    assert result.loc[0, "capacity_score"] == 0
+    assert result.loc[0, "capacity_score"] == 0.5
+    assert result.loc[1, "capacity_score"] == 0
+    assert result.loc[2, "capacity_score"] == 0
 
 
 def test_assign_capacity_label_returns_available():
     df = pd.DataFrame(
         {
             "relative_load": [0.5],
+            "capacity_score": [0.7],
         }
     )
 
@@ -283,6 +292,19 @@ def test_assign_capacity_label_returns_at_capacity():
     df = pd.DataFrame(
         {
             "relative_load": [1.0],
+            "capacity_score": [0.25],
+        }
+    )
+
+    result = assign_capacity_label(df)
+
+    assert result.loc[0, "capacity_label"] == "At Capacity"
+
+
+def test_assign_capacity_label_nan_score_uses_at_capacity():
+    df = pd.DataFrame(
+        {
+            "capacity_score": [float("nan")],
         }
     )
 
@@ -295,6 +317,7 @@ def test_assign_capacity_label_returns_overextended():
     df = pd.DataFrame(
         {
             "relative_load": [1.5],
+            "capacity_score": [0.1],
         }
     )
 
