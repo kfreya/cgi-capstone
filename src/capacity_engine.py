@@ -389,6 +389,12 @@ def compute_capacity_score(
         .clip(lower=0)
     )
 
+    # Preserve NaN scores for owners with unusable baseline
+    working_df.loc[
+        working_df["relative_load"].isna(),
+        "capacity_score",
+    ] = np.nan
+
     return working_df
 
 
@@ -469,6 +475,15 @@ if __name__ == "__main__":
     from pathlib import Path
 
     csv_path = Path("data/processed/cleaned_opportunity_df.csv")
+
+    if not csv_path.exists():
+        raise FileNotFoundError(
+            "Expected input file not found: "
+            f"{csv_path}. "
+            "Generate cleaned_opportunity_df.csv before running "
+            "capacity_engine.py directly."
+        )
+
     opportunity_df = pd.read_csv(csv_path)
 
     director_capacity_df = build_director_capacity_df(opportunity_df)
@@ -477,8 +492,13 @@ if __name__ == "__main__":
     out_path.parent.mkdir(parents=True, exist_ok=True)
     director_capacity_df.to_csv(out_path, index=False)
 
-    example_path = Path("data/processed/director_capacity_df_example.csv")
-    director_capacity_df.head(12).to_csv(example_path, index=False)
+    example_path = Path(
+        "data/processed/director_capacity_df_example.csv"
+    )
+    director_capacity_df.head(12).to_csv(
+        example_path,
+        index=False,
+    )
 
     print(f"Wrote {out_path} ({len(director_capacity_df)} owners)")
     print(f"Wrote {example_path} (sample rows)")

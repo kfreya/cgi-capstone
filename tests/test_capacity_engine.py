@@ -261,16 +261,18 @@ def test_compute_relative_load_divides_current_by_baseline():
     assert result.loc[0, "relative_load"] == 2.0
 
 
-def test_compute_capacity_score_caps_at_zero():
+def test_compute_capacity_score_uses_hard_capped_scoring():
     df = pd.DataFrame(
         {
-            "relative_load": [2.0],
+            "relative_load": [0.5, 1.0, 2.0],
         }
     )
 
     result = compute_capacity_score(df)
 
-    assert result.loc[0, "capacity_score"] == 0
+    assert result.loc[0, "capacity_score"] == 0.5
+    assert result.loc[1, "capacity_score"] == 0
+    assert result.loc[2, "capacity_score"] == 0
 
 
 def test_assign_capacity_label_returns_available():

@@ -43,6 +43,12 @@ This module guarantees:
 - No side effects (no in-place mutation of input dataframe)
 - Deterministic output given identical input
 
+## Pytest Results
+```bash
+python -m pytest tests/test_capacity_engine.py
+```
+15/15 tests passed.
+
 
 ## Handoff Notes
 
@@ -59,9 +65,9 @@ The output of `build_director_capacity_df()` is strictly **one row per `opportun
 
 - If historical baseline is missing or near zero, the metric becomes noisy or undefined
 - This is expected for low-data or new owners, not a bug
-- These cases may collapse `capacity_score` toward 0 because the scoring logic caps `relative_load` at 1
+- Missing or unusable baselines propagate NaN `capacity_score`
+- NaN scores are intentionally labeled as `At Capacity` for dashboard stability
 - Fine-grained overload severity should be interpreted using `relative_load` directly
-
 ---
 
 ### 3. Pipeline assumes missing data is already “neutralized”
