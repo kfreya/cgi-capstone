@@ -10,8 +10,11 @@ raw merged `opportunity_df`; `validate_quality_flags` requires the cleaned
 frame because it reads the flag columns.
 
 Reusable helpers downstream code can import directly so the architecture's
-fallback rules and dashboard-target columns are not reimplemented per role:
-`apply_revenue_hierarchy` and `build_owner_aggregates`.
+rules are not reimplemented per role:
+  * `apply_revenue_hierarchy` — revenue fallback resolution.
+  * `classify_opportunity_outcome` — the won/lost/open/duplicate taxonomy.
+  * `build_owner_aggregates` — owner-level dashboard-contract columns.
+  * `build_field_reliability_report` — the Kian->Lyken scoring-input handoff.
 """
 
 from __future__ import annotations
@@ -131,6 +134,89 @@ WON_REASONS = {"won"}
 OPEN_REASONS = {"open"}
 DUPLICATE_REASONS = {"duplicated", "duplicate"}
 LOST_REASON_PREFIXES = ("lost", "cancelled", "canceled")
+
+
+# Each validated field's governing rule in config/fallback_assumptions.yaml
+# ("" when no fallback applies). Kept next to the field constants so a rename
+# in `Fields` or a rule_id change in the YAML surfaces here too. Consumed by
+# `build_field_reliability_report` for the Kian->Lyken handoff.
+FIELD_FALLBACK_RULES = {
+    Fields.REVENUE_PRIMARY: "revenue_hierarchy",
+    Fields.REVENUE_FALLBACK: "revenue_hierarchy",
+    Fields.REVENUE_SERVICE: "do_not_sum_service_solution_revenue",
+    Fields.CREATED_ON: "",
+    Fields.CLOSE_DATE: "delivery_window",
+    Fields.REVENUE_START_DATE: "delivery_window",
+    Fields.DURATION_MONTHS: "missing_duration",
+    Fields.STATUS: "status_reason_outcome",
+    Fields.STATUS_REASON: "status_reason_outcome",
+    Fields.SALES_STAGE: "late_stage_definition",
+    Fields.PROBABILITY: "missing_probability",
+    Fields.OWNER: "",
+    Fields.MANAGER: "",
+}
+
+# Qualitative scoring-input context per field. Live numbers belong in the
+# report's computed `pct_null` / `n_anomalies` columns, so these notes stay
+# qualitative and do not go stale.
+FIELD_NOTES = {
+    Fields.REVENUE_PRIMARY: (
+        "Canonical CAD revenue; the small null gap is covered by the "
+        "revenue_hierarchy fallback. Watch the explicit zero-revenue rows."
+    ),
+    Fields.REVENUE_FALLBACK: (
+        "Now populated on matched rows as well as the opps1-exclusive rows "
+        "(null only on the unmatched opps2 rows), so it overlaps the primary "
+        "and agrees closely with it. A sound revenue_hierarchy fallback."
+    ),
+    Fields.REVENUE_SERVICE: (
+        "Service-line breakdown. Never sum onto authoritative_revenue (rule "
+        "do_not_sum_service_solution_revenue); not a scoring input on its own."
+    ),
+    Fields.CREATED_ON: (
+        "Drives historical baselines and quarters_of_data; nearly fully "
+        "populated."
+    ),
+    Fields.CLOSE_DATE: (
+        "Usable as the delivery_window fallback start. Carries a "
+        "close-before-created ordering anomaly that shrank sharply once the "
+        "timestamp comparison was normalized; still open with CGI."
+    ),
+    Fields.REVENUE_START_DATE: (
+        "Null overall but fully populated on Won deals, where the delivery "
+        "window is actually computed."
+    ),
+    Fields.DURATION_MONTHS: (
+        "Nulls, non-positive values, and >60-month outliers all present. The "
+        "missing_duration fallback (12 months) applies; count the rows it "
+        "fires on."
+    ),
+    Fields.STATUS: (
+        "Fully populated, few distinct values. Outcome bucketing goes through "
+        "classify_opportunity_outcome."
+    ),
+    Fields.STATUS_REASON: (
+        "Canonical outcome field. classify_opportunity_outcome handles the "
+        "null-reason fallback and the Cancelled/Duplicated taxonomy, so the "
+        "Sprint 1 status-disagreement concern is now resolved."
+    ),
+    Fields.SALES_STAGE: (
+        "Fully populated; stage coverage against the architecture weight "
+        "table is checked in validate_categorical_fields."
+    ),
+    Fields.PROBABILITY: (
+        "Small null gap plus explicit zeros. The missing_probability fallback "
+        "(0) applies; count the rows it fires on. A zero probability is a "
+        "valid value, not an anomaly."
+    ),
+    Fields.OWNER: (
+        "Fully populated, no casing/whitespace variants. Primary grouping key."
+    ),
+    Fields.MANAGER: (
+        "Fully populated; distinct from owner on every row, consistent with "
+        "the architecture."
+    ),
+}
 
 
 def _require_columns(df: pd.DataFrame, expected: list[str]) -> None:
@@ -311,6 +397,112 @@ def summarize_missingness(df: pd.DataFrame) -> pd.DataFrame:
                 "n_zero": n_zero,
                 "n_negative": n_negative,
                 "family": family_lookup[field],
+            }
+        )
+
+    return pd.DataFrame(rows)
+
+
+def _rate_field(pct_null: float, anomaly_pct: float) -> tuple[str, bool]:
+    """Reliability rating + scoring-usability flag from computed rates.
+
+    Thresholds (applied to whichever of null-rate / anomaly-rate is worse):
+        < 1%  -> reliable, usable
+        < 15% -> use_with_care, usable (a documented fallback covers the gap)
+        else  -> not_yet, not usable for formal scoring
+    """
+    worst = max(pct_null, anomaly_pct)
+    if worst < 1.0:
+        return "reliable", True
+    if worst < 15.0:
+        return "use_with_care", True
+    return "not_yet", False
+
+
+def build_field_reliability_report(df: pd.DataFrame) -> pd.DataFrame:
+    """One row per validated field rating its fitness as a scoring input.
+
+    This is the machine-readable core of the Kian->Lyken handoff: it turns
+    the computed missingness and anomaly counts into a reliability rating, a
+    go/no-go `usable_for_scoring` flag, and the `fallback_assumptions.yaml`
+    rule that applies. Built on `summarize_missingness` so null counts are
+    not re-derived, and on the same anomaly definitions the field validators
+    use (e.g. `close_date` is judged against the corrected, calendar-date
+    `_count_close_before_created`, not the inflated raw-timestamp count).
+
+    Columns:
+        field, family, pct_null, n_anomalies, anomaly_kind,
+        reliability {reliable | use_with_care | not_yet},
+        usable_for_scoring (bool), fallback_rule, notes
+
+    The rating is computed (see `_rate_field`), not hand-coded per field, so
+    re-running it after a data refresh re-judges every field automatically.
+    """
+    missingness = summarize_missingness(df).set_index("field")
+    n_total = int(missingness["n_total"].iloc[0]) if len(missingness) else 0
+
+    # Field-specific anomaly counts: the "is the populated value usable"
+    # question, kept separate from "is it populated" (that is pct_null).
+    duration = _coerce_numeric(df[Fields.DURATION_MONTHS])
+    created = pd.to_datetime(df[Fields.CREATED_ON], errors="coerce").dt.normalize()
+    today = pd.Timestamp.today().normalize()
+    probability = _coerce_numeric(df[Fields.PROBABILITY])
+    status_lc = df[Fields.STATUS].astype(str).str.strip().str.lower()
+    reason_lc = df[Fields.STATUS_REASON].astype(str).str.strip().str.lower()
+
+    anomalies: dict[str, tuple[int, str]] = {}
+    for field in Fields.REVENUE_FIELDS:
+        m = missingness.loc[field]
+        anomalies[field] = (
+            int(m["n_zero"] + m["n_negative"]),
+            "zero_or_negative",
+        )
+    duration_m = missingness.loc[Fields.DURATION_MONTHS]
+    anomalies[Fields.DURATION_MONTHS] = (
+        int(duration_m["n_zero"] + duration_m["n_negative"])
+        + int((duration > 60).sum()),
+        "zero_negative_or_over_60_months",
+    )
+    anomalies[Fields.CLOSE_DATE] = (
+        _count_close_before_created(df),
+        "close_before_created",
+    )
+    anomalies[Fields.CREATED_ON] = (
+        int((created.notna() & (created > today)).sum()),
+        "created_after_today",
+    )
+    anomalies[Fields.REVENUE_START_DATE] = (0, "none_null_is_the_concern")
+    anomalies[Fields.PROBABILITY] = (
+        int(((probability < 0) | (probability > 100)).sum()),
+        "out_of_range",
+    )
+    anomalies[Fields.STATUS_REASON] = (
+        int(((status_lc == "won") != (reason_lc == "won")).sum()),
+        "won_flag_disagreement",
+    )
+    anomalies[Fields.STATUS] = (0, "none")
+    anomalies[Fields.SALES_STAGE] = (0, "coverage_checked_in_categorical")
+    anomalies[Fields.OWNER] = (0, "none")
+    anomalies[Fields.MANAGER] = (0, "none")
+
+    rows = []
+    for field in Fields.ALL_VALIDATED:
+        m = missingness.loc[field]
+        pct_null = float(m["pct_null"])
+        n_anomalies, anomaly_kind = anomalies[field]
+        anomaly_pct = (n_anomalies / n_total * 100) if n_total else 0.0
+        reliability, usable = _rate_field(pct_null, anomaly_pct)
+        rows.append(
+            {
+                "field": field,
+                "family": m["family"],
+                "pct_null": round(pct_null, 2),
+                "n_anomalies": n_anomalies,
+                "anomaly_kind": anomaly_kind,
+                "reliability": reliability,
+                "usable_for_scoring": usable,
+                "fallback_rule": FIELD_FALLBACK_RULES.get(field, ""),
+                "notes": FIELD_NOTES.get(field, ""),
             }
         )
 
