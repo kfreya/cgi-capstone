@@ -320,6 +320,12 @@ historical timeline at all. Their capacity scores cannot be computed against a
 real baseline and should be shown with an explicit "insufficient history" state
 in the dashboard, not a Low-confidence number.
 
+The 3-tier rule is defined in `config/fallback_assumptions.yaml`
+(`baseline_reliability`). The `baseline_reliability` *column* itself belongs in
+Lyken's director table (`compute_historical_baseline`), which currently emits a
+2-state boolean (`>= 4 quarters`); it should adopt the documented 3 tiers, and
+neither representation yet flags the 2 zero-quarter owners distinctly.
+
 **Owners with < 10 lifetime opportunities: 7.** These owners have a thin
 historical record; their capacity scores should carry a Low reliability tag
 regardless of `quarters_of_data`. Names are in the notebook output and should
@@ -332,15 +338,20 @@ the current data `duplicate_flag` is 0, so this is a safeguard rather than an
 active correction. `unmatched_flag` and `opps1_exclusive_flag` rows are kept —
 they are legitimate distinct opportunities.
 
-`build_owner_aggregates(cleaned_opportunity_df)` produces the columns Freya's
-dashboard mock expects but Lyken's `director_df` does not yet emit:
-`opportunity_owner`, `territory`, `late_stage_deal_count`,
-`weighted_pipeline_revenue`, `inferred_delivery_commitments`,
-`open_opportunity_count`, `lost_opportunity_count`,
-`duplicate_opportunity_count`, `quarters_of_data`, `baseline_reliability`.
-Lyken can join this onto his `director_df` on `opportunity_owner`. The full
-24-row table is in the notebook and a CSV copy under `data/processed/`
-(gitignored — regenerate locally).
+`build_owner_aggregates(cleaned_opportunity_df)` is a **validation
+cross-check**, not the dashboard table. As of PR #29, Lyken's
+`build_director_capacity_df` emits the owner-level director table that is the
+dashboard contract — that is the capacity engine's scope. `build_owner_aggregates`
+is an independent recomputation of the overlapping columns (`territory`,
+`late_stage_deal_count`, `weighted_pipeline_revenue`,
+`inferred_delivery_commitments`, `quarters_of_data`, `baseline_reliability`)
+plus the validation-specific outcome counts (`open_opportunity_count`,
+`lost_opportunity_count`, `duplicate_opportunity_count`). Running both on the
+same frame surfaces definition discrepancies to report back to Lyken — most
+materially `inferred_delivery_commitments` (953 from the cross-check vs 1,620
+from `build_director_capacity_df`, because the engine's `delivery_active` is
+not Won-gated). The full 24-row table is in the notebook and a CSV copy under
+`data/processed/` (gitignored — regenerate locally).
 
 ---
 

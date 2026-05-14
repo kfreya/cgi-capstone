@@ -128,23 +128,37 @@ per the architecture.
 
 ## 5. Owner-level findings
 
-`build_owner_aggregates(cleaned_opportunity_df)` returns, per owner:
-`territory`, `late_stage_deal_count`, `weighted_pipeline_revenue`,
-`inferred_delivery_commitments`, `open_opportunity_count`,
-`lost_opportunity_count`, `duplicate_opportunity_count`, `quarters_of_data`,
-`baseline_reliability`. Join it onto your `director_df` on
-`opportunity_owner`.
+Your `build_director_capacity_df` (PR #29) is the owner-level director table —
+that is the dashboard contract, and it is the capacity engine's scope.
+`build_owner_aggregates` in `data_validator.py` is a **validation cross-check**:
+an independent recomputation of the same owner-level columns, run to catch
+definition divergences. Findings from that cross-check, for you to consider:
 
-- **24 owners.** Duplicate join-key rows are deduplicated on `opportunity_id`
-  before aggregation (a no-op on the current data — `duplicate_flag` is 0 —
-  but a safeguard). `unmatched_flag` and `opps1_exclusive_flag` rows are kept;
-  they are legitimate distinct opportunities.
-- **Baseline reliability:** High 3 / Medium 13 / Low 8. Tier comes from
-  `quarters_of_data` (>=8 / 4-7 / <4).
-- **Two owners have `quarters_of_data = 0`** — their rows are entirely
-  opps1-exclusive with null `created_on`, so there is no usable historical
-  timeline. Their capacity score cannot be computed against a real baseline;
-  show an explicit "insufficient history" state, not a Low-confidence number.
+- **`inferred_delivery_commitments` differs by ~70%** — 953 from the
+  cross-check vs 1,620 from `build_director_capacity_df`. Root cause: the
+  engine's `delivery_active` column is not Won-gated, so non-Won opportunities
+  whose date window happens to contain today are counted. `delivery_load` (the
+  score) *is* Won-gated, so the module is internally inconsistent. Suggest
+  gating `delivery_active` on Won.
+- **`relative_load` looks mis-scaled.** The cross-check found `relative_load`
+  correlates 0.999 with `quarters_of_data`. `current_load` (numerator) is a
+  lifetime cumulative sum while `historical_avg_load` (denominator) is a
+  per-quarter average, so the ratio is roughly "number of quarters" and all 23
+  scoreable owners land at `capacity_score = 0` / Overextended. Compounding it,
+  `compute_sales_load` only zeroes `sales_load` for Won, so 2,657 closed-lost
+  rows (81% of total `sales_load`) still feed the numerator. The numerator
+  should be a current snapshot, not a lifetime sum.
+- **`baseline_reliability` should be the documented 3-tier rule**
+  (`config/fallback_assumptions.yaml`: High >= 8 / Medium 4-7 / Low < 4), not
+  a 2-state boolean. Separately, 2 owners have `quarters_of_data = 0` (history
+  is entirely opps1-exclusive with null `created_on`); neither the boolean nor
+  the 3-tier flags them distinctly, and their `relative_load` is NaN — they
+  need an explicit "insufficient history" state.
+- **24 owners.** The cross-check deduplicates `duplicate_flag` rows on
+  `opportunity_id` before aggregating (a no-op on current data — `duplicate_flag`
+  is 0 — but a cheap safeguard worth adding). `unmatched_flag` and
+  `opps1_exclusive_flag` rows are kept; they are legitimate distinct
+  opportunities.
 - **Seven owners have fewer than 10 lifetime opportunities.** Treat their
   scores as Low reliability regardless of `quarters_of_data`.
 
