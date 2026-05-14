@@ -1,5 +1,5 @@
 """
-Week 1 
+Week 1
 
 Capacity scoring engine for CGI Capacity Analyzer.
 
@@ -11,7 +11,6 @@ This module takes in the cleaned `opportunity_df` and defines the first-pass wor
 - relative load
 - capacity score
 - capacity labels
-
 """
 
 from __future__ import annotations
@@ -37,6 +36,27 @@ DEFAULT_LABEL_THRESHOLDS = {
 }
 
 
+def _get_revenue_series(df: pd.DataFrame) -> pd.Series:
+    """Return the revenue series used for capacity scoring.
+
+    Prefer Sprint 2 cleaned `authoritative_revenue` when available.
+    Fall back to Week 1 `total_estimated_revenue` for backward compatibility.
+    """
+    if "authoritative_revenue" in df.columns:
+        return pd.to_numeric(
+            df["authoritative_revenue"],
+            errors="coerce",
+        )
+
+    if "total_estimated_revenue" in df.columns:
+        return pd.to_numeric(
+            df["total_estimated_revenue"],
+            errors="coerce",
+        )
+
+    return pd.Series(pd.NA, index=df.index, dtype="Float64")
+
+
 def compute_sales_load(
     df: pd.DataFrame,
     stage_weights: dict | None = None,
@@ -53,7 +73,7 @@ def compute_sales_load(
     )
 
     revenue = (
-        pd.to_numeric(df["total_estimated_revenue"], errors="coerce")
+        _get_revenue_series(df)
         .fillna(0)
         .clip(lower=0)
     )
@@ -105,7 +125,7 @@ def compute_delivery_load(
     current_date = pd.Timestamp(current_date)
 
     revenue = (
-        pd.to_numeric(df["total_estimated_revenue"], errors="coerce")
+        _get_revenue_series(df)
         .fillna(0)
         .clip(lower=0)
     )
@@ -187,10 +207,7 @@ def compute_current_load_by_owner(
     )
 
     working_df["weighted_pipeline_revenue"] = (
-        pd.to_numeric(
-            working_df["total_estimated_revenue"],
-            errors="coerce",
-        ).fillna(0)
+        _get_revenue_series(working_df).fillna(0)
         * (
             pd.to_numeric(
                 working_df["probability"],
@@ -221,22 +238,18 @@ def compute_current_load_by_owner(
                 ),
             ),
             opportunity_count=("opportunity_id", "count"),
-
             territory=(
                 "delivery_territory_center",
                 "first",
             ),
-
             late_stage_deal_count=(
                 "is_late_stage",
                 "sum",
             ),
-
             weighted_pipeline_revenue=(
                 "weighted_pipeline_revenue",
                 "sum",
             ),
-
             inferred_delivery_commitments=(
                 "inferred_delivery_commitments",
                 "sum",
@@ -379,6 +392,7 @@ def assign_capacity_label(
     )
 
     return working_df
+
 
 if __name__ == "__main__":
     opportunity_df = pd.read_csv(
