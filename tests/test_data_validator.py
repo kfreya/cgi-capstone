@@ -129,6 +129,26 @@ def test_validate_date_duration_flags_close_before_created():
     assert metrics["n_close_before_created"] == 1
 
 
+def test_validate_date_duration_same_day_close_not_flagged():
+    """Regression: created_on carries a time component, close_date is midnight.
+
+    A deal created and closed on the same calendar day must not register as
+    `close_date < created_on`. The pre-fix code compared raw timestamps, so
+    any same-day row counted (created_on time-of-day is always > 00:00:00),
+    inflating the count roughly eightfold.
+    """
+    df = _minimal_validated_df()
+    df.loc[0, Fields.CREATED_ON] = pd.Timestamp("2024-01-01 14:30:00")
+    df.loc[0, Fields.CLOSE_DATE] = pd.Timestamp("2024-01-01 00:00:00")
+
+    result = validate_date_duration_fields(
+        df, as_of=pd.Timestamp("2024-09-01")
+    )
+
+    metrics = dict(zip(result["metric"], result["value"]))
+    assert metrics["n_close_before_created"] == 0
+
+
 def test_validate_categorical_fields_detects_status_disagreement():
     df = _minimal_validated_df()
     df.loc[0, Fields.STATUS] = "Won"
