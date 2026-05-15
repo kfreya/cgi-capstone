@@ -1,13 +1,14 @@
 """
-CGI Capacity Analyzer – Streamlit dashboard skeleton (Week 1).
+CGI Capacity Analyzer – Streamlit dashboard (Week 2).
 
 Two pages:
   Page 1 – Director Capacity Dashboard
   Page 2 – RFP Assignment Tool
 
-Mock data is loaded from app/mock_data.py.
-Replace load_data() with real pipeline outputs once Role 1/2 data and the
-capacity engine are integrated.
+Data loading precedence:
+  1. Computed live from data/processed/opportunity_df.csv via capacity_engine
+  2. Pre-built data/processed/director_capacity_df.csv
+  3. Synthetic mock data (app/mock_data.py)
 """
 
 from __future__ import annotations
@@ -16,14 +17,27 @@ import sys
 from pathlib import Path
 
 import numpy as np
+import pandas as pd
 import plotly.graph_objects as go
 import streamlit as st
 
-sys.path.insert(0, str(Path(__file__).parent))
-from mock_data import (
-    make_director_capacity_df,
-    make_trend_df,
-)
+# Allow imports from both app/ and src/
+_APP_DIR = Path(__file__).parent
+_PROJECT_ROOT = _APP_DIR.parent
+sys.path.insert(0, str(_APP_DIR))
+sys.path.insert(0, str(_PROJECT_ROOT / "src"))
+
+from mock_data import make_director_capacity_df, make_trend_df
+
+try:
+    from capacity_engine import (
+        build_director_capacity_df,
+        compute_delivery_load,
+        compute_sales_load,
+    )
+    _ENGINE_AVAILABLE = True
+except ImportError:
+    _ENGINE_AVAILABLE = False
 
 # ── Page config ───────────────────────────────────────────────────────────────
 st.set_page_config(
@@ -34,26 +48,21 @@ st.set_page_config(
 )
 
 # ── Brand palette ─────────────────────────────────────────────────────────────
-# Brand anchors.
 CGI_RED = "#CC0000"
 APP_BG  = "#F8FAFC"
 
-# Semantic status colors — CGI-aligned consulting severity scale.
-# Available is light steel blue, at-capacity is muted purple, overextended is CGI red.
 LABEL_COLORS = {
     "Available":    "#7DA0B1",
     "At Capacity":  "#581C87",
     "Overextended": "#991B1B",
 }
 
-# Light tints — for badge backgrounds.
 LABEL_TINTS = {
     "Available":    "#EAF2F6",
     "At Capacity":  "#F1E7F8",
     "Overextended": "#F8E7E7",
 }
 
-# Deep accents — for badge text (high-contrast on the tints above).
 LABEL_INK = {
     "Available":    "#476A7C",
     "At Capacity":  "#4C1D75",
@@ -62,33 +71,29 @@ LABEL_INK = {
 
 LABEL_NEUTRAL = "#475569"
 
-# Trend-chart palette — muted enterprise accents.
 BRAND_PALETTE = [
-    "#1E293B",   # slate-800
-    "#334155",   # slate-700
-    "#475569",   # slate-600
-    "#5F7280",   # blue-gray
-    "#7DA0B1",   # severity blue
-    "#6F6685",   # muted violet-gray
-    "#581C87",   # severity purple
-    "#991B1B",   # severity red
+    "#1E293B",
+    "#334155",
+    "#475569",
+    "#5F7280",
+    "#7DA0B1",
+    "#6F6685",
+    "#581C87",
+    "#991B1B",
 ]
 
 # ── CSS ───────────────────────────────────────────────────────────────────────
 st.markdown(f"""
 <style>
-  /* ── Page background (cool gray) ── */
   .stApp {{ background-color: {APP_BG}; }}
   [data-testid="stAppViewContainer"] > .main {{ background-color: {APP_BG}; }}
 
-  /* ── Block container: must leave room for Streamlit's top toolbar (~3.5 rem) ── */
   .block-container {{
     padding-top: 4rem !important;
     padding-bottom: 2rem !important;
     max-width: 1440px;
   }}
 
-  /* ── Sidebar ── */
   [data-testid="stSidebar"] > div:first-child {{
     background: #18181B;
     border-right: 1px solid #27272A;
@@ -98,7 +103,6 @@ st.markdown(f"""
   [data-testid="stSidebar"] p,
   [data-testid="stSidebar"] div {{ color: #D4D4D8 !important; }}
 
-  /* ── Header ── */
   .cgi-header {{
     background: #FFFFFF;
     border: 1px solid #E2E8F0;
@@ -138,7 +142,6 @@ st.markdown(f"""
     letter-spacing: 0.025em;
   }}
 
-  /* ── KPI card ── */
   .kpi-wrap {{
     background: #fff;
     border: 1px solid #E2E8F0;
@@ -161,7 +164,6 @@ st.markdown(f"""
     font-weight: 500;
   }}
 
-  /* ── Section headings (gradient left rule) ── */
   .sec-head {{
     font-size: 0.87rem;
     font-weight: 600;
@@ -180,7 +182,6 @@ st.markdown(f"""
     border-radius: 2px;
   }}
 
-  /* ── Chart wrapper card ── */
   .chart-card {{
     background: #fff;
     border: 1px solid #EDE9E3;
@@ -190,13 +191,11 @@ st.markdown(f"""
     margin-bottom: 0.75rem;
   }}
 
-  /* ── Capacity label badges (tints harmonised with new chart palette) ── */
   .badge {{ border-radius: 4px; padding: 2px 9px; font-size: 0.72rem; font-weight: 600; display: inline-block; }}
   .badge-available    {{ background: {LABEL_TINTS['Available']};    color: {LABEL_INK['Available']}; }}
   .badge-atcapacity   {{ background: {LABEL_TINTS['At Capacity']};  color: {LABEL_INK['At Capacity']}; }}
   .badge-overextended {{ background: {LABEL_TINTS['Overextended']}; color: {LABEL_INK['Overextended']}; }}
 
-  /* ── RFP recommendation cards ── */
   .rec-card {{
     background: #fff;
     border: 1px solid #EDE9E3;
@@ -210,12 +209,10 @@ st.markdown(f"""
   .rec-meta      {{ font-size: 0.79rem; color: #78716C; margin-bottom: 0.4rem; }}
   .rec-rationale {{ font-size: 0.81rem; color: #44403C; line-height: 1.6; }}
 
-  /* ── Effort level badges ── */
   .effort-high   {{ background: #F8E7E7; color: #7F1D1D; border-radius: 5px; padding: 3px 12px; font-weight: 700; font-size: 0.83rem; }}
   .effort-medium {{ background: #F1E7F8; color: #4C1D75; border-radius: 5px; padding: 3px 12px; font-weight: 700; font-size: 0.83rem; }}
   .effort-low    {{ background: #EAF2F6; color: #476A7C; border-radius: 5px; padding: 3px 12px; font-weight: 700; font-size: 0.83rem; }}
 
-  /* ── Pipeline steps box ── */
   .pipeline-box {{
     background: #F5F2EC;
     border: 1px solid #E7E2D8;
@@ -226,18 +223,23 @@ st.markdown(f"""
     line-height: 2.1;
   }}
 
-  /* ── Mock data banner ── */
-  .mock-banner {{
-    background: #FFF7ED;
-    border: 1px solid #FED7AA;
+  .data-banner {{
     border-radius: 6px;
     padding: 0.4rem 1rem;
     font-size: 0.78rem;
-    color: #92400E;
     margin-bottom: 1.1rem;
   }}
+  .data-banner-real {{
+    background: #ECFDF5;
+    border: 1px solid #A7F3D0;
+    color: #065F46;
+  }}
+  .data-banner-mock {{
+    background: #FFF7ED;
+    border: 1px solid #FED7AA;
+    color: #92400E;
+  }}
 
-  /* ── Expander ── */
   [data-testid="stExpander"] {{
     background: #fff !important;
     border: 1px solid #EDE9E3 !important;
@@ -245,7 +247,6 @@ st.markdown(f"""
     margin-bottom: 1rem;
   }}
 
-  /* ── Scrollbar ── */
   ::-webkit-scrollbar {{ width: 5px; height: 5px; }}
   ::-webkit-scrollbar-track {{ background: #F5F2EC; }}
   ::-webkit-scrollbar-thumb {{ background: #C9C0B5; border-radius: 3px; }}
@@ -258,19 +259,125 @@ _CHART_PAPER = "rgba(0,0,0,0)"
 _CHART_PLOT  = "rgba(0,0,0,0)"
 _GRID_COLOR  = "#E2E8F0"
 
-# Hoverlabel style — used everywhere so tooltips feel like part of the same product.
 _HOVER = dict(
     bgcolor="#FFFFFF",
     bordercolor="#E7E2D8",
     font=dict(family="Inter, system-ui, sans-serif", size=12, color="#1C1917"),
 )
 
-# ── Data ─────────────────────────────────────────────────────────────────────
-@st.cache_data
-def load_data():
-    return make_director_capacity_df(), make_trend_df()
+# ── Data loading ──────────────────────────────────────────────────────────────
 
-capacity_df, trend_df = load_data()
+def _build_trend_from_opportunity_df(opp_df: pd.DataFrame) -> pd.DataFrame:
+    """Build last-8-quarter workload trend from opportunity_df via the capacity engine.
+
+    NOTE: Quarterly assignment uses created_on to match the same grouping that
+    compute_historical_baseline() uses in capacity_engine.py, keeping the trend
+    chart's historical-avg line consistent with the engine's historical_avg_load.
+    The architecture (architecture.md §Historical Baseline) specifies active-quarter
+    logic (created_on <= quarter_end AND close_date >= quarter_start) which would be
+    more accurate; that fix belongs in compute_historical_baseline() so both metrics
+    stay aligned.  Tracked: fix in capacity_engine.py, then remove this note.
+    """
+    df = opp_df.copy()
+    df = compute_sales_load(df)
+    df = compute_delivery_load(df)
+    df["current_load"] = df["sales_load"] + df["delivery_load"]
+
+    created_on = pd.to_datetime(df["created_on"], errors="coerce")
+    df["quarter"] = created_on.dt.to_period("Q")
+    df["quarter_sort"] = df["quarter"].apply(
+        lambda q: q.ordinal if not pd.isna(q) else None
+    )
+    df["quarter_label"] = df["quarter"].apply(
+        lambda q: f"Q{q.quarter} {q.year}" if not pd.isna(q) else None
+    )
+
+    hist_avg = (
+        df.groupby(["opportunity_owner", "quarter"], dropna=False)
+        .agg(quarterly_load=("current_load", "sum"))
+        .reset_index()
+        .groupby("opportunity_owner")
+        .agg(historical_avg=("quarterly_load", "mean"))
+        .reset_index()
+    )
+
+    trend = (
+        df.dropna(subset=["quarter"])
+        .groupby(
+            ["opportunity_owner", "quarter", "quarter_sort", "quarter_label"],
+            dropna=False,
+        )
+        .agg(current_load=("current_load", "sum"))
+        .reset_index()
+        .merge(hist_avg, on="opportunity_owner", how="left")
+    )
+
+    territory = (
+        df.groupby("opportunity_owner")["delivery_territory_center"]
+        .first()
+        .reset_index()
+        .rename(columns={"delivery_territory_center": "territory"})
+    )
+    trend = trend.merge(territory, on="opportunity_owner", how="left")
+
+    # Keep last 8 quarters only, matching chart heading
+    max_sort = trend["quarter_sort"].max()
+    trend = trend[trend["quarter_sort"] >= (max_sort - 7)]
+
+    return trend.sort_values(["opportunity_owner", "quarter_sort"]).reset_index(drop=True)
+
+
+@st.cache_data
+def load_data() -> tuple[pd.DataFrame, pd.DataFrame, str, str | None]:
+    """Load capacity data. Returns (capacity_df, trend_df, source_label, warning).
+
+    warning is None on success or a short error description when the preferred
+    source failed and mock data was used instead.
+    """
+    opp_path = _PROJECT_ROOT / "data" / "processed" / "opportunity_df.csv"
+    prebuilt  = _PROJECT_ROOT / "data" / "processed" / "director_capacity_df.csv"
+
+    # Option 1: compute live from opportunity_df via capacity engine
+    if _ENGINE_AVAILABLE and opp_path.exists():
+        try:
+            opp_df  = pd.read_csv(opp_path)
+            cap_df  = build_director_capacity_df(opp_df)
+            trd_df  = _build_trend_from_opportunity_df(opp_df)
+            return cap_df, trd_df, "real", None
+        except Exception as exc:
+            _live_err = f"Live scoring failed ({type(exc).__name__}: {exc})"
+    else:
+        _live_err = None
+
+    # Option 2: pre-built CSV
+    if prebuilt.exists():
+        try:
+            cap_df = pd.read_csv(prebuilt)
+            if _ENGINE_AVAILABLE and opp_path.exists():
+                opp_df = pd.read_csv(opp_path)
+                trd_df = _build_trend_from_opportunity_df(opp_df)
+            else:
+                trd_df = make_trend_df()
+            warning = _live_err  # surface live-scoring error even though we recovered
+            return cap_df, trd_df, "prebuilt", warning
+        except Exception as exc:
+            _prebuilt_err = f"Pre-built CSV failed ({type(exc).__name__}: {exc})"
+    else:
+        _prebuilt_err = None
+
+    # Option 3: mock — build a combined warning so the operator can diagnose
+    parts = [e for e in [_live_err, _prebuilt_err] if e]
+    warning = "; ".join(parts) if parts else "Real data unavailable — mock data shown."
+    return make_director_capacity_df(), make_trend_df(), "mock", warning
+
+
+capacity_df, trend_df, _data_source, _load_warning = load_data()
+
+# Normalise baseline_reliability: bool True/False → "Reliable"/"Limited"
+if capacity_df["baseline_reliability"].dtype == bool or capacity_df["baseline_reliability"].isin([True, False]).all():
+    capacity_df["baseline_reliability"] = capacity_df["baseline_reliability"].map(
+        {True: "Reliable", False: "Limited"}
+    ).fillna("Limited")
 
 # ── Sidebar ───────────────────────────────────────────────────────────────────
 with st.sidebar:
@@ -291,11 +398,19 @@ with st.sidebar:
     )
 
     st.markdown("<hr style='border-color:#27272A;margin:1.5rem 0 1.2rem'>", unsafe_allow_html=True)
+
+    _src_color = "#4ADE80" if _data_source == "real" else "#FBB040"
+    _src_label = {
+        "real":     "Live CRM data",
+        "prebuilt": "Pre-built CSV",
+        "mock":     "Synthetic mock data",
+    }[_data_source]
+
     st.markdown(
         "<div style='font-size:0.69rem;color:#52525B;line-height:1.9'>"
         "Scope: CGI Atlantic · Media Atlantic<br>"
         "Source: CRM opportunity records<br>"
-        "<br><span style='color:#CC0000;font-weight:600'>⚠ Week 1 – mock data</span>"
+        f"<br><span style='color:{_src_color};font-weight:600'>● {_src_label}</span>"
         "</div>",
         unsafe_allow_html=True,
     )
@@ -308,20 +423,40 @@ st.markdown(
       <div class="cgi-vdivider"></div>
       <div class="cgi-title-group">
         <div class="cgi-page-title">{page}</div>
-        <div class="cgi-page-sub">CGI Atlantic · Media Atlantic Business Unit · Week 1 Prototype</div>
+        <div class="cgi-page-sub">CGI Atlantic · Media Atlantic Business Unit · Week 2 Prototype</div>
       </div>
     </div>
     """,
     unsafe_allow_html=True,
 )
 
-# ── Mock data banner ──────────────────────────────────────────────────────────
-st.markdown(
-    "<div class='mock-banner'>⚠ Displaying <b>synthetic mock data</b> — "
-    "real pipeline outputs replace this once the capacity engine and merged "
-    "opportunity data are integrated.</div>",
-    unsafe_allow_html=True,
-)
+# ── Data source banner ────────────────────────────────────────────────────────
+if _data_source == "real":
+    st.markdown(
+        "<div class='data-banner data-banner-real'>"
+        "<b>Live data</b> — Director capacity scores computed from CRM opportunity records "
+        f"({len(capacity_df)} owners)."
+        "</div>",
+        unsafe_allow_html=True,
+    )
+elif _data_source == "prebuilt":
+    st.markdown(
+        "<div class='data-banner data-banner-real'>"
+        "<b>Pre-built data</b> — Loaded from <code>director_capacity_df.csv</code>. "
+        "Re-run the capacity engine to refresh."
+        "</div>",
+        unsafe_allow_html=True,
+    )
+else:
+    st.markdown(
+        "<div class='data-banner data-banner-mock'>Displaying <b>synthetic mock data</b> — "
+        "real pipeline outputs replace this once the capacity engine and merged "
+        "opportunity data are integrated.</div>",
+        unsafe_allow_html=True,
+    )
+
+if _load_warning:
+    st.warning(f"Data loading fell back to a lower-priority source. Details: {_load_warning}")
 
 
 # ==============================================================================
@@ -333,10 +468,11 @@ if page == "Director Capacity Dashboard":
     with st.expander("Filters", expanded=False):
         fc1, fc2, fc3, fc4 = st.columns(4)
         with fc1:
-            territories = ["All"] + sorted(capacity_df["territory"].unique())
+            territory_vals = sorted(capacity_df["territory"].dropna().unique())
+            territories = ["All"] + territory_vals
             sel_territory = st.selectbox("Territory", territories)
         with fc2:
-            owners = ["All"] + sorted(capacity_df["opportunity_owner"].unique())
+            owners = ["All"] + sorted(capacity_df["opportunity_owner"].dropna().unique())
             sel_owner = st.selectbox("Opportunity Owner", owners)
         with fc3:
             labels = ["All", "Available", "At Capacity", "Overextended"]
@@ -346,7 +482,7 @@ if page == "Director Capacity Dashboard":
                 "Status",
                 ["All", "Open", "Won", "Lost", "Cancelled"],
                 disabled=True,
-                help="Available once opportunity_df is connected (Role 1)",
+                help="Available once opportunity_df filtering is connected",
             )
 
         fc5, fc6, fc7, fc8 = st.columns(4)
@@ -356,28 +492,28 @@ if page == "Director Capacity Dashboard":
                 ["All", "0-Lead/Suspect", "1-Identification", "2-Qualification",
                  "3-Bid Planning", "4-Proposal", "5-Client Decision", "6-Negotiation&Signature"],
                 disabled=True,
-                help="Available once opportunity_df is connected (Role 1)",
+                help="Available once opportunity_df filtering is connected",
             )
         with fc6:
             st.date_input(
                 "Date Range",
                 value=[],
                 disabled=True,
-                help="Available once opportunity_df is connected (Role 1)",
+                help="Available once opportunity_df filtering is connected",
             )
         with fc7:
             st.selectbox(
                 "Opportunity Type",
                 ["All", "New Business", "Extension", "Renewal", "Change Request"],
                 disabled=True,
-                help="Available once opportunity_df is connected (Role 1)",
+                help="Available once opportunity_df filtering is connected",
             )
         with fc8:
             st.selectbox(
                 "Sales Model",
                 ["All", "Direct", "Partner", "Framework", "Public Sector Tender"],
                 disabled=True,
-                help="Available once opportunity_df is connected (Role 1)",
+                help="Available once opportunity_df filtering is connected",
             )
 
     fdf = capacity_df.copy()
@@ -387,6 +523,10 @@ if page == "Director Capacity Dashboard":
         fdf = fdf[fdf["opportunity_owner"] == sel_owner]
     if sel_label != "All":
         fdf = fdf[fdf["capacity_label"] == sel_label]
+
+    if fdf.empty:
+        st.info("No directors match the selected filters. Adjust the filters above.")
+        st.stop()
 
     # ── KPI row ───────────────────────────────────────────────────────────────
     k1, k2, k3, k4 = st.columns(4)
@@ -407,7 +547,35 @@ if page == "Director Capacity Dashboard":
             unsafe_allow_html=True,
         )
 
-    st.markdown("<div style='height:1rem'></div>", unsafe_allow_html=True)
+    st.markdown("<div style='height:0.5rem'></div>", unsafe_allow_html=True)
+
+    # ── Score explanation ─────────────────────────────────────────────────────
+    with st.expander("How is the Capacity Score calculated?", expanded=False):
+        st.markdown(
+            """
+**Capacity Score** = `max(0, 1 − min(relative_load, 1))`
+
+| Score range | Label | Meaning |
+|---|---|---|
+| ≥ 0.35 | **Available** | Director has meaningful room for new work |
+| 0.15 – 0.34 | **At Capacity** | Director is near their historical average load |
+| < 0.15 | **Overextended** | Director's current load exceeds their historical norm |
+
+**Relative Load** = `current_load / historical_avg_load`
+
+**Current Load** combines two components:
+- *Sales load* — weighted by sales stage, win probability, estimated revenue, and project duration
+- *Delivery load* — active inferred deliveries based on revenue start date and project duration
+
+**Historical Average Load** = mean quarterly load across all quarters in the CRM data.
+
+> Scores are based on anonymized CRM opportunity records. Missing revenue, dates, or
+> probability fields are handled using documented fallback assumptions.
+""",
+            unsafe_allow_html=False,
+        )
+
+    st.markdown("<div style='height:0.5rem'></div>", unsafe_allow_html=True)
 
     # ── Row 1: Capacity score bars  |  Label donut ───────────────────────────
     col_bars, col_donut = st.columns([3, 1.1])
@@ -415,22 +583,26 @@ if page == "Director Capacity Dashboard":
     with col_bars:
         st.markdown('<div class="sec-head">Capacity Score by Director</div>', unsafe_allow_html=True)
 
-        sdf = fdf.sort_values("capacity_score")
+        sdf = fdf.sort_values("capacity_score", na_position="first")
+
+        # Safe display values — NaN scores shown as 0 in chart (labeled At Capacity by engine)
+        score_display = sdf["capacity_score"].fillna(0).values
+        rel_display   = sdf["relative_load"].fillna(0).values
 
         fig_bar = go.Figure()
         customdata = np.column_stack([
-            sdf["capacity_score"].values,
-            sdf["relative_load"].values,
+            score_display,
+            rel_display,
             sdf["capacity_label"].values,
         ])
 
         fig_bar.add_trace(go.Bar(
             y=sdf["opportunity_owner"],
-            x=sdf["capacity_score"],
+            x=score_display,
             orientation="h",
-            marker_color=[LABEL_COLORS[l] for l in sdf["capacity_label"]],
+            marker_color=[LABEL_COLORS.get(l, LABEL_COLORS["At Capacity"]) for l in sdf["capacity_label"]],
             marker_line_width=0,
-            text=[f"  {v:.0%}" for v in sdf["capacity_score"]],
+            text=[f"  {v:.0%}" for v in score_display],
             textposition="outside",
             textfont=dict(size=11, color="#57534E", family="Inter"),
             customdata=customdata,
@@ -442,12 +614,11 @@ if page == "Director Capacity Dashboard":
             ),
         ))
 
-        # Invisible scatter at x=0 for zero-score owners so hover works near their name.
-        zero_sdf = sdf[sdf["capacity_score"] == 0]
+        zero_sdf = sdf[sdf["capacity_score"].fillna(0) == 0]
         if not zero_sdf.empty:
             zero_customdata = np.column_stack([
-                zero_sdf["capacity_score"].values,
-                zero_sdf["relative_load"].values,
+                zero_sdf["capacity_score"].fillna(0).values,
+                zero_sdf["relative_load"].fillna(0).values,
                 zero_sdf["capacity_label"].values,
             ])
             fig_bar.add_trace(go.Scatter(
@@ -465,7 +636,6 @@ if page == "Director Capacity Dashboard":
                 showlegend=False,
             ))
 
-        # Threshold lines — softer dash, paler stroke, semantic colours from new palette.
         for x_val, color in [(0.35, LABEL_COLORS["Available"]),
                              (0.15, LABEL_COLORS["Overextended"])]:
             fig_bar.add_shape(
@@ -474,7 +644,6 @@ if page == "Director Capacity Dashboard":
                 line=dict(dash="2,4", color=color, width=1),
             )
 
-        # Ghosted threshold annotations — modern minimal style (no border, soft page-tint bg).
         fig_bar.add_annotation(
             x=0.36, xref="x", y=0.04, yref="paper",
             text="Available ≥ 35%",
@@ -492,8 +661,11 @@ if page == "Director Capacity Dashboard":
             borderpad=4, borderwidth=0,
         )
 
+        n_owners = len(sdf)
+        bar_height = max(280, n_owners * 28 + 60)
+
         fig_bar.update_layout(
-            height=310,
+            height=bar_height,
             margin=dict(l=0, r=80, t=8, b=30),
             paper_bgcolor=_CHART_PAPER,
             plot_bgcolor=_CHART_PLOT,
@@ -507,7 +679,7 @@ if page == "Director Capacity Dashboard":
                 showline=False,
                 tickfont=dict(size=10, color="#78716C"),
             ),
-            yaxis=dict(title="", tickfont=dict(size=12, color="#1C1917"), showgrid=False),
+            yaxis=dict(title="", tickfont=dict(size=11, color="#1C1917"), showgrid=False),
             font=_CHART_FONT,
             hoverlabel=_HOVER,
             showlegend=False,
@@ -524,7 +696,7 @@ if page == "Director Capacity Dashboard":
         fig_donut = go.Figure(go.Pie(
             labels=lc["label"],
             values=lc["count"],
-            hole=0.66,                                # bigger hole = more "ring", more modern
+            hole=0.66,
             marker=dict(
                 colors=[LABEL_COLORS.get(l, "#aaa") for l in lc["label"]],
                 line=dict(color=APP_BG, width=3),
@@ -537,7 +709,6 @@ if page == "Director Capacity Dashboard":
             direction="clockwise",
         ))
 
-        # Center total — modern dashboard staple.
         fig_donut.add_annotation(
             text=(f"<b style='font-size:24px;color:#222222'>{total_dirs}</b><br>"
                   "<span style='font-size:9px;color:#78716C;letter-spacing:1.5px'>"
@@ -546,7 +717,7 @@ if page == "Director Capacity Dashboard":
         )
 
         fig_donut.update_layout(
-            height=310,
+            height=bar_height,
             margin=dict(l=0, r=0, t=8, b=8),
             paper_bgcolor=_CHART_PAPER,
             showlegend=False,
@@ -564,13 +735,11 @@ if page == "Director Capacity Dashboard":
         name="Current Load",
         x=ldf["opportunity_owner"],
         y=ldf["current_load"],
-        marker_color=[LABEL_COLORS[l] for l in ldf["capacity_label"]],
+        marker_color=[LABEL_COLORS.get(l, LABEL_COLORS["At Capacity"]) for l in ldf["capacity_label"]],
         marker_line_width=0,
         hovertemplate="<b>%{x}</b><br>Current Load: %{y:.1f}<extra></extra>",
     ))
 
-    # Historical avg as short horizontal segments per director — much cleaner
-    # than the old "line-ew" markers, reads as a benchmark line at a glance.
     _AVG_INK = "#44403C"
     for xi, row in ldf.iterrows():
         fig_load.add_shape(
@@ -579,7 +748,6 @@ if page == "Director Capacity Dashboard":
             y0=row["historical_avg_load"], y1=row["historical_avg_load"],
             line=dict(color=_AVG_INK, width=2.5),
         )
-    # Invisible legend proxy so the legend still shows "Historical Avg".
     fig_load.add_trace(go.Scatter(
         x=[None], y=[None], mode="lines",
         line=dict(color=_AVG_INK, width=2.5),
@@ -587,8 +755,8 @@ if page == "Director Capacity Dashboard":
     ))
 
     fig_load.update_layout(
-        height=260,
-        margin=dict(l=0, r=0, t=8, b=40),
+        height=300,
+        margin=dict(l=0, r=0, t=8, b=60),
         paper_bgcolor=_CHART_PAPER,
         plot_bgcolor=_CHART_PLOT,
         legend=dict(
@@ -600,7 +768,7 @@ if page == "Director Capacity Dashboard":
             gridcolor=_GRID_COLOR, zeroline=False, showline=False,
             tickfont=dict(size=10, color="#78716C"),
         ),
-        xaxis=dict(title="", showgrid=False, tickfont=dict(size=11, color="#1C1917")),
+        xaxis=dict(title="", showgrid=False, tickfont=dict(size=11, color="#1C1917"), tickangle=-35),
         font=_CHART_FONT,
         bargap=0.42,
         hoverlabel=_HOVER,
@@ -625,27 +793,29 @@ if page == "Director Capacity Dashboard":
         fig_trend = go.Figure()
         for idx, owner in enumerate(trend_owners):
             odf = tdf[tdf["opportunity_owner"] == owner]
+            if odf.empty:
+                continue
             color = BRAND_PALETTE[idx % len(BRAND_PALETTE)]
             fig_trend.add_trace(go.Scatter(
                 x=odf["quarter_label"],
                 y=odf["current_load"],
                 name=owner,
                 mode="lines+markers",
-                line=dict(
-                    color=color,
-                    width=2.5,
-                    shape="spline",      # smooth curves → modern feel
-                    smoothing=1.1,
-                ),
-                marker=dict(
-                    size=6,
-                    color=color,
-                    line=dict(color=APP_BG, width=1.5),
-                ),
+                line=dict(color=color, width=2.5, shape="spline", smoothing=1.1),
+                marker=dict(size=6, color=color, line=dict(color=APP_BG, width=1.5)),
                 hovertemplate=f"<b>{owner}</b><br>%{{x}}: %{{y:.1f}}<extra></extra>",
             ))
+
+        if not fig_trend.data:
+            fig_trend.add_annotation(
+                x=0.5, y=0.5, xref="paper", yref="paper",
+                text="No trend data for selected owner",
+                showarrow=False,
+                font=dict(size=13, color="#94A3B8"),
+            )
+
         fig_trend.update_layout(
-            height=285,
+            height=300,
             margin=dict(l=0, r=0, t=8, b=10),
             paper_bgcolor=_CHART_PAPER,
             plot_bgcolor=_CHART_PLOT,
@@ -673,28 +843,36 @@ if page == "Director Capacity Dashboard":
 
         display = fdf[[
             "opportunity_owner", "territory", "capacity_label", "capacity_score",
+            "relative_load",
             "open_deal_count", "late_stage_deal_count",
             "weighted_pipeline_revenue", "inferred_delivery_commitments",
             "baseline_reliability",
         ]].copy()
-        display["capacity_score"]            = (display["capacity_score"] * 100).round(1)
+
+        display["capacity_score"] = display["capacity_score"].fillna(0)
+        display["capacity_score"] = (display["capacity_score"] * 100).round(1)
+        # relative_load: show as "2.3x" — reveals overextension severity when score = 0
+        display["relative_load"] = display["relative_load"].apply(
+            lambda x: f"{x:.1f}x" if pd.notna(x) else "—"
+        )
+        display["territory"] = display["territory"].fillna("Unknown")
         display["weighted_pipeline_revenue"] = display["weighted_pipeline_revenue"].apply(
-            lambda x: f"${x / 1_000_000:.1f}M"
+            lambda x: f"${x / 1_000_000:.1f}M" if pd.notna(x) else "—"
         )
         display.columns = [
-            "Director", "Territory", "Label", "Score (%)",
+            "Director", "Territory", "Label", "Score (%)", "Rel. Load",
             "Open Deals", "Late-Stage", "Pipeline (CAD)",
             "Active Deliveries", "Baseline",
         ]
-        st.dataframe(display, width="stretch", hide_index=True, height=290)
+        tbl_height = max(290, min(len(display) * 35 + 40, 600))
+        st.dataframe(display, width="stretch", hide_index=True, height=tbl_height)
 
 
 # ==============================================================================
-#  PAGE 2 – RFP Assignment Tool  (placeholder — backend owned by Jai / Role 5)
+#  PAGE 2 – RFP Assignment Tool  (UI shell — backend owned by Jai / Role 5)
 # ==============================================================================
 elif page == "RFP Assignment Tool":
 
-    # ── Context banner ────────────────────────────────────────────────────────
     st.markdown(
         "<div style='background:#F5F2EC;border:1px solid #E7E2D8;border-radius:8px;"
         "padding:0.75rem 1.1rem;margin-bottom:1.2rem;font-size:0.82rem;color:#57534E'>"
@@ -702,14 +880,13 @@ elif page == "RFP Assignment Tool":
         "The backend pipeline (chunking, embeddings, retrieval, director ranking) "
         "is being built by <b>Jai (Role 5)</b> in "
         "<code>src/rfp_preprocessor.py</code> and <code>src/vector_store.py</code>. "
-        "Jai's pipeline output will plug into the results panel below."
+        "Jai's <code>generate_assignment_context()</code> output will plug into the results panel below."
         "</div>",
         unsafe_allow_html=True,
     )
 
     col_input, col_results = st.columns([1, 1.5], gap="large")
 
-    # ── Input panel ───────────────────────────────────────────────────────────
     with col_input:
         st.markdown('<div class="sec-head">RFP Input</div>', unsafe_allow_html=True)
 
@@ -739,7 +916,6 @@ elif page == "RFP Assignment Tool":
         st.button("Analyze RFP", type="primary", width="stretch", disabled=True)
         st.caption("Backend not connected — enable once Jai's pipeline is integrated.")
 
-    # ── Results placeholder panel ─────────────────────────────────────────────
     with col_results:
         _ph = (
             f"background:{APP_BG};border:1.5px dashed #D6CFC8;border-radius:8px;"
@@ -751,7 +927,7 @@ elif page == "RFP Assignment Tool":
         st.markdown(
             f"<div style='{_ph}'>Effort level and estimated duration will appear here<br>"
             "<span style='font-size:0.72rem'>"
-            "Source: <code>rfp_engine.py → generate_assignment_context()</code></span></div>",
+            "Source: <code>generate_assignment_context()</code> → <code>effort</code></span></div>",
             unsafe_allow_html=True,
         )
 
@@ -759,7 +935,7 @@ elif page == "RFP Assignment Tool":
         st.markdown(
             f"<div style='{_ph}'>Retrieved RFP chunks ranked by semantic similarity will appear here<br>"
             "<span style='font-size:0.72rem'>"
-            "Source: <code>vector_store.py → retrieve_relevant_chunks()</code></span></div>",
+            "Source: <code>retrieve_relevant_chunks()</code> → <code>retrieved_examples</code></span></div>",
             unsafe_allow_html=True,
         )
 
@@ -768,7 +944,7 @@ elif page == "RFP Assignment Tool":
             f"<div style='{_ph}'>Ranked director recommendations with capacity, experience,<br>"
             "and assignment scores will appear here<br>"
             "<span style='font-size:0.72rem'>"
-            "Source: <code>rfp_engine.py → rank_directors()</code></span></div>",
+            "Source: <code>generate_assignment_context()</code> → <code>recommended_directors</code></span></div>",
             unsafe_allow_html=True,
         )
 
@@ -776,7 +952,7 @@ elif page == "RFP Assignment Tool":
         st.markdown(
             f"<div style='{_ph}'>Capacity rationale for each recommended director will appear here<br>"
             "<span style='font-size:0.72rem'>"
-            "Source: <code>rfp_engine.py → rank_directors()</code></span></div>",
+            "Source: <code>recommended_directors[].capacity_label</code> + score</span></div>",
             unsafe_allow_html=True,
         )
 
@@ -784,7 +960,7 @@ elif page == "RFP Assignment Tool":
         st.markdown(
             f"<div style='{_ph}'>Relevant past work, similarity evidence, and fit rationale will appear here<br>"
             "<span style='font-size:0.72rem'>"
-            "Source: Azure OpenAI via <code>rfp_engine.py</code></span></div>",
+            "Source: <code>recommended_directors[].match_reason</code> + supporting chunks</span></div>",
             unsafe_allow_html=True,
         )
 
@@ -792,6 +968,6 @@ elif page == "RFP Assignment Tool":
         st.markdown(
             f"<div style='{_ph}'>Low-confidence matches, capacity conflicts, or data-quality warnings will appear here<br>"
             "<span style='font-size:0.72rem'>"
-            "Source: <code>rfp_engine.py → generate_assignment_context()</code></span></div>",
+            "Source: <code>generate_assignment_context()</code> → <code>risk_flags</code></span></div>",
             unsafe_allow_html=True,
         )
