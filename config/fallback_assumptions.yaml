@@ -173,24 +173,27 @@
 - rule_id: baseline_reliability
   field_resolved: baseline_reliability
   thresholds:
+    no_baseline: quarters_of_data == 0
     high: quarters_of_data >= 8
     medium: 4 <= quarters_of_data < 8
-    low: quarters_of_data < 4
+    low: 0 < quarters_of_data < 4
   rationale: >
     Owners with fewer than four quarters of CRM activity have a noisy
     historical baseline; capacity scores derived against that baseline
-    should be displayed with a reliability tag in the dashboard.
+    should be displayed with a reliability tag in the dashboard. Owners with
+    zero usable quarters cannot be scored against a baseline at all -- that
+    is a distinct "No baseline" state, not a thin "Low" one.
   evidence:
     n_owners_total: 24
     n_owners_high: 3
     n_owners_medium: 13
-    n_owners_low: 8
-    n_owners_with_zero_quarters: 2
+    n_owners_low: 6
+    n_owners_no_baseline: 2
     n_owners_with_under_10_lifetime_opps: 7
     note: >
-      Sprint 2 observes 8 Low-tier owners (Sprint 1 saw none). Two of them
-      have quarters_of_data = 0 -- their rows are entirely opps1-exclusive
-      with null created_on, so they have no usable baseline at all and should
-      get an explicit "insufficient history" state, not a Low-confidence
-      score.
+      Sprint 2 observes 6 Low-tier owners (Sprint 1 saw none) plus 2
+      No-baseline owners whose rows are entirely opps1-exclusive with null
+      created_on. The No-baseline owners have no usable history at all; their
+      relative_load is NaN and they must be shown with an explicit
+      "No baseline" state in the dashboard, not a Low-confidence score.
   risk: medium

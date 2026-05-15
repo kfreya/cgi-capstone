@@ -47,12 +47,14 @@ def test_classify_opportunity_outcome_buckets():
     df = pd.DataFrame(
         {
             Fields.STATUS: [
-                "Won", "Closed", "Closed", "Closed", "Open",
+                "Won", "Closed", "Closed", "Closed", "Closed",
+                "Open", "Open", "Open",
                 "Won", "Closed", "Open", "Something",
             ],
             Fields.STATUS_REASON: [
-                "Won", "LOST-Price", "Cancelled by Customer", "Duplicated",
-                "Open", None, None, None, None,
+                "Won", "LOST-Price", "Cancelled by Customer", "Canceled",
+                "Duplicate", "Open", "active", "in progress",
+                None, None, None, None,
             ],
         }
     )
@@ -63,13 +65,35 @@ def test_classify_opportunity_outcome_buckets():
         "won",        # status_reason "Won"
         "lost",       # status_reason "LOST-Price" (prefix match)
         "lost",       # status_reason "Cancelled by Customer" (Option B)
-        "duplicate",  # status_reason "Duplicated"
+        "lost",       # status_reason "Canceled" (American spelling prefix)
+        "duplicate",  # status_reason "Duplicate" (singular)
         "open",       # status_reason "Open"
+        "open",       # status_reason "active"
+        "open",       # status_reason "in progress"
         "won",        # null reason -> status "Won" (won-detection fallback)
         "lost",       # null reason -> status "Closed" (ended unwon)
         "open",       # null reason -> status "Open"
         "unknown",    # null reason -> unrecognized status
     ]
+
+
+def test_classify_opportunity_outcome_unrecognized_reason_is_unknown():
+    """A non-null status_reason that matches no rule must not inherit status.
+
+    The status fallback applies only to null/blank status_reason; a non-empty
+    but unrecognized value stays "unknown" so new CRM vocabulary surfaces
+    instead of the taxonomy silently drifting.
+    """
+    df = pd.DataFrame(
+        {
+            Fields.STATUS: ["Open", "Closed", "Won"],
+            Fields.STATUS_REASON: ["On Hold", "Some New Label", "Pending"],
+        }
+    )
+
+    outcome = classify_opportunity_outcome(df)
+
+    assert list(outcome) == ["unknown", "unknown", "unknown"]
 
 
 def test_classify_opportunity_outcome_requires_columns():

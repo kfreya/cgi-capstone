@@ -311,20 +311,22 @@ via `build_owner_aggregates`):
 |---|---|---:|
 | High | >= 8 | 3 |
 | Medium | 4–7 | 13 |
-| Low | < 4 | 8 |
+| Low | 1–3 | 6 |
+| No baseline | 0 | 2 |
 
-This is a change from Sprint 1, which observed no Low-tier owners. Of the 8
-Low-tier owners, **2 have `quarters_of_data = 0`** — every one of their rows is
-an opps1-exclusive record with a null `created_on`, so they have no usable
-historical timeline at all. Their capacity scores cannot be computed against a
-real baseline and should be shown with an explicit "insufficient history" state
-in the dashboard, not a Low-confidence number.
+This is a change from Sprint 1, which observed no owners below the
+High/Medium tiers. The 2 **No baseline** owners have `quarters_of_data = 0` —
+every one of their rows is an opps1-exclusive record with a null `created_on`,
+so they have no usable historical timeline at all. Their `relative_load` is
+NaN and they cannot be scored against a baseline; the dashboard must show them
+with an explicit "No baseline" state, not a Low-confidence number.
 
-The 3-tier rule is defined in `config/fallback_assumptions.yaml`
-(`baseline_reliability`). The `baseline_reliability` *column* itself belongs in
-Lyken's director table (`compute_historical_baseline`), which currently emits a
-2-state boolean (`>= 4 quarters`); it should adopt the documented 3 tiers, and
-neither representation yet flags the 2 zero-quarter owners distinctly.
+The 4-tier rule (No baseline / Low / Medium / High) is defined in
+`config/fallback_assumptions.yaml` (`baseline_reliability`). The
+`baseline_reliability` *column* itself belongs in Lyken's director table
+(`compute_historical_baseline`), which currently emits a 2-state boolean
+(`>= 4 quarters`); it should adopt the documented 4 tiers so the No-baseline
+owners are not collapsed into an ordinary score.
 
 **Owners with < 10 lifetime opportunities: 7.** These owners have a thin
 historical record; their capacity scores should carry a Low reliability tag
