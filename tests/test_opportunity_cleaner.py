@@ -215,6 +215,28 @@ def test_clean_opportunity_df_adds_sprint2_flags_without_mutating_input():
     assert list(cleaned["close_before_created_flag"]) == [False, True, False]
 
 
+def test_clean_opportunity_df_close_before_created_uses_calendar_dates():
+    opportunity_df = pd.DataFrame(
+        {
+            "opportunity_id": ["A", "B", "C"],
+            "created_on": [
+                "2024-01-01 14:30:00",
+                "2024-01-02 09:00:00",
+                "2024-01-03 09:00:00",
+            ],
+            "close_date": [
+                "2024-01-01 00:00:00",
+                "2024-01-01 00:00:00",
+                "2024-01-04 00:00:00",
+            ],
+        }
+    )
+
+    cleaned = clean_opportunity_df(opportunity_df)
+
+    assert list(cleaned["close_before_created_flag"]) == [False, True, False]
+
+
 def test_clean_opportunity_df_uses_safe_defaults_when_week1_columns_missing():
     cleaned = clean_opportunity_df(pd.DataFrame({"opportunity_id": ["A"]}))
 
@@ -287,7 +309,7 @@ def test_build_owner_base_summary_groups_cleaned_opportunities_without_mutating_
     assert unknown["opportunity_count"] == 3
     assert unknown["open_opportunity_count"] == 0
     assert unknown["won_opportunity_count"] == 0
-    assert unknown["lost_opportunity_count"] == 3
+    assert unknown["lost_opportunity_count"] == 2
     assert unknown["missing_probability_count"] == 0
     assert unknown["missing_revenue_count"] == 1
     assert unknown["missing_duration_count"] == 1
@@ -297,6 +319,41 @@ def test_build_owner_base_summary_groups_cleaned_opportunities_without_mutating_
     assert pd.isna(unknown["total_estimated_revenue_sum"])
     assert unknown["opportunity_estimated_revenue_base_cad_sum"] == 800
     assert "authoritative_revenue" not in summary.columns
+
+
+def test_build_owner_base_summary_uses_shared_outcome_taxonomy():
+    cleaned_df = pd.DataFrame(
+        {
+            "opportunity_id": ["A", "B", "C", "D", "E", "F", "G"],
+            "opportunity_owner": ["Taxonomy"] * 7,
+            "status": [
+                "Closed",
+                "Closed",
+                "Closed",
+                "Closed",
+                "Open",
+                "Won",
+                "Closed",
+            ],
+            "status_reason": [
+                "Cancelled",
+                "Canceled",
+                "Duplicated",
+                "Duplicate",
+                None,
+                " ",
+                pd.NA,
+            ],
+        }
+    )
+
+    summary = build_owner_base_summary(cleaned_df)
+
+    row = summary.iloc[0]
+    assert row["opportunity_count"] == 7
+    assert row["open_opportunity_count"] == 1
+    assert row["won_opportunity_count"] == 1
+    assert row["lost_opportunity_count"] == 3
 
 
 def test_build_owner_base_summary_uses_safe_fallbacks_for_missing_optional_columns():

@@ -98,7 +98,7 @@ scoring, and dashboard use:
 
 It also adds lightweight data-quality flags for missing owner, probability,
 revenue, duration, revenue start date, invalid probability/duration, and
-`close_date < created_on`.
+calendar-date `close_date < created_on`.
 
 The cleaned dataframe includes `authoritative_revenue` as the non-additive
 opportunity-level revenue fallback:
@@ -114,9 +114,12 @@ the revenue semantics.
 
 `src/opportunity_cleaner.py::build_owner_base_summary()` creates the Sprint 2
 Role 1 owner-level handoff artifact from `cleaned_opportunity_df`. It groups
-records by `opportunity_owner` and summarizes opportunity counts, simple status
-buckets using both `status` and `status_reason`, missing-data counts,
-merge/source flags, and separate revenue totals.
+records by `opportunity_owner` and summarizes opportunity counts, open/won/lost
+counts using Kian's shared `classify_opportunity_outcome()` taxonomy,
+missing-data counts, merge/source flags, and separate revenue totals. Under
+that taxonomy Cancelled/Canceled are lost, while CRM Duplicated/Duplicate
+outcomes are excluded from open/won/lost counts and remain separate from the
+merge-level `duplicate_flag`.
 
 This owner base summary is intended for Kian's validation checks and Lyken's
 scoring sanity checks. It is not final capacity scoring: it does not compute
@@ -125,7 +128,7 @@ scoring sanity checks. It is not final capacity scoring: it does not compute
 
 ## Checks Completed
 
-- `python src/opportunity_cleaner.py` completed successfully.
+- `python -m src.opportunity_cleaner` completed successfully.
 - `python -m pytest tests/test_opportunity_cleaner.py` passed with 6 tests.
 - `data/processed` outputs are ignored by Git.
 - Final `opportunity_df` preserves opportunity-level grain.

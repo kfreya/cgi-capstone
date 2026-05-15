@@ -5,6 +5,8 @@ from pathlib import Path
 
 import pandas as pd
 
+from src.data_validator import classify_opportunity_outcome
+
 
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
 DATA_DIR = PROJECT_ROOT / "data"
@@ -176,10 +178,16 @@ def clean_opportunity_df(opportunity_df: pd.DataFrame) -> pd.DataFrame:
     )
 
     if {"created_on", "close_date"}.issubset(cleaned.columns):
+        created_date = pd.to_datetime(
+            cleaned["created_on"], errors="coerce"
+        ).dt.normalize()
+        close_date = pd.to_datetime(
+            cleaned["close_date"], errors="coerce"
+        ).dt.normalize()
         cleaned["close_before_created_flag"] = (
-            cleaned["close_date"].notna()
-            & cleaned["created_on"].notna()
-            & (cleaned["close_date"] < cleaned["created_on"])
+            close_date.notna()
+            & created_date.notna()
+            & (close_date < created_date)
         )
     else:
         cleaned["close_before_created_flag"] = False
@@ -190,10 +198,10 @@ def clean_opportunity_df(opportunity_df: pd.DataFrame) -> pd.DataFrame:
 def build_owner_base_summary(cleaned_df: pd.DataFrame) -> pd.DataFrame:
     """Summarize cleaned opportunities by owner for Sprint 2 handoff.
 
-    Status buckets are intentionally simple text checks across `status` and
-    `status_reason` when present. Outcome buckets (won/lost) take precedence
-    over open/in-progress labels. This artifact is for validation and scoring
-    sanity checks, not final capacity scoring.
+    Outcome buckets use Kian's shared `classify_opportunity_outcome` taxonomy
+    so CRM `Duplicated` / `Duplicate` outcomes are excluded from open/won/lost
+    counts. This artifact is for validation and scoring sanity checks, not
+    final capacity scoring.
     """
     work = cleaned_df.copy(deep=True)
 
@@ -206,31 +214,14 @@ def build_owner_base_summary(cleaned_df: pd.DataFrame) -> pd.DataFrame:
     else:
         work["_summary_owner"] = UNKNOWN_OWNER
 
-    status_parts = []
     for field in ["status", "status_reason"]:
-        if field in work.columns:
-            status_parts.append(work[field].astype("string").str.strip().str.lower().fillna(""))
+        if field not in work.columns:
+            work[field] = pd.NA
 
-    if status_parts:
-        status_text = status_parts[0]
-        for part in status_parts[1:]:
-            status_text = status_text.str.cat(part, sep=" ")
-    else:
-        status_text = pd.Series("", index=work.index, dtype="string")
-
-    won_opportunity = status_text.str.contains(r"closed won|won", regex=True)
-    lost_opportunity = status_text.str.contains(
-        r"closed lost|lost|cancelled|canceled|duplicated|duplicate",
-        regex=True,
-    )
-    open_opportunity = status_text.str.contains(
-        r"open|in progress|active",
-        regex=True,
-    ) & ~won_opportunity & ~lost_opportunity
-
-    work["_open_opportunity"] = open_opportunity
-    work["_won_opportunity"] = won_opportunity
-    work["_lost_opportunity"] = lost_opportunity
+    outcome = classify_opportunity_outcome(work)
+    work["_open_opportunity"] = outcome == "open"
+    work["_won_opportunity"] = outcome == "won"
+    work["_lost_opportunity"] = outcome == "lost"
 
     if "probability" in work.columns:
         work["_probability"] = pd.to_numeric(work["probability"], errors="coerce")
