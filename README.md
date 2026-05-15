@@ -119,7 +119,7 @@ python src/check_env.py
 Build the merged opportunity dataset:
 
 ```bash
-python src/opportunity_cleaner.py
+python -m src.opportunity_cleaner
 ```
 
 Run the Streamlit app:

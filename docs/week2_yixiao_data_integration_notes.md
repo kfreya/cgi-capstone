@@ -20,7 +20,8 @@ Week 2 keeps that merge logic intact and adds a non-breaking preparation layer:
 - `clean_opportunity_df()` preserves all existing columns and adds Sprint 2
   alias flags, basic numeric/date coercion, and lightweight data-quality flags.
 - `build_owner_base_summary()` creates an owner-level handoff summary grouped
-  by `opportunity_owner`.
+  by `opportunity_owner`, using Kian's shared outcome taxonomy for
+  open/won/lost counts.
 - `write_outputs()` now writes both Week 1 merge artifacts and Sprint 2 handoff
   artifacts.
 
@@ -53,7 +54,7 @@ It adds:
 - `unmatched_flag`
 - `opps1_exclusive_flag`
 - missing/invalid data-quality flags for owner, probability, revenue, duration,
-  revenue start date, and close-before-created anomalies
+  revenue start date, and calendar-date close-before-created anomalies
 
 It also coerces known numeric and date fields when present and creates
 `authoritative_revenue` using `total_estimated_revenue` first, then
@@ -67,7 +68,8 @@ Creates an owner-level summary grouped by `opportunity_owner`.
 It includes:
 
 - opportunity counts
-- simple open/won/lost status buckets using both `status` and `status_reason`
+- open/won/lost status buckets from
+  `src.data_validator.classify_opportunity_outcome()`
 - average probability
 - missing-data counts
 - duplicate/unmatched/opps1-exclusive counts
@@ -102,9 +104,11 @@ It now also writes the Sprint 2 handoff artifacts:
   for the merge audit trail.
 - Blank or missing `opportunity_owner` values are grouped as `Unknown` in
   `owner_base_summary`.
-- Owner summary status buckets use simple matching on both `status` and
-  `status_reason` values such as open, in progress, active, won, lost,
-  cancelled, canceled, duplicated, and duplicate.
+- Owner summary outcome buckets use Kian's shared
+  `classify_opportunity_outcome()` taxonomy: Open/Active/In Progress count as
+  open, Won counts as won, Lost/Cancelled/Canceled count as lost, and
+  Duplicated/Duplicate CRM outcomes are excluded from open/won/lost counts.
+  The CRM duplicate outcome is separate from the merge-level `duplicate_flag`.
 - `authoritative_revenue` is a non-additive opportunity-level fallback:
   `total_estimated_revenue`, then `opportunity_estimated_revenue_base_cad`.
 - `service_solution_estimated_revenue` remains separate.
@@ -116,8 +120,8 @@ It now also writes the Sprint 2 handoff artifacts:
 - Kian still owns validation and reliability review of the revenue fields.
 - Final delivery-window fallback decisions remain validation/scoring work.
 - Final capacity scoring and `director_capacity_df` remain scoring module work.
-- Status bucket logic may need refinement after validation reviews CRM status
-  conventions.
+- The Option B outcome taxonomy is still pending CGI confirmation, but Role 1
+  now imports the shared helper so any future taxonomy change is centralized.
 
 ## What Kian Should Review Next
 
@@ -127,7 +131,8 @@ It now also writes the Sprint 2 handoff artifacts:
   fallback.
 - Confirm whether `service_solution_estimated_revenue` is service-line detail
   or another opportunity-level candidate.
-- Review date anomalies, especially `close_before_created_flag`.
+- Review date anomalies, especially the calendar-date
+  `close_before_created_flag`.
 - Use `owner_base_summary.csv` as a quick owner-level validation sanity check.
 
 ## What Lyken Should Know For Scoring

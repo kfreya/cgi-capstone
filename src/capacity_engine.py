@@ -42,6 +42,8 @@ def _get_revenue_series(df: pd.DataFrame) -> pd.Series:
 
     Prefer Sprint 2 cleaned `authoritative_revenue` when available.
     Fall back to Week 1 `total_estimated_revenue` for backward compatibility.
+    Do not use `service_solution_estimated_revenue`, which is a service-line
+    breakdown rather than opportunity-level scoring revenue.
     """
     if "authoritative_revenue" in df.columns:
         return pd.to_numeric(
@@ -72,12 +74,6 @@ def compute_sales_load(
         .fillna(0)
         .clip(lower=0)
     )
-
-    #revenue_source = (
-    #    df["authoritative_revenue"]
-    #    if "authoritative_revenue" in df.columns
-    #    else df["total_estimated_revenue"]
-    #)
 
     revenue = (
         _get_revenue_series(df)
@@ -130,12 +126,6 @@ def compute_delivery_load(
         current_date = pd.Timestamp.today().normalize()
 
     current_date = pd.Timestamp(current_date)
-
-    #revenue_source = (
-    #    df["authoritative_revenue"]
-    #    if "authoritative_revenue" in df.columns
-    #    else df["total_estimated_revenue"]
-    #)
 
     revenue = (
         _get_revenue_series(df)
