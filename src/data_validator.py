@@ -122,6 +122,9 @@ LATE_STAGE_VALUES = {
 # `build_owner_base_summary` and Lyken's scoring should import
 # `classify_opportunity_outcome` rather than re-deriving these buckets.
 #   - WON_REASONS / OPEN_REASONS: exact status_reason (and status fallback).
+#     OPEN_REASONS carries the "in progress" / "active" synonyms so the
+#     helper stays aligned with Yixiao's owner-summary vocabulary even though
+#     the current data only uses "open".
 #   - DUPLICATE_REASONS: a CRM data-quality label. Profiling found zero
 #     overlap with the merge-level `duplicate_flag` and only ~3 owners
 #     affected, so it is NOT a merge artefact and NOT a win/loss business
@@ -131,7 +134,7 @@ LATE_STAGE_VALUES = {
 #   - LOST_REASON_PREFIXES: "lost-..." and "cancelled ..." labels. A
 #     cancelled pursuit ended unwon, so it is treated as lost-like.
 WON_REASONS = {"won"}
-OPEN_REASONS = {"open"}
+OPEN_REASONS = {"open", "active", "in progress"}
 DUPLICATE_REASONS = {"duplicated", "duplicate"}
 LOST_REASON_PREFIXES = ("lost", "cancelled", "canceled")
 
@@ -313,17 +316,22 @@ def classify_opportunity_outcome(df: pd.DataFrame) -> pd.Series:
 
     Taxonomy ("Option B" — see docs/data_validation.md):
       * status_reason "won"                  -> won
-      * status_reason "open"                 -> open
-      * status_reason "duplicated"           -> duplicate. A CRM data-quality
-        label, not a win/loss business outcome (zero overlap with the
-        merge-level `duplicate_flag`). Its own bucket so callers can exclude
-        it from win/lost/open counts.
+      * status_reason "open" / "active" / "in progress" -> open
+      * status_reason "duplicated" / "duplicate" -> duplicate. A CRM
+        data-quality label, not a win/loss business outcome (zero overlap
+        with the merge-level `duplicate_flag`). Its own bucket so callers
+        can exclude it from win/lost/open counts.
       * status_reason prefix "lost"          -> lost
       * status_reason prefix "cancelled"/"canceled" -> lost. A cancelled
         pursuit ended unwon, so it is lost-like.
       * status_reason null/blank -> fall back to `status`: "won" -> won,
         "open" -> open, "closed" -> lost (the opportunity ended unwon; the
         reason is simply unrecorded), anything else -> unknown.
+      * status_reason non-empty but unrecognized -> unknown. The `status`
+        fallback is deliberately NOT applied here: a CRM status_reason value
+        the taxonomy does not cover should surface as "unknown" rather than
+        silently inherit `status`, so new vocabulary is noticed instead of
+        letting the taxonomy drift.
 
     This subsumes the Sprint 1 `won_detection` fallback rule: the 15 rows
     with `status == "Won"` but a null `status_reason` now resolve to "won".
@@ -339,18 +347,23 @@ def classify_opportunity_outcome(df: pd.DataFrame) -> pd.Series:
 
     outcome = pd.Series("unknown", index=df.index, dtype="object")
 
-    # status fallback first; the canonical status_reason rules below override.
-    outcome = outcome.mask(status.isin(WON_REASONS), "won")
-    outcome = outcome.mask(status.isin(OPEN_REASONS), "open")
-    outcome = outcome.mask(status == "closed", "lost")
-
-    # status_reason is canonical. An empty string (null/blank reason) matches
-    # none of these, so the status fallback is preserved for those rows.
+    # status_reason is the canonical field: classify every recognized,
+    # non-empty value. An empty string (null/blank reason) matches none of
+    # these and is left for the status fallback below.
     is_lost_reason = reason.str.startswith(LOST_REASON_PREFIXES).fillna(False)
     outcome = outcome.mask(is_lost_reason, "lost")
     outcome = outcome.mask(reason.isin(DUPLICATE_REASONS), "duplicate")
     outcome = outcome.mask(reason.isin(OPEN_REASONS), "open")
     outcome = outcome.mask(reason.isin(WON_REASONS), "won")
+
+    # status fallback applies ONLY where status_reason is null/blank. A
+    # non-empty but unrecognized status_reason stays "unknown" rather than
+    # inheriting `status` — that surfaces new CRM vocabulary instead of
+    # letting the taxonomy drift.
+    no_reason = reason == ""
+    outcome = outcome.mask(no_reason & status.isin(WON_REASONS), "won")
+    outcome = outcome.mask(no_reason & status.isin(OPEN_REASONS), "open")
+    outcome = outcome.mask(no_reason & (status == "closed"), "lost")
 
     return outcome
 
@@ -541,7 +554,9 @@ def build_owner_aggregates(
       * Open opps for `weighted_pipeline_revenue` are defined as
         `_outcome == "open"` (equivalent to `status == "Open"` in this data).
       * `baseline_reliability` is a coarse signal — High if the owner has
-        ≥ 8 quarters of created opportunities, Medium for ≥ 4, else Low.
+        ≥ 8 quarters of created opportunities, Medium for ≥ 4, Low for ≥ 1,
+        and "No baseline" when the owner has 0 usable quarters (their rows
+        carry no `created_on`) and so cannot be scored against a baseline.
       * Duplicate join-key rows (`duplicate_flag` / `is_duplicate_join_key`)
         are deduplicated on `opportunity_id` (keep first) before aggregation
         so revenue and deal counts are not double-counted for the affected
@@ -658,6 +673,11 @@ def build_owner_aggregates(
 
 
 def _baseline_reliability_from_quarters(n_quarters: int) -> str:
+    # 0 quarters means the owner has no usable `created_on` history at all
+    # (e.g. an entirely opps1-exclusive owner) — they cannot be scored
+    # against a baseline, which is a distinct state from a thin "Low" one.
+    if n_quarters == 0:
+        return "No baseline"
     if n_quarters >= 8:
         return "High"
     if n_quarters >= 4:

@@ -148,12 +148,15 @@ definition divergences. Findings from that cross-check, for you to consider:
   `compute_sales_load` only zeroes `sales_load` for Won, so 2,657 closed-lost
   rows (81% of total `sales_load`) still feed the numerator. The numerator
   should be a current snapshot, not a lifetime sum.
-- **`baseline_reliability` should be the documented 3-tier rule**
-  (`config/fallback_assumptions.yaml`: High >= 8 / Medium 4-7 / Low < 4), not
-  a 2-state boolean. Separately, 2 owners have `quarters_of_data = 0` (history
-  is entirely opps1-exclusive with null `created_on`); neither the boolean nor
-  the 3-tier flags them distinctly, and their `relative_load` is NaN — they
-  need an explicit "insufficient history" state.
+- **`baseline_reliability` should be the documented 4-tier rule**
+  (`config/fallback_assumptions.yaml`: No baseline = 0 quarters / Low 1-3 /
+  Medium 4-7 / High >= 8), not a 2-state boolean. The "No baseline" tier is
+  now formalised in `fallback_assumptions.yaml`, `data_validation.md`, and
+  `build_owner_aggregates`: it isolates the 2 owners with
+  `quarters_of_data = 0` (history entirely opps1-exclusive with null
+  `created_on`), whose `relative_load` is NaN and who cannot be scored at
+  all. `compute_historical_baseline` should emit the same 4 tiers so those 2
+  are not collapsed into an ordinary score.
 - **24 owners.** The cross-check deduplicates `duplicate_flag` rows on
   `opportunity_id` before aggregating (a no-op on current data — `duplicate_flag`
   is 0 — but a cheap safeguard worth adding). `unmatched_flag` and
