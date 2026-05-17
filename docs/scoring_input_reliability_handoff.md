@@ -97,10 +97,9 @@ and was a measurement artefact. It is not a blocker for time-based features,
 but `close_date - created_on` should not be used as a "time to close" metric
 until CGI explains the 379 (open question in `docs/data_validation.md`).
 
-Note: Yixiao's `close_before_created_flag` in `opportunity_cleaner.py` still
-uses the un-normalized comparison and reads 3,049. Until that is fixed, prefer
-`validate_date_duration_fields` / `_count_close_before_created` for the
-corrected count.
+Note: Yixiao's `close_before_created_flag` in `opportunity_cleaner.py` now uses
+the same normalized calendar-date comparison as
+`validate_date_duration_fields` / `_count_close_before_created`.
 
 ---
 
@@ -134,29 +133,15 @@ that is the dashboard contract, and it is the capacity engine's scope.
 an independent recomputation of the same owner-level columns, run to catch
 definition divergences. Findings from that cross-check, for you to consider:
 
-- **`inferred_delivery_commitments` differs by ~70%** — 953 from the
-  cross-check vs 1,620 from `build_director_capacity_df`. Root cause: the
-  engine's `delivery_active` column is not Won-gated, so non-Won opportunities
-  whose date window happens to contain today are counted. `delivery_load` (the
-  score) *is* Won-gated, so the module is internally inconsistent. Suggest
-  gating `delivery_active` on Won.
-- **`relative_load` looks mis-scaled.** The cross-check found `relative_load`
-  correlates 0.999 with `quarters_of_data`. `current_load` (numerator) is a
-  lifetime cumulative sum while `historical_avg_load` (denominator) is a
-  per-quarter average, so the ratio is roughly "number of quarters" and all 23
-  scoreable owners land at `capacity_score = 0` / Overextended. Compounding it,
-  `compute_sales_load` only zeroes `sales_load` for Won, so 2,657 closed-lost
-  rows (81% of total `sales_load`) still feed the numerator. The numerator
-  should be a current snapshot, not a lifetime sum.
-- **`baseline_reliability` should be the documented 4-tier rule**
-  (`config/fallback_assumptions.yaml`: No baseline = 0 quarters / Low 1-3 /
-  Medium 4-7 / High >= 8), not a 2-state boolean. The "No baseline" tier is
-  now formalised in `fallback_assumptions.yaml`, `data_validation.md`, and
-  `build_owner_aggregates`: it isolates the 2 owners with
-  `quarters_of_data = 0` (history entirely opps1-exclusive with null
-  `created_on`), whose `relative_load` is NaN and who cannot be scored at
-  all. `compute_historical_baseline` should emit the same 4 tiers so those 2
-  are not collapsed into an ordinary score.
+- `compute_sales_load` now imports `classify_opportunity_outcome` and routes
+  only Open rows into sales load. Lost, Cancelled, Duplicated, Closed, and Won
+  rows contribute zero sales load.
+- `compute_delivery_load` now gates both `delivery_load` and
+  `delivery_active` on Won rows inside the delivery window, so
+  `inferred_delivery_commitments` aligns with the validation cross-check.
+- `compute_historical_baseline` now emits the documented 4-tier
+  `baseline_reliability` rule (`No baseline` / `Low` / `Medium` / `High`) and
+  uses active-quarter workload rather than a lifetime cumulative numerator.
 - **24 owners.** The cross-check deduplicates `duplicate_flag` rows on
   `opportunity_id` before aggregating (a no-op on current data — `duplicate_flag`
   is 0 — but a cheap safeguard worth adding). `unmatched_flag` and

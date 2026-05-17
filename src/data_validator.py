@@ -934,13 +934,9 @@ def validate_quality_flags(df: pd.DataFrame) -> pd.DataFrame:
         `n_unscoreable_both_null` — both mean "no opportunity-level revenue
         candidate for `authoritative_revenue`". The signed gap is reported as
         `flag_discrepancy_missing_revenue` (expected 0).
-      * `close_before_created_flag` is computed by the cleaner with an
-        un-normalized timestamp comparison — the same bug fixed in
-        `validate_date_duration_fields`. The flag sum is compared against the
-        corrected calendar-date count from `_count_close_before_created`; the
-        gap is reported as `flag_discrepancy_close_before_created`. This is a
-        documented finding for Yixiao's `opportunity_cleaner.py`, not an edit
-        to another owner's module.
+      * `close_before_created_flag` is compared against the corrected
+        calendar-date count from `_count_close_before_created`; the gap is
+        reported as `flag_discrepancy_close_before_created` (expected 0).
     """
     _require_columns(df, Fields.FLAG_COLUMNS)
 
@@ -972,9 +968,9 @@ def validate_quality_flags(df: pd.DataFrame) -> pd.DataFrame:
         )
     )
 
-    # Cross-check 2: the cleaner's close_before_created_flag (un-normalized
-    # timestamp comparison) vs the corrected calendar-date count. The flag
-    # count itself is already emitted by the boolean-flag loop above.
+    # Cross-check 2: the cleaner's close_before_created_flag vs the corrected
+    # calendar-date count. The flag count itself is already emitted by the
+    # boolean-flag loop above.
     flag_close_before_created = int(
         df["close_before_created_flag"].fillna(False).astype(bool).sum()
     )

@@ -23,6 +23,7 @@ from src.capacity_engine import (
     compute_current_load_by_owner,
     compute_delivery_load,
     compute_historical_baseline,
+    compute_quarterly_workload_by_owner,
     compute_relative_load,
     compute_sales_load,
 )
@@ -235,7 +236,98 @@ def test_compute_historical_baseline_returns_owner_level_statistics():
     assert result.loc[0, "historical_avg_load"] > 0
     assert result.loc[0, "historical_max_load"] > 0
     assert result.loc[0, "quarters_of_data"] == 3
-    assert bool(result.loc[0, "baseline_reliability"]) is False
+    assert result.loc[0, "baseline_reliability"] == "Low"
+
+
+def test_compute_sales_load_excludes_lost_and_duplicate_outcomes():
+    df = pd.DataFrame(
+        {
+            "status": ["Closed", "Closed", "Open"],
+            "status_reason": ["Lost - Price", "Duplicated", "Open"],
+            "sales_stage": ["4-Proposal", "4-Proposal", "4-Proposal"],
+            "probability": [100, 100, 100],
+            "authoritative_revenue": [100000, 100000, 100000],
+            "project_duration_number_of_months": [12, 12, 12],
+        }
+    )
+
+    result = compute_sales_load(df)
+
+    assert result.loc[0, "sales_load"] == 0
+    assert result.loc[1, "sales_load"] == 0
+    assert result.loc[2, "sales_load"] > 0
+
+
+def test_compute_delivery_load_counts_only_won_active_deliveries():
+    df = pd.DataFrame(
+        {
+            "status": ["Won", "Closed", "Open"],
+            "status_reason": [pd.NA, "Lost - Price", "Open"],
+            "authoritative_revenue": [1200000, 1200000, 1200000],
+            "project_duration_number_of_months": [12, 12, 12],
+            "revenue_start_date": ["2026-01-01", "2026-01-01", "2026-01-01"],
+            "close_date": ["2025-12-01", "2025-12-01", "2025-12-01"],
+        }
+    )
+
+    result = compute_delivery_load(df, current_date="2026-05-01")
+
+    assert list(result["delivery_active"]) == [True, False, False]
+    assert result.loc[0, "delivery_load"] > 0
+    assert result.loc[1, "delivery_load"] == 0
+    assert result.loc[2, "delivery_load"] == 0
+
+
+def test_quarterly_workload_is_capped_at_as_of_quarter():
+    df = pd.DataFrame(
+        {
+            "opportunity_id": ["A", "B"],
+            "opportunity_owner": ["Owner 1", "Owner 1"],
+            "status": ["Open", "Won"],
+            "status_reason": ["Open", "Won"],
+            "sales_stage": ["4-Proposal", "6-Negotiation&Signature"],
+            "probability": [80, 100],
+            "authoritative_revenue": [100000, 1200000],
+            "project_duration_number_of_months": [120, 120],
+            "revenue_start_date": ["2032-01-01", "2026-01-01"],
+            "close_date": [pd.NA, "2025-12-01"],
+            "created_on": ["2025-01-01", "2025-12-01"],
+        }
+    )
+
+    result = compute_quarterly_workload_by_owner(
+        df,
+        as_of_date="2026-05-17",
+    )
+
+    assert result["quarter"].max() == pd.Period("2026Q2", freq="Q")
+    assert "Q4 2038" not in set(result["quarter_label"])
+
+
+def test_historical_baseline_is_capped_at_as_of_quarter():
+    df = pd.DataFrame(
+        {
+            "opportunity_id": ["A", "B"],
+            "opportunity_owner": ["Owner 1", "Owner 1"],
+            "status": ["Open", "Won"],
+            "status_reason": ["Open", "Won"],
+            "sales_stage": ["4-Proposal", "6-Negotiation&Signature"],
+            "probability": [80, 100],
+            "authoritative_revenue": [100000, 1200000],
+            "project_duration_number_of_months": [120, 120],
+            "revenue_start_date": ["2032-01-01", "2026-01-01"],
+            "close_date": [pd.NA, "2025-12-01"],
+            "created_on": ["2025-01-01", "2025-12-01"],
+        }
+    )
+
+    result = compute_historical_baseline(
+        df,
+        as_of_date="2026-05-17",
+    )
+
+    assert result.loc[0, "quarters_of_data"] == 6
+    assert result.loc[0, "baseline_reliability"] == "Medium"
 
 
 def test_compute_relative_load_divides_current_by_baseline():

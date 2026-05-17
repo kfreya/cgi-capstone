@@ -41,6 +41,9 @@ Required columns:
 | `baseline_reliability` | Reliability label for the historical baseline. |
 
 The workload trend chart expects one row per owner per quarter.
+For live opportunity data, the trend should show the last eight quarters ending
+at the current/as-of quarter, not future quarters created by projected delivery
+end dates.
 
 Required columns:
 

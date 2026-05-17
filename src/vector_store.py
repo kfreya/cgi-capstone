@@ -351,6 +351,7 @@ def build_dashboard_payload(
     results: Sequence[SearchResult],
     rfp_summary: str = "",
     recommended_directors: Sequence[dict[str, Any]] | None = None,
+    effort: dict[str, Any] | None = None,
     risk_flags: Sequence[dict[str, str]] | None = None,
     notes: str = "Prototype output for dashboard integration.",
 ) -> dict[str, Any]:
@@ -373,6 +374,20 @@ def build_dashboard_payload(
 
     return {
         "rfp_summary": rfp_summary or _summarize_query(query_text),
+        "effort": effort or {
+            "level": "Low",
+            "estimated_duration": "1-2 weeks",
+            "rationale": "Prototype estimate pending final RFP effort model.",
+        },
+        "similar_rfps": [
+            {
+                "title": result.chunk.title,
+                "similarity_score": round(result.score, 4),
+                "matched_chunk": result.chunk.text,
+                "source": result.chunk.chunk_id,
+            }
+            for result in results
+        ],
         "retrieved_examples": [
             result.to_retrieved_example() for result in results
         ],
@@ -494,18 +509,37 @@ def _dashboard_director_record(
 ) -> dict[str, Any]:
     """Normalize director records to the Week 2 dashboard contract."""
 
+    capacity_score = _as_float(director.get("capacity_score"), default=0.72)
+    relative_load = _as_float(director.get("relative_load"), default=0.65)
+    assignment_score = _as_float(
+        director.get("assignment_score"),
+        default=round((capacity_score * 0.45) + (0.35 if supporting_chunks else 0.15), 3),
+    )
+    director_name = director.get(
+        "director_name",
+        director.get("opportunity_owner", director.get("name", "Director A")),
+    )
+    capacity_label = director.get("capacity_label", "Available")
     return {
-        "director_name": director.get(
-            "director_name",
-            director.get("opportunity_owner", director.get("name", "Director A")),
-        ),
-        "capacity_label": director.get("capacity_label", "Available"),
-        "capacity_score": _as_float(director.get("capacity_score"), default=0.72),
-        "relative_load": _as_float(director.get("relative_load"), default=0.65),
+        "director_name": director_name,
+        "capacity_label": capacity_label,
+        "capacity_score": capacity_score,
+        "relative_load": relative_load,
+        "assignment_score": assignment_score,
         "match_reason": director.get(
             "match_reason",
             director.get("reason", "Relevant historical experience and available capacity"),
         ),
+        "capacity_explanation": director.get(
+            "capacity_explanation",
+            f"{director_name} is currently labeled {capacity_label} "
+            f"with capacity score {capacity_score:.2f} and relative load {relative_load:.2f}.",
+        ),
+        "experience_match_explanation": director.get(
+            "experience_match_explanation",
+            "Prototype fit is based on the retrieved historical/sample RFP chunks.",
+        ),
+        "risk_flags": list(director.get("risk_flags", [])),
         "supporting_chunks": director.get("supporting_chunks", supporting_chunks[:2]),
     }
 
