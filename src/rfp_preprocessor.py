@@ -11,14 +11,22 @@ For example: `python src/rfp_preprocessor.py`.
 
 from __future__ import annotations
 
+import json
 import re
 from collections.abc import Mapping, Sequence
 from dataclasses import asdict, dataclass
+from pathlib import Path
 from typing import Any
 
 
-DEFAULT_MAX_TOKENS = 800
-DEFAULT_OVERLAP_TOKENS = 100
+DEFAULT_CHUNK_SIZE = 500
+DEFAULT_OVERLAP = 50
+DEFAULT_PROPOSAL_JSON_PATH = Path("data/proposals_responses.json")
+SAMPLE_RFP_TEXT = (
+    "CGI is responding to a request for cloud migration, data analytics, "
+    "dashboard reporting, and managed service support. The work includes "
+    "planning, delivery coordination, risk tracking, and executive reporting."
+)
 TOKEN_PATTERN = re.compile(r"\S+")
 
 
@@ -159,9 +167,12 @@ def extract_rfp_documents(proposals: Mapping[str, Any]) -> list[RFPDocument]:
                     section="proposal",
                     text=proposal_text,
                     metadata={
+                        "proposal_id": base_document_id,
                         "source_title": str(title),
                         "source_type": "proposal",
                         "proposal_index": proposal_index,
+                        "opportunity_owner": None,
+                        "opportunity_id": None,
                     },
                 )
             )
@@ -180,8 +191,8 @@ def extract_rfp_documents(proposals: Mapping[str, Any]) -> list[RFPDocument]:
 
 def chunk_text(
     text: str,
-    max_tokens: int = DEFAULT_MAX_TOKENS,
-    overlap_tokens: int = DEFAULT_OVERLAP_TOKENS,
+    chunk_size: int = DEFAULT_CHUNK_SIZE,
+    overlap: int = DEFAULT_OVERLAP,
 ) -> list[str]:
     """Split text into overlapping token-like chunks.
 
@@ -190,8 +201,8 @@ def chunk_text(
     be cut off at a chunk boundary.
 
     @param text: Source text to split.
-    @param max_tokens: Maximum approximate tokens per chunk.
-    @param overlap_tokens: Approximate tokens repeated between chunks.
+    @param chunk_size: Maximum approximate tokens per chunk.
+    @param overlap: Approximate tokens repeated between chunks.
     @return: List of chunk strings.
     @raises ValueError: If the chunk size settings are invalid.
     """
@@ -200,16 +211,16 @@ def chunk_text(
         span.text
         for span in _chunk_text_with_spans(
             text=text,
-            max_tokens=max_tokens,
-            overlap_tokens=overlap_tokens,
+            chunk_size=chunk_size,
+            overlap=overlap,
         )
     ]
 
 
 def chunk_rfp_documents(
     documents: Sequence[RFPDocument],
-    max_tokens: int = DEFAULT_MAX_TOKENS,
-    overlap_tokens: int = DEFAULT_OVERLAP_TOKENS,
+    chunk_size: int = DEFAULT_CHUNK_SIZE,
+    overlap: int = DEFAULT_OVERLAP,
 ) -> list[RFPChunk]:
     """Chunk extracted RFP documents and preserve retrieval metadata.
 
@@ -218,8 +229,8 @@ def chunk_rfp_documents(
     retrieved result came from.
 
     @param documents: Extracted proposal/response documents.
-    @param max_tokens: Maximum approximate tokens per chunk.
-    @param overlap_tokens: Approximate tokens repeated between chunks.
+    @param chunk_size: Maximum approximate tokens per chunk.
+    @param overlap: Approximate tokens repeated between chunks.
     @return: Retrieval-ready RFP chunks.
     """
 
@@ -228,12 +239,15 @@ def chunk_rfp_documents(
     for document in documents:
         spans = _chunk_text_with_spans(
             document.text,
-            max_tokens=max_tokens,
-            overlap_tokens=overlap_tokens,
+            chunk_size=chunk_size,
+            overlap=overlap,
         )
 
         for chunk_index, span in enumerate(spans):
             chunk_id = f"{document.document_id}__chunk_{chunk_index:04d}"
+            proposal_id = str(
+                document.metadata.get("proposal_id", document.document_id)
+            )
             chunks.append(
                 RFPChunk(
                     chunk_id=chunk_id,
@@ -244,6 +258,16 @@ def chunk_rfp_documents(
                     text=span.text,
                     metadata={
                         **document.metadata,
+                        "proposal_id": proposal_id,
+                        "chunk_id": chunk_id,
+                        "source_type": document.metadata.get(
+                            "source_type",
+                            document.section,
+                        ),
+                        "opportunity_owner": document.metadata.get(
+                            "opportunity_owner"
+                        ),
+                        "opportunity_id": document.metadata.get("opportunity_id"),
                         # Span metadata helps debug retrieval and explain sources.
                         "chunk_index": chunk_index,
                         "chunk_start_char": span.start_char,
@@ -260,8 +284,8 @@ def chunk_rfp_documents(
 
 def preprocess_proposals(
     proposals: Mapping[str, Any],
-    max_tokens: int = DEFAULT_MAX_TOKENS,
-    overlap_tokens: int = DEFAULT_OVERLAP_TOKENS,
+    chunk_size: int = DEFAULT_CHUNK_SIZE,
+    overlap: int = DEFAULT_OVERLAP,
 ) -> list[RFPChunk]:
     """Run the full preprocessing path from proposal JSON to RFP chunks.
 
@@ -269,24 +293,20 @@ def preprocess_proposals(
     JSON, pass it here, then embed the returned chunks.
 
     @param proposals: Mapping from RFP title to proposal record.
-    @param max_tokens: Maximum approximate tokens per chunk.
-    @param overlap_tokens: Approximate tokens repeated between chunks.
+    @param chunk_size: Maximum approximate tokens per chunk.
+    @param overlap: Approximate tokens repeated between chunks.
     @return: Retrieval-ready chunks for embedding.
     """
 
     documents = extract_rfp_documents(proposals)
     return chunk_rfp_documents(
         documents,
-        max_tokens=max_tokens,
-        overlap_tokens=overlap_tokens,
+        chunk_size=chunk_size,
+        overlap=overlap,
     )
 
 
-def prepare_rfp_chunks(
-    rfp_text: str,
-    max_tokens: int = DEFAULT_MAX_TOKENS,
-    overlap_tokens: int = DEFAULT_OVERLAP_TOKENS,
-) -> list[dict[str, Any]]:
+def prepare_rfp_chunks(rfp_text: str) -> list[dict]:
     """Prepare pasted RFP text for the dashboard retrieval interface.
 
     This wrapper matches the Role 5 dashboard contract. It uses the same
@@ -294,27 +314,59 @@ def prepare_rfp_chunks(
     new RFP text string instead of the full proposals JSON.
 
     @param rfp_text: New RFP text pasted or uploaded in the dashboard.
-    @param max_tokens: Maximum approximate tokens per chunk.
-    @param overlap_tokens: Approximate tokens repeated between chunks.
-    @return: List of chunk dictionaries for vector-store input.
+    @return: List of flat chunk dictionaries for vector-store input.
     """
 
-    document = RFPDocument(
-        document_id="new_rfp__proposal",
-        title="New RFP",
-        section="proposal",
-        text=normalize_text_content(rfp_text),
-        metadata={
-            "source_title": "New RFP",
-            "source_type": "new_rfp",
-        },
+    spans = _chunk_text_with_spans(
+        normalize_text_content(rfp_text),
+        chunk_size=DEFAULT_CHUNK_SIZE,
+        overlap=DEFAULT_OVERLAP,
     )
-    chunks = chunk_rfp_documents(
-        [document],
-        max_tokens=max_tokens,
-        overlap_tokens=overlap_tokens,
-    )
-    return [chunk.to_dict() for chunk in chunks]
+
+    return [
+        {
+            "proposal_id": "proposal_001",
+            "chunk_id": f"proposal_001_chunk_{chunk_index + 1:03d}",
+            "source_type": "proposal",
+            "text": span.text,
+            "chunk_index": chunk_index,
+            "opportunity_owner": None,
+            "opportunity_id": None,
+        }
+        for chunk_index, span in enumerate(spans)
+    ]
+
+
+def load_sample_rfp_text(
+    json_path: str | Path = DEFAULT_PROPOSAL_JSON_PATH,
+) -> str:
+    """Load one sample RFP/proposal text for the independent prototype.
+
+    The real proposal JSON is private and may not exist in every local checkout.
+    If the file is missing or difficult to parse, this returns a synthetic RFP
+    paragraph so the Week 2 pipeline can still run end to end.
+
+    @param json_path: Local path to `proposals_responses.json`.
+    @return: Real sample proposal text when available, otherwise synthetic text.
+    """
+
+    path = Path(json_path)
+    if not path.exists():
+        return SAMPLE_RFP_TEXT
+
+    try:
+        with path.open(encoding="utf-8") as json_file:
+            proposals = json.load(json_file)
+    except (OSError, json.JSONDecodeError):
+        return SAMPLE_RFP_TEXT
+
+    if not isinstance(proposals, Mapping):
+        return SAMPLE_RFP_TEXT
+
+    documents = extract_rfp_documents(proposals)
+    if not documents:
+        return SAMPLE_RFP_TEXT
+    return documents[0].text
 
 
 def estimate_token_count(text: str) -> int:
@@ -362,11 +414,14 @@ def _extract_response_documents(
                 section=f"response:{response_name}",
                 text=response_text,
                 metadata={
+                    "proposal_id": base_document_id,
                     "source_title": title,
                     "source_type": "proposal_response",
                     "response_name": str(response_name),
                     "proposal_index": proposal_index,
                     "response_index": response_index,
+                    "opportunity_owner": None,
+                    "opportunity_id": None,
                 },
             )
         )
@@ -395,18 +450,18 @@ def _iter_response_items(responses: Any) -> list[tuple[str, Any]]:
 
 def _chunk_text_with_spans(
     text: str,
-    max_tokens: int,
-    overlap_tokens: int,
+    chunk_size: int,
+    overlap: int,
 ) -> list[_ChunkSpan]:
     """Split text into chunks and keep character/token offsets.
 
     @param text: Source text to split.
-    @param max_tokens: Maximum approximate tokens per chunk.
-    @param overlap_tokens: Approximate tokens repeated between chunks.
+    @param chunk_size: Maximum approximate tokens per chunk.
+    @param overlap: Approximate tokens repeated between chunks.
     @return: Chunk spans containing text and source offsets.
     """
 
-    _validate_chunk_settings(max_tokens=max_tokens, overlap_tokens=overlap_tokens)
+    _validate_chunk_settings(chunk_size=chunk_size, overlap=overlap)
 
     clean_text = " ".join(str(text).split())
     token_matches = list(TOKEN_PATTERN.finditer(clean_text))
@@ -416,10 +471,10 @@ def _chunk_text_with_spans(
 
     spans: list[_ChunkSpan] = []
     start_token = 0
-    step = max_tokens - overlap_tokens
+    step = chunk_size - overlap
 
     while start_token < len(token_matches):
-        end_token = min(start_token + max_tokens, len(token_matches))
+        end_token = min(start_token + chunk_size, len(token_matches))
         start_char = token_matches[start_token].start()
         end_char = token_matches[end_token - 1].end()
 
@@ -435,26 +490,26 @@ def _chunk_text_with_spans(
 
         if end_token == len(token_matches):
             break
-        # Move forward by less than max_tokens so the next chunk overlaps.
+        # Move forward by less than chunk_size so the next chunk overlaps.
         start_token += step
 
     return spans
 
 
-def _validate_chunk_settings(max_tokens: int, overlap_tokens: int) -> None:
+def _validate_chunk_settings(chunk_size: int, overlap: int) -> None:
     """Validate chunk size settings before splitting text.
 
-    @param max_tokens: Maximum approximate tokens per chunk.
-    @param overlap_tokens: Approximate tokens repeated between chunks.
+    @param chunk_size: Maximum approximate tokens per chunk.
+    @param overlap: Approximate tokens repeated between chunks.
     @raises ValueError: If either value would make chunking invalid.
     """
 
-    if max_tokens <= 0:
-        raise ValueError("max_tokens must be positive")
-    if overlap_tokens < 0:
-        raise ValueError("overlap_tokens cannot be negative")
-    if overlap_tokens >= max_tokens:
-        raise ValueError("overlap_tokens must be smaller than max_tokens")
+    if chunk_size <= 0:
+        raise ValueError("chunk_size must be positive")
+    if overlap < 0:
+        raise ValueError("overlap cannot be negative")
+    if overlap >= chunk_size:
+        raise ValueError("overlap must be smaller than chunk_size")
 
 
 def _safe_id(value: Any) -> str:
@@ -469,3 +524,49 @@ def _safe_id(value: Any) -> str:
         for character in str(value).strip()
     )
     return "_".join(part for part in safe.split("_") if part)
+
+
+def _preview_chunk(chunk: dict[str, Any], max_chars: int = 500) -> str:
+    """Format one chunk so it is readable when running this file directly.
+
+    @param chunk: Flat chunk dictionary from `prepare_rfp_chunks()`.
+    @param max_chars: Maximum number of text characters to print.
+    @return: Multi-line preview string for the terminal.
+    """
+
+    text_preview = str(chunk.get("text", "")).strip()
+    if len(text_preview) > max_chars:
+        text_preview = f"{text_preview[:max_chars].rstrip()}..."
+
+    return "\n".join(
+        [
+            f"Chunk ID: {chunk.get('chunk_id')}",
+            f"Proposal ID: {chunk.get('proposal_id')}",
+            f"Source type: {chunk.get('source_type')}",
+            f"Chunk index: {chunk.get('chunk_index')}",
+            f"Opportunity owner: {chunk.get('opportunity_owner')}",
+            f"Opportunity ID: {chunk.get('opportunity_id')}",
+            "",
+            "Text preview:",
+            text_preview,
+        ]
+    )
+
+
+def _run_demo() -> None:
+    """Print a small readable preprocessing preview for local checks."""
+
+    sample_text = load_sample_rfp_text()
+    chunks = prepare_rfp_chunks(sample_text)
+
+    print("RFP preprocessing demo")
+    print(f"Sample text characters: {len(sample_text)}")
+    print(f"Generated chunks: {len(chunks)}")
+
+    if chunks:
+        print()
+        print(_preview_chunk(chunks[0]))
+
+
+if __name__ == "__main__":
+    _run_demo()

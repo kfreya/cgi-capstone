@@ -68,6 +68,22 @@ class SearchResult:
             "metadata": self.chunk.metadata,
         }
 
+    def to_retrieved_example(self) -> dict[str, Any]:
+        """Convert the result to the Week 2 dashboard retrieval shape.
+
+        @return: Flat retrieved-example dictionary for assignment context.
+        """
+
+        return {
+            "proposal_id": self.chunk.metadata.get(
+                "proposal_id",
+                self.chunk.document_id,
+            ),
+            "chunk_id": self.chunk.chunk_id,
+            "similarity_score": round(self.score, 4),
+            "supporting_text": self.chunk.text,
+        }
+
 
 def cosine_similarity(left: Sequence[float], right: Sequence[float]) -> float:
     """Compute cosine similarity between two embedding vectors.
@@ -335,32 +351,38 @@ def build_dashboard_payload(
     results: Sequence[SearchResult],
     rfp_summary: str = "",
     recommended_directors: Sequence[dict[str, Any]] | None = None,
-    notes: str = "This is a mock output for dashboard integration.",
+    risk_flags: Sequence[dict[str, str]] | None = None,
+    notes: str = "Prototype output for dashboard integration.",
 ) -> dict[str, Any]:
-    """Create a stable mock output shape for downstream dashboard work.
+    """Create the Week 2 dashboard output shape for RFP assignment.
 
     @param query_text: New RFP text or short query used for retrieval.
     @param results: Retrieved chunks that support the recommendation.
     @param rfp_summary: Optional summary of the new RFP.
     @param recommended_directors: Optional director ranking records.
+    @param risk_flags: Optional warning messages for the dashboard.
     @param notes: Optional note about assumptions or missing data.
     @return: Dictionary shaped like the future dashboard/API response.
     """
 
-    supporting_chunks = [result.chunk.text for result in results]
+    supporting_chunks = [result.chunk.chunk_id for result in results]
     directors = [
         _dashboard_director_record(director, supporting_chunks)
         for director in recommended_directors or []
     ]
 
     return {
-        "rfp_summary": rfp_summary,
+        "rfp_summary": rfp_summary or _summarize_query(query_text),
+        "retrieved_examples": [
+            result.to_retrieved_example() for result in results
+        ],
         "recommended_directors": directors,
+        "risk_flags": list(risk_flags or []),
         "notes": notes,
     }
 
 
-def build_vector_store(chunks: list[dict[str, Any]]) -> InMemoryVectorStore:
+def build_vector_store(chunks: list[dict]):
     """Build the local vector store expected by the dashboard placeholder.
 
     @param chunks: Chunk dictionaries from `prepare_rfp_chunks`.
@@ -375,17 +397,20 @@ def build_vector_store(chunks: list[dict[str, Any]]) -> InMemoryVectorStore:
     return store
 
 
-def retrieve_relevant_chunks(query: str, top_k: int = 5) -> list[dict[str, Any]]:
+def retrieve_relevant_chunks(query: str, top_k: int = 5):
     """Retrieve chunks from the most recently built local vector store.
 
     @param query: RFP text or query text to search with.
     @param top_k: Maximum number of chunks to return.
-    @return: Ranked chunk dictionaries with similarity scores.
+    @return: Ranked retrieved examples with similarity scores.
     """
 
     if _DEFAULT_STORE is None:
         return []
-    return [result.to_dict() for result in _DEFAULT_STORE.query(query, top_k=top_k)]
+    return [
+        result.to_retrieved_example()
+        for result in _DEFAULT_STORE.query(query, top_k=top_k)
+    ]
 
 
 def _chroma_metadata(chunk: RFPChunk) -> dict[str, str | int | float | bool]:
@@ -420,14 +445,34 @@ def _chroma_metadata(chunk: RFPChunk) -> dict[str, str | int | float | bool]:
 def _chunk_from_dict(chunk: dict[str, Any]) -> RFPChunk:
     """Convert a dashboard chunk dictionary back into an RFPChunk object."""
 
+    if "document_id" in chunk:
+        return RFPChunk(
+            chunk_id=str(chunk["chunk_id"]),
+            document_id=str(chunk["document_id"]),
+            title=str(chunk["title"]),
+            section=str(chunk["section"]),
+            chunk_index=int(chunk["chunk_index"]),
+            text=str(chunk["text"]),
+            metadata=dict(chunk.get("metadata", {})),
+        )
+
+    proposal_id = str(chunk.get("proposal_id", "proposal_001"))
+    source_type = str(chunk.get("source_type", "proposal"))
     return RFPChunk(
         chunk_id=str(chunk["chunk_id"]),
-        document_id=str(chunk["document_id"]),
-        title=str(chunk["title"]),
-        section=str(chunk["section"]),
+        document_id=proposal_id,
+        title=proposal_id,
+        section=source_type,
         chunk_index=int(chunk["chunk_index"]),
         text=str(chunk["text"]),
-        metadata=dict(chunk.get("metadata", {})),
+        metadata={
+            "proposal_id": proposal_id,
+            "chunk_id": str(chunk["chunk_id"]),
+            "source_type": source_type,
+            "chunk_index": int(chunk["chunk_index"]),
+            "opportunity_owner": chunk.get("opportunity_owner"),
+            "opportunity_id": chunk.get("opportunity_id"),
+        },
     )
 
 
@@ -447,17 +492,39 @@ def _dashboard_director_record(
     director: dict[str, Any],
     supporting_chunks: list[str],
 ) -> dict[str, Any]:
-    """Normalize director records to Freya's dashboard contract."""
+    """Normalize director records to the Week 2 dashboard contract."""
 
     return {
         "director_name": director.get(
             "director_name",
-            director.get("name", "Director A"),
-        ),
-        "match_reason": director.get(
-            "match_reason",
-            director.get("reason", "Relevant experience and available capacity"),
+            director.get("opportunity_owner", director.get("name", "Director A")),
         ),
         "capacity_label": director.get("capacity_label", "Available"),
+        "capacity_score": _as_float(director.get("capacity_score"), default=0.72),
+        "relative_load": _as_float(director.get("relative_load"), default=0.65),
+        "match_reason": director.get(
+            "match_reason",
+            director.get("reason", "Relevant historical experience and available capacity"),
+        ),
         "supporting_chunks": director.get("supporting_chunks", supporting_chunks[:2]),
     }
+
+
+def _summarize_query(query_text: str, max_chars: int = 180) -> str:
+    """Create a short fallback summary when a real summary is not available."""
+
+    clean_text = " ".join(str(query_text).split())
+    if not clean_text:
+        return "Short summary of the input RFP"
+    if len(clean_text) <= max_chars:
+        return clean_text
+    return f"{clean_text[:max_chars].rstrip()}..."
+
+
+def _as_float(value: Any, default: float) -> float:
+    """Convert optional numeric fields while keeping the prototype stable."""
+
+    try:
+        return float(value)
+    except (TypeError, ValueError):
+        return default

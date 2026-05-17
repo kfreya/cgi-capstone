@@ -13,12 +13,14 @@ from src.rfp_engine import generate_assignment_context
 
 
 def test_generate_assignment_context_matches_dashboard_contract():
-    """Check that the mock assignment output matches Freya's contract."""
+    """Check that the assignment output matches the Week 2 contract."""
 
     director_df = pd.DataFrame(
         {
             "opportunity_owner": ["Director A"],
             "capacity_label": ["Available"],
+            "capacity_score": [0.72],
+            "relative_load": [0.65],
         }
     )
 
@@ -27,9 +29,30 @@ def test_generate_assignment_context_matches_dashboard_contract():
         director_df,
     )
 
-    assert set(output) == {"rfp_summary", "recommended_directors", "notes"}
+    assert set(output) == {
+        "rfp_summary",
+        "retrieved_examples",
+        "recommended_directors",
+        "risk_flags",
+        "notes",
+    }
+    assert output["retrieved_examples"][0]["chunk_id"] == "proposal_001_chunk_001"
+    assert "similarity_score" in output["retrieved_examples"][0]
+    assert "supporting_text" in output["retrieved_examples"][0]
     assert output["recommended_directors"][0]["director_name"] == "Director A"
     assert output["recommended_directors"][0]["match_reason"]
     assert output["recommended_directors"][0]["capacity_label"] == "Available"
+    assert output["recommended_directors"][0]["capacity_score"] == 0.72
+    assert output["recommended_directors"][0]["relative_load"] == 0.65
     assert isinstance(output["recommended_directors"][0]["supporting_chunks"], list)
-    assert output["notes"] == "This is a mock output for dashboard integration."
+    assert output["notes"] == "Prototype output for dashboard integration."
+
+
+def test_generate_assignment_context_uses_mock_director_when_missing():
+    """Check that the prototype still runs without real director data."""
+
+    output = generate_assignment_context("Need cloud analytics support.")
+
+    assert output["recommended_directors"][0]["director_name"] == "Director A"
+    assert output["recommended_directors"][0]["capacity_label"] == "Available"
+    assert isinstance(output["risk_flags"], list)
