@@ -1,6 +1,7 @@
 # Shared fallback assumptions for validation and scoring.
-# Evidence counts are aggregate validation outputs from the merged opportunity
-# dataset as of 2026-05-08. Re-run notebooks/role2_validation.ipynb to refresh.
+# Evidence counts are aggregate validation outputs from cleaned_opportunity_df
+# (src.opportunity_cleaner.clean_opportunity_df) as of 2026-05-14.
+# Re-run notebooks/role2_validation.ipynb to refresh.
 
 - rule_id: revenue_hierarchy
   field_resolved: authoritative_revenue
@@ -12,13 +13,17 @@
   evidence:
     n_total: 8746
     n_primary_null: 51
-    n_fallback_null: 8695
+    n_fallback_null: 1067
     n_both_null: 0
+    n_both_present: 7628
+    pct_agreement_within_5pct_on_overlap: 99.5
     note: >
-      In the merged opportunity_df the two fields are mutually exclusive,
-      not redundant. Rows from opps2 carry total_estimated_revenue;
-      opps1-exclusive rows (~51) carry opportunity_estimated_revenue_base_cad.
-      The fallback is therefore essential, not cosmetic.
+      Sprint 2: Yixiao's merge now carries opportunity_estimated_revenue_base_cad
+      onto matched rows, not just opps1-exclusive rows. The two fields overlap
+      on 7,628 rows and agree within 5% on 99.5% of them, which validates the
+      fallback as the same metric on a different schema. The primary is null
+      only on the 51 opps1-exclusive rows; the fallback is null only on the
+      1,067 unmatched opps2 rows. No row has both null.
   risk: low
 
 - rule_id: do_not_sum_service_solution_revenue
@@ -42,14 +47,16 @@
   if_both_missing: delivery_active = 0; flag in audit; do not impute
   active_predicate: effective_start <= as_of <= effective_start + duration_months
   evidence:
-    n_won_total: 5275
+    n_won_total: 5290
     n_won_resolvable_via_primary: 5275
-    n_won_resolvable_via_fallback: 0
+    n_won_resolvable_via_fallback: 15
     n_won_unresolvable: 0
     note: >
-      In the current data every Won opportunity has revenue_start_date
-      populated, so the close_date fallback is currently unused. Keep it
-      defined for new CRM rows that may not.
+      n_won_total moved from 5,275 (Sprint 1) to 5,290 because the Sprint 2
+      outcome taxonomy (status_reason_outcome) now classifies the 15
+      status==Won / null-reason rows as Won. Those 15 rows resolve their
+      delivery window via the close_date fallback, so the fallback path is
+      now exercised. Zero Won rows are unresolvable.
   risk: low
 
 - rule_id: missing_duration
@@ -69,7 +76,8 @@
     capacity_engine.compute_sales_load and compute_delivery_load already
     fillna(12) silently. Recommend adding a counter that exposes how many
     rows triggered the default so we can tell "zero sales effort" rows
-    apart from "missing data" rows.
+    apart from "missing data" rows. The 152 rows over 60 months are not
+    covered by this rule and currently inflate any duration-weighted term.
 
 - rule_id: missing_probability
   field_resolved: probability
@@ -79,27 +87,74 @@
   rationale: >
     A null probability is treated as "no committed sales effort" so the
     pipeline term collapses to zero, matching the architecture's intent
-    for unscored deals.
+    for unscored deals. An explicit probability of 0 is a valid value, not
+    a missing one, and is left as-is.
   evidence:
     n_probability_null: 77
+    n_probability_zero: 139
     n_probability_negative: 0
     n_probability_above_100: 0
   risk: medium
   notes_for_lyken: same default-fill counter recommendation as duration.
 
+- rule_id: status_reason_outcome
+  field_resolved: opportunity_outcome
+  primary: status_reason
+  fallback: status
+  when_to_use_fallback: status_reason is null or blank
+  helper: src.data_validator.classify_opportunity_outcome(df)
+  buckets: [won, lost, open, duplicate, unknown]
+  taxonomy:
+    won: status_reason == "won" (or status fallback "won")
+    open: status_reason == "open" (or status fallback "open")
+    lost: >
+      status_reason starting with "lost", "cancelled", or "canceled"
+      (or status fallback "closed" -- the opportunity ended unwon, reason
+      unrecorded). This is the Option B decision: Cancelled is a genuine
+      pipeline exit and is lost-like.
+    duplicate: >
+      status_reason == "duplicated". Option B carves this into its own
+      bucket and excludes it from win/lost/open counts -- it is a CRM
+      data-hygiene label, not a sales outcome.
+    unknown: status_reason null/blank and status is none of the above
+  decision: >
+    Option B. Profiling cleaned_opportunity_df showed status_reason ==
+    "Duplicated" has zero overlap with the merge-level duplicate_flag and is
+    concentrated in just 3 owners, so it is a CRM duplicate-record marker,
+    not a merge artefact and not a win/loss business outcome. Folding it into
+    lost_opportunity_count would distort those 3 owners' loss counts and win
+    rates. Option A (Duplicated counts as lost) and Option C (three separate
+    outcome columns) were rejected -- see docs/data_validation.md section 5.
+  evidence:
+    n_status_reason_null: 51
+    n_won: 5290
+    n_lost: 2630
+    n_duplicate: 461
+    n_open: 365
+    n_unknown: 0
+    n_duplicated_overlap_with_duplicate_flag: 0
+    n_owners_with_duplicated_rows: 3
+  risk: medium
+  notes_for_lyken_and_yixiao: >
+    Import classify_opportunity_outcome rather than re-deriving buckets with
+    string checks. This rule subsumes the Sprint 1 won_detection rule. The
+    Option B treatment of "Duplicated" is the validation owner's
+    recommendation pending CGI confirmation; if CGI says it counts as a loss,
+    move "duplicated" from DUPLICATE_REASONS into the lost set -- nothing
+    else downstream changes.
+
 - rule_id: won_detection
   field_resolved: is_won
+  status: subsumed_by status_reason_outcome
   primary: status_reason == "Won"
-  fallback: none
+  fallback: status == "Won" when status_reason is null/blank
   rationale: >
-    Architecture (docs/architecture.md, "Status mapping") names
-    status_reason as the canonical field for delivery-load routing.
-    capacity_engine.py currently uses status == "won" instead.
+    Kept as a back-reference only. The Sprint 1 won_detection fallback is now
+    the status fallback inside status_reason_outcome, generalised to every
+    outcome bucket. classify_opportunity_outcome is the single source of
+    truth; capacity_engine.py should not re-implement won detection.
   evidence:
     n_status_won_vs_status_reason_won_disagreement: 15
-    note: >
-      Practical impact is small (15 rows out of 8,746) but the discrepancy
-      should be reconciled before final delivery-load numbers are reported.
   risk: low
 
 - rule_id: late_stage_definition
@@ -112,20 +167,33 @@
   rationale: >
     Architecture distinguishes late-stage open opportunities (which carry
     near-term winning probability) from earlier stages. Won deals are
-    explicitly excluded — they belong to delivery load.
+    explicitly excluded -- they belong to delivery load.
   risk: low
 
 - rule_id: baseline_reliability
   field_resolved: baseline_reliability
   thresholds:
+    no_baseline: quarters_of_data == 0
     high: quarters_of_data >= 8
     medium: 4 <= quarters_of_data < 8
-    low: quarters_of_data < 4
+    low: 0 < quarters_of_data < 4
   rationale: >
     Owners with fewer than four quarters of CRM activity have a noisy
     historical baseline; capacity scores derived against that baseline
-    should be displayed with a reliability tag in the dashboard.
+    should be displayed with a reliability tag in the dashboard. Owners with
+    zero usable quarters cannot be scored against a baseline at all -- that
+    is a distinct "No baseline" state, not a thin "Low" one.
   evidence:
     n_owners_total: 24
+    n_owners_high: 3
+    n_owners_medium: 13
+    n_owners_low: 6
+    n_owners_no_baseline: 2
     n_owners_with_under_10_lifetime_opps: 7
+    note: >
+      Sprint 2 observes 6 Low-tier owners (Sprint 1 saw none) plus 2
+      No-baseline owners whose rows are entirely opps1-exclusive with null
+      created_on. The No-baseline owners have no usable history at all; their
+      relative_load is NaN and they must be shown with an explicit
+      "No baseline" state in the dashboard, not a Low-confidence score.
   risk: medium

@@ -5,6 +5,8 @@ from pathlib import Path
 
 import pandas as pd
 
+from src.data_validator import classify_opportunity_outcome
+
 
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
 DATA_DIR = PROJECT_ROOT / "data"
@@ -20,9 +22,26 @@ SUPPLEMENTAL_FIELDS = [
     "opportunity_product",
     "service_solution",
     "service_solution_estimated_revenue",
+    "opportunity_estimated_revenue_base_cad",
     "ip",
     "delivery_territory_center",
 ]
+
+NUMERIC_FIELDS = [
+    "probability",
+    "total_estimated_revenue",
+    "opportunity_estimated_revenue_base_cad",
+    "service_solution_estimated_revenue",
+    "project_duration_number_of_months",
+]
+
+DATE_FIELDS = [
+    "created_on",
+    "close_date",
+    "revenue_start_date",
+]
+
+UNKNOWN_OWNER = "Unknown"
 
 
 def clean_column_name(column: str) -> str:
@@ -56,6 +75,260 @@ def clean_column_names(df: pd.DataFrame) -> pd.DataFrame:
     normalized_columns = [clean_column_name(column) for column in cleaned.columns]
     cleaned.columns = _make_unique_column_names(normalized_columns)
     return cleaned
+
+
+def _safe_bool_flag(df: pd.DataFrame, column: str, default: bool = False) -> pd.Series:
+    if column not in df.columns:
+        return pd.Series(default, index=df.index, dtype="bool")
+    return df[column].fillna(default).astype(bool)
+
+
+def _blank_or_missing(series: pd.Series) -> pd.Series:
+    return series.isna() | series.map(
+        lambda value: isinstance(value, str) and value.strip() == ""
+    )
+
+
+def _first_available_bool_flag(df: pd.DataFrame, columns: list[str]) -> pd.Series:
+    for column in columns:
+        if column in df.columns:
+            return _safe_bool_flag(df, column)
+    return pd.Series(False, index=df.index, dtype="bool")
+
+
+def clean_opportunity_df(opportunity_df: pd.DataFrame) -> pd.DataFrame:
+    """Return a Sprint 2 cleaned/prepared copy of the merged opportunity table.
+
+    This additive cleaning pass preserves the Week 1 merge output while adding
+    downstream-friendly alias flags, basic type coercion, and lightweight data
+    quality flags. Revenue hierarchy decisions remain in validation/scoring.
+    """
+    cleaned = opportunity_df.copy(deep=True)
+
+    cleaned["source_file_flag"] = (
+        cleaned["source_table"].fillna("unknown")
+        if "source_table" in cleaned.columns
+        else pd.Series("unknown", index=cleaned.index, dtype="object")
+    )
+    cleaned["duplicate_flag"] = _safe_bool_flag(cleaned, "is_duplicate_join_key")
+    cleaned["unmatched_flag"] = _safe_bool_flag(cleaned, "is_unmatched_opps2_base")
+    cleaned["opps1_exclusive_flag"] = _safe_bool_flag(cleaned, "is_opps1_exclusive")
+
+    for field in NUMERIC_FIELDS:
+        if field in cleaned.columns:
+            cleaned[field] = pd.to_numeric(cleaned[field], errors="coerce")
+
+    primary_revenue = (
+        cleaned["total_estimated_revenue"]
+        if "total_estimated_revenue" in cleaned.columns
+        else pd.Series(pd.NA, index=cleaned.index, dtype="Float64")
+    )
+    fallback_revenue = (
+        cleaned["opportunity_estimated_revenue_base_cad"]
+        if "opportunity_estimated_revenue_base_cad" in cleaned.columns
+        else pd.Series(pd.NA, index=cleaned.index, dtype="Float64")
+    )
+    cleaned["authoritative_revenue"] = primary_revenue.combine_first(fallback_revenue)
+
+    for field in DATE_FIELDS:
+        if field in cleaned.columns:
+            cleaned[field] = pd.to_datetime(cleaned[field], errors="coerce")
+
+    cleaned["missing_owner_flag"] = (
+        _blank_or_missing(cleaned["opportunity_owner"])
+        if "opportunity_owner" in cleaned.columns
+        else pd.Series(False, index=cleaned.index, dtype="bool")
+    )
+
+    if "probability" in cleaned.columns:
+        cleaned["missing_probability_flag"] = cleaned["probability"].isna()
+        cleaned["invalid_probability_flag"] = (
+            (cleaned["probability"] < 0) | (cleaned["probability"] > 100)
+        ).fillna(False)
+    else:
+        cleaned["missing_probability_flag"] = False
+        cleaned["invalid_probability_flag"] = False
+
+    revenue_fields = [
+        field
+        for field in [
+            "total_estimated_revenue",
+            "opportunity_estimated_revenue_base_cad",
+        ]
+        if field in cleaned.columns
+    ]
+    cleaned["missing_revenue_flag"] = (
+        cleaned[revenue_fields].isna().all(axis=1)
+        if revenue_fields
+        else pd.Series(False, index=cleaned.index, dtype="bool")
+    )
+
+    if "project_duration_number_of_months" in cleaned.columns:
+        duration = cleaned["project_duration_number_of_months"]
+        cleaned["missing_duration_flag"] = duration.isna()
+        cleaned["invalid_duration_flag"] = (duration <= 0).fillna(False)
+    else:
+        cleaned["missing_duration_flag"] = False
+        cleaned["invalid_duration_flag"] = False
+
+    cleaned["missing_revenue_start_date_flag"] = (
+        cleaned["revenue_start_date"].isna()
+        if "revenue_start_date" in cleaned.columns
+        else pd.Series(False, index=cleaned.index, dtype="bool")
+    )
+
+    if {"created_on", "close_date"}.issubset(cleaned.columns):
+        created_date = pd.to_datetime(
+            cleaned["created_on"], errors="coerce"
+        ).dt.normalize()
+        close_date = pd.to_datetime(
+            cleaned["close_date"], errors="coerce"
+        ).dt.normalize()
+        cleaned["close_before_created_flag"] = (
+            close_date.notna()
+            & created_date.notna()
+            & (close_date < created_date)
+        )
+    else:
+        cleaned["close_before_created_flag"] = False
+
+    return cleaned
+
+
+def build_owner_base_summary(cleaned_df: pd.DataFrame) -> pd.DataFrame:
+    """Summarize cleaned opportunities by owner for Sprint 2 handoff.
+
+    Outcome buckets use Kian's shared `classify_opportunity_outcome` taxonomy
+    so CRM `Duplicated` / `Duplicate` outcomes are excluded from open/won/lost
+    counts. This artifact is for validation and scoring sanity checks, not
+    final capacity scoring.
+    """
+    work = cleaned_df.copy(deep=True)
+
+    if "opportunity_owner" in work.columns:
+        owner = work["opportunity_owner"].astype("string").str.strip()
+        work["_summary_owner"] = owner.mask(
+            owner.isna() | (owner == ""),
+            UNKNOWN_OWNER,
+        )
+    else:
+        work["_summary_owner"] = UNKNOWN_OWNER
+
+    for field in ["status", "status_reason"]:
+        if field not in work.columns:
+            work[field] = pd.NA
+
+    outcome = classify_opportunity_outcome(work)
+    work["_open_opportunity"] = outcome == "open"
+    work["_won_opportunity"] = outcome == "won"
+    work["_lost_opportunity"] = outcome == "lost"
+
+    if "probability" in work.columns:
+        work["_probability"] = pd.to_numeric(work["probability"], errors="coerce")
+    else:
+        work["_probability"] = pd.Series(pd.NA, index=work.index, dtype="Float64")
+
+    work["_missing_probability"] = (
+        _safe_bool_flag(work, "missing_probability_flag")
+        if "missing_probability_flag" in work.columns
+        else work["_probability"].isna()
+    )
+
+    revenue_fields = [
+        field
+        for field in [
+            "total_estimated_revenue",
+            "opportunity_estimated_revenue_base_cad",
+        ]
+        if field in work.columns
+    ]
+    work["_missing_revenue"] = (
+        _safe_bool_flag(work, "missing_revenue_flag")
+        if "missing_revenue_flag" in work.columns
+        else (
+            work[revenue_fields].apply(pd.to_numeric, errors="coerce").isna().all(axis=1)
+            if revenue_fields
+            else pd.Series(False, index=work.index, dtype="bool")
+        )
+    )
+
+    if "project_duration_number_of_months" in work.columns:
+        duration = pd.to_numeric(
+            work["project_duration_number_of_months"],
+            errors="coerce",
+        )
+    else:
+        duration = pd.Series(pd.NA, index=work.index, dtype="Float64")
+    work["_missing_duration"] = (
+        _safe_bool_flag(work, "missing_duration_flag")
+        if "missing_duration_flag" in work.columns
+        else duration.isna()
+    )
+
+    work["_duplicate"] = _first_available_bool_flag(
+        work,
+        ["duplicate_flag", "is_duplicate_join_key"],
+    )
+    work["_unmatched"] = _first_available_bool_flag(
+        work,
+        ["unmatched_flag", "is_unmatched_opps2_base"],
+    )
+    work["_opps1_exclusive"] = _first_available_bool_flag(
+        work,
+        ["opps1_exclusive_flag", "is_opps1_exclusive"],
+    )
+
+    for field in [
+        "total_estimated_revenue",
+        "opportunity_estimated_revenue_base_cad",
+    ]:
+        summary_field = f"_{field}"
+        if field in work.columns:
+            work[summary_field] = pd.to_numeric(work[field], errors="coerce")
+        else:
+            work[summary_field] = pd.Series(pd.NA, index=work.index, dtype="Float64")
+
+    grouped = work.groupby("_summary_owner", dropna=False, sort=True)
+
+    summary = pd.DataFrame(
+        {
+            "opportunity_count": grouped.size(),
+            "open_opportunity_count": grouped["_open_opportunity"].sum().astype(int),
+            "won_opportunity_count": grouped["_won_opportunity"].sum().astype(int),
+            "lost_opportunity_count": grouped["_lost_opportunity"].sum().astype(int),
+            "avg_probability": grouped["_probability"].mean(),
+            "missing_probability_count": grouped["_missing_probability"].sum().astype(int),
+            "missing_revenue_count": grouped["_missing_revenue"].sum().astype(int),
+            "missing_duration_count": grouped["_missing_duration"].sum().astype(int),
+            "duplicate_count": grouped["_duplicate"].sum().astype(int),
+            "unmatched_count": grouped["_unmatched"].sum().astype(int),
+            "opps1_exclusive_count": grouped["_opps1_exclusive"].sum().astype(int),
+            "total_estimated_revenue_sum": grouped["_total_estimated_revenue"].sum(
+                min_count=1
+            ),
+            "opportunity_estimated_revenue_base_cad_sum": grouped[
+                "_opportunity_estimated_revenue_base_cad"
+            ].sum(min_count=1),
+        }
+    ).reset_index(names="opportunity_owner")
+
+    columns = [
+        "opportunity_owner",
+        "opportunity_count",
+        "open_opportunity_count",
+        "won_opportunity_count",
+        "lost_opportunity_count",
+        "avg_probability",
+        "missing_probability_count",
+        "missing_revenue_count",
+        "missing_duration_count",
+        "duplicate_count",
+        "unmatched_count",
+        "opps1_exclusive_count",
+        "total_estimated_revenue_sum",
+        "opportunity_estimated_revenue_base_cad_sum",
+    ]
+    return summary[columns].sort_values("opportunity_owner").reset_index(drop=True)
 
 
 def load_opportunity_files() -> tuple[pd.DataFrame, pd.DataFrame]:
@@ -311,9 +584,13 @@ def write_outputs(
     """Write local, ignored pipeline artifacts under data/processed."""
     output_dir.mkdir(parents=True, exist_ok=True)
     audit_tables = audit_tables or {}
+    cleaned_opportunity_df = clean_opportunity_df(opportunity_df)
+    owner_base_summary = build_owner_base_summary(cleaned_opportunity_df)
 
     outputs = {
         "opportunity_df.csv": opportunity_df,
+        "cleaned_opportunity_df.csv": cleaned_opportunity_df,
+        "owner_base_summary.csv": owner_base_summary,
         "schema_comparison.csv": schema_comparison,
         "merge_summary.csv": merge_summary,
         "duplicate_records.csv": opportunity_df[opportunity_df["is_duplicate_join_key"]],

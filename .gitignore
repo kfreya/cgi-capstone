@@ -7,6 +7,9 @@ data/.env
 data/csv_files/
 data/processed/
 data/vector_store/
+data/**/*.xlsx
+data/**/*.xls
+data/**/*.csv
 data/proposals_responses.json
 chroma_db/
 
