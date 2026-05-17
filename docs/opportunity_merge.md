@@ -72,59 +72,10 @@ Generated under `data/processed/`:
 
 These are local artifacts and should not be committed.
 
-Running the opportunity output pipeline now produces both the original Week 1
-merge artifacts and the Sprint 2 Role 1 handoff artifacts.
-`cleaned_opportunity_df.csv` is the prepared opportunity-level handoff for
-validation, scoring, and dashboard integration. `owner_base_summary.csv` is the
-owner-level validation and scoring sanity-check handoff. All generated CSVs
-under `data/processed/` remain local artifacts and should not be committed.
-
-## Sprint 2 Cleaning Note
-
-`opportunity_df` remains the Week 1 merged output: it preserves the original
-opportunity-level merge, source diagnostics, unmatched records, and audit
-artifacts.
-
-`src/opportunity_cleaner.py::clean_opportunity_df()` creates the Sprint 2
-cleaned/prepared dataframe from that merged output. This first non-breaking
-cleaning pass preserves all existing columns, coerces known numeric and date
-fields when present, and adds downstream-friendly flags for validation,
-scoring, and dashboard use:
-
-- `source_file_flag`
-- `duplicate_flag`
-- `unmatched_flag`
-- `opps1_exclusive_flag`
-
-It also adds lightweight data-quality flags for missing owner, probability,
-revenue, duration, revenue start date, invalid probability/duration, and
-calendar-date `close_date < created_on`.
-
-The cleaned dataframe includes `authoritative_revenue` as the non-additive
-opportunity-level revenue fallback:
-
-```text
-total_estimated_revenue
-else opportunity_estimated_revenue_base_cad
-```
-
-`service_solution_estimated_revenue` remains separate and is not summed into
-`authoritative_revenue`. Kian still owns validation and reliability review of
-the revenue semantics.
-
-`src/opportunity_cleaner.py::build_owner_base_summary()` creates the Sprint 2
-Role 1 owner-level handoff artifact from `cleaned_opportunity_df`. It groups
-records by `opportunity_owner` and summarizes opportunity counts, open/won/lost
-counts using Kian's shared `classify_opportunity_outcome()` taxonomy,
-missing-data counts, merge/source flags, and separate revenue totals. Under
-that taxonomy Cancelled/Canceled are lost, while CRM Duplicated/Duplicate
-outcomes are excluded from open/won/lost counts and remain separate from the
-merge-level `duplicate_flag`.
-
-This owner base summary is intended for Kian's validation checks and Lyken's
-scoring sanity checks. It is not final capacity scoring: it does not compute
-`capacity_score`, `relative_load`, or `capacity_label`. The final
-`director_capacity_df` remains part of the scoring module work.
+The opportunity output pipeline also creates prepared downstream artifacts
+(`cleaned_opportunity_df.csv` and `owner_base_summary.csv`) from the merged
+opportunity table. Their cleaning rules, added flags, and assumptions are
+documented in `docs/opportunity_cleaning.md`.
 
 ## Checks Completed
 
