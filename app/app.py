@@ -315,14 +315,18 @@ def load_data() -> tuple[pd.DataFrame, pd.DataFrame, str, str | None]:
     warning is None on success or a short error description when the preferred
     source failed and mock data was used instead.
     """
+    cleaned_path = _PROJECT_ROOT / "data" / "processed" / "cleaned_opportunity_df.csv"
     opp_path = _PROJECT_ROOT / "data" / "processed" / "opportunity_df.csv"
     prebuilt  = _PROJECT_ROOT / "data" / "processed" / "director_capacity_df.csv"
 
-    # Option 1: compute live from opportunity_df via capacity engine
-    if _ENGINE_AVAILABLE and opp_path.exists():
+    # Option 1: compute live from preferred cleaned data, or clean raw data.
+    if _ENGINE_AVAILABLE and (cleaned_path.exists() or opp_path.exists()):
         try:
             as_of_date = pd.Timestamp.today().normalize()
-            opp_df = clean_opportunity_df(pd.read_csv(opp_path))
+            if cleaned_path.exists():
+                opp_df = pd.read_csv(cleaned_path)
+            else:
+                opp_df = clean_opportunity_df(pd.read_csv(opp_path))
             cap_df = build_director_capacity_df(
                 opp_df,
                 current_date=as_of_date,
@@ -340,10 +344,17 @@ def load_data() -> tuple[pd.DataFrame, pd.DataFrame, str, str | None]:
     # Option 2: pre-built CSV
     if prebuilt.exists():
         try:
+            as_of_date = pd.Timestamp.today().normalize()
             cap_df = pd.read_csv(prebuilt)
-            if _ENGINE_AVAILABLE and opp_path.exists():
-                opp_df = clean_opportunity_df(pd.read_csv(opp_path))
-                trd_df = _build_trend_from_opportunity_df(opp_df)
+            if _ENGINE_AVAILABLE and (cleaned_path.exists() or opp_path.exists()):
+                if cleaned_path.exists():
+                    opp_df = pd.read_csv(cleaned_path)
+                else:
+                    opp_df = clean_opportunity_df(pd.read_csv(opp_path))
+                trd_df = _build_trend_from_opportunity_df(
+                    opp_df,
+                    as_of_date=as_of_date,
+                )
             else:
                 trd_df = make_trend_df()
             warning = _live_err  # surface live-scoring error even though we recovered

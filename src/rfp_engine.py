@@ -14,10 +14,10 @@ from typing import Any
 
 try:
     from src.rfp_preprocessor import load_sample_rfp_text, prepare_rfp_chunks
-    from src.vector_store import build_vector_store, retrieve_relevant_chunks
+    from src.vector_store import build_vector_store
 except ModuleNotFoundError:
     from rfp_preprocessor import load_sample_rfp_text, prepare_rfp_chunks
-    from vector_store import build_vector_store, retrieve_relevant_chunks
+    from vector_store import build_vector_store
 
 
 def generate_assignment_context(
@@ -37,21 +37,24 @@ def generate_assignment_context(
     @return: Week 2 dashboard-ready RFP assignment context.
     """
 
-    if historical_chunks is not None:
-        if historical_chunks:
-            build_vector_store(historical_chunks)
-        retrieved_examples = retrieve_relevant_chunks(rfp_text, top_k=3)
-    else:
-        retrieved_examples = retrieve_relevant_chunks(rfp_text, top_k=3)
-        if not retrieved_examples:
-            chunks = _default_historical_chunks()
-            if chunks:
-                build_vector_store(chunks)
-            retrieved_examples = retrieve_relevant_chunks(rfp_text, top_k=3)
+    used_sample_corpus = historical_chunks is None
+    chunks = (
+        historical_chunks
+        if historical_chunks is not None
+        else _default_historical_chunks()
+    )
+    retrieved_examples = _retrieve_from_chunks(
+        chunks=chunks,
+        query=rfp_text,
+        top_k=3,
+    )
     supporting_chunk_ids = [
         example["chunk_id"] for example in retrieved_examples
     ]
-    risk_flags = _risk_flags(retrieved_examples)
+    risk_flags = _risk_flags(
+        retrieved_examples,
+        used_sample_corpus=used_sample_corpus,
+    )
     recommended_directors = _director_recommendations(
         director_df,
         supporting_chunk_ids,
@@ -65,7 +68,7 @@ def generate_assignment_context(
         "retrieved_examples": retrieved_examples,
         "recommended_directors": recommended_directors,
         "risk_flags": risk_flags,
-        "notes": "Prototype output for dashboard integration.",
+        "notes": _notes(used_sample_corpus=used_sample_corpus),
     }
 
 
@@ -73,7 +76,28 @@ def _default_historical_chunks() -> list[dict[str, Any]]:
     """Build a small historical/sample corpus when no persisted store is ready."""
 
     sample_text = load_sample_rfp_text()
-    return prepare_rfp_chunks(sample_text)
+    chunks = prepare_rfp_chunks(sample_text)
+    for chunk in chunks:
+        chunk["proposal_id"] = "historical_sample"
+        chunk["chunk_id"] = (
+            f"historical_sample_chunk_{int(chunk['chunk_index']) + 1:03d}"
+        )
+        chunk["source_type"] = "historical_sample"
+    return chunks
+
+
+def _retrieve_from_chunks(
+    chunks: list[dict[str, Any]] | None,
+    query: str,
+    top_k: int,
+) -> list[dict[str, Any]]:
+    """Build a fresh store from the retrieval corpus and query it directly."""
+
+    store = build_vector_store(chunks or [])
+    return [
+        result.to_retrieved_example()
+        for result in store.query(query, top_k=top_k)
+    ]
 
 
 def _summarize_rfp_text(rfp_text: str, max_chars: int = 180) -> str:
@@ -196,21 +220,44 @@ def _director_records(director_df: Any) -> list[dict[str, Any]]:
     return []
 
 
-def _risk_flags(retrieved_examples: list[dict[str, Any]]) -> list[dict[str, str]]:
+def _risk_flags(
+    retrieved_examples: list[dict[str, Any]],
+    used_sample_corpus: bool = False,
+) -> list[dict[str, str]]:
     """Create simple prototype risk flags for the dashboard.
 
     @param retrieved_examples: Retrieved chunks from the local baseline.
     @return: Risk flag dictionaries.
     """
 
-    if len(retrieved_examples) >= 3:
-        return []
-    return [
-        {
-            "level": "Medium",
-            "message": "Limited historical examples found for this RFP type.",
-        }
-    ]
+    flags = []
+    if used_sample_corpus:
+        flags.append(
+            {
+                "level": "Medium",
+                "message": (
+                    "Built-in sample historical corpus was used because real "
+                    "historical proposal data was unavailable."
+                ),
+            }
+        )
+    if len(retrieved_examples) < 3:
+        flags.append(
+            {
+                "level": "Medium",
+                "message": "Limited historical examples found for this RFP type.",
+            }
+        )
+    return flags
+
+
+def _notes(used_sample_corpus: bool = False) -> str:
+    if used_sample_corpus:
+        return (
+            "Prototype output for dashboard integration. Built-in sample "
+            "historical corpus used because real historical proposal data was unavailable."
+        )
+    return "Prototype output for dashboard integration."
 
 
 def _effort_estimate(
