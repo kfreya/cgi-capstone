@@ -164,12 +164,16 @@ def test_build_dashboard_payload_has_stable_output_shape():
 
     assert set(payload) == {
         "rfp_summary",
+        "effort",
+        "similar_rfps",
         "retrieved_examples",
         "recommended_directors",
         "risk_flags",
         "notes",
     }
     assert payload["rfp_summary"] == "Azure support request"
+    assert payload["effort"]["level"] in {"Low", "Medium", "High"}
+    assert payload["similar_rfps"][0]["source"] == "chunk_1"
     assert payload["retrieved_examples"][0]["chunk_id"] == "chunk_1"
     assert "similarity_score" in payload["retrieved_examples"][0]
     assert payload["retrieved_examples"][0]["supporting_text"] == "Azure security"
@@ -178,6 +182,9 @@ def test_build_dashboard_payload_has_stable_output_shape():
     assert payload["recommended_directors"][0]["capacity_label"] == "Available"
     assert payload["recommended_directors"][0]["capacity_score"] == 0.72
     assert payload["recommended_directors"][0]["relative_load"] == 0.65
+    assert "assignment_score" in payload["recommended_directors"][0]
+    assert "capacity_explanation" in payload["recommended_directors"][0]
+    assert "experience_match_explanation" in payload["recommended_directors"][0]
     assert payload["recommended_directors"][0]["supporting_chunks"] == [
         "chunk_1"
     ]

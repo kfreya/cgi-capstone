@@ -32,9 +32,9 @@ from mock_data import make_director_capacity_df, make_trend_df
 try:
     from capacity_engine import (
         build_director_capacity_df,
-        compute_delivery_load,
-        compute_sales_load,
+        compute_quarterly_workload_by_owner,
     )
+    from opportunity_cleaner import clean_opportunity_df
     _ENGINE_AVAILABLE = True
 except ImportError:
     _ENGINE_AVAILABLE = False
@@ -267,50 +267,31 @@ _HOVER = dict(
 
 # ── Data loading ──────────────────────────────────────────────────────────────
 
-def _build_trend_from_opportunity_df(opp_df: pd.DataFrame) -> pd.DataFrame:
-    """Build last-8-quarter workload trend from opportunity_df via the capacity engine.
-
-    NOTE: Quarterly assignment uses created_on to match the same grouping that
-    compute_historical_baseline() uses in capacity_engine.py, keeping the trend
-    chart's historical-avg line consistent with the engine's historical_avg_load.
-    The architecture (architecture.md §Historical Baseline) specifies active-quarter
-    logic (created_on <= quarter_end AND close_date >= quarter_start) which would be
-    more accurate; that fix belongs in compute_historical_baseline() so both metrics
-    stay aligned.  Tracked: fix in capacity_engine.py, then remove this note.
-    """
+def _build_trend_from_opportunity_df(
+    opp_df: pd.DataFrame,
+    as_of_date: str | pd.Timestamp | None = None,
+) -> pd.DataFrame:
+    """Build last-8-quarter workload trend from active-quarter engine output."""
     df = opp_df.copy()
-    df = compute_sales_load(df)
-    df = compute_delivery_load(df)
-    df["current_load"] = df["sales_load"] + df["delivery_load"]
-
-    created_on = pd.to_datetime(df["created_on"], errors="coerce")
-    df["quarter"] = created_on.dt.to_period("Q")
-    df["quarter_sort"] = df["quarter"].apply(
-        lambda q: q.ordinal if not pd.isna(q) else None
-    )
-    df["quarter_label"] = df["quarter"].apply(
-        lambda q: f"Q{q.quarter} {q.year}" if not pd.isna(q) else None
-    )
+    trend = compute_quarterly_workload_by_owner(df, as_of_date=as_of_date)
+    if trend.empty:
+        return pd.DataFrame(
+            columns=[
+                "opportunity_owner",
+                "territory",
+                "quarter_label",
+                "quarter_sort",
+                "current_load",
+                "historical_avg",
+            ]
+        )
 
     hist_avg = (
-        df.groupby(["opportunity_owner", "quarter"], dropna=False)
-        .agg(quarterly_load=("current_load", "sum"))
-        .reset_index()
-        .groupby("opportunity_owner")
-        .agg(historical_avg=("quarterly_load", "mean"))
+        trend.groupby("opportunity_owner")
+        .agg(historical_avg=("current_load", "mean"))
         .reset_index()
     )
-
-    trend = (
-        df.dropna(subset=["quarter"])
-        .groupby(
-            ["opportunity_owner", "quarter", "quarter_sort", "quarter_label"],
-            dropna=False,
-        )
-        .agg(current_load=("current_load", "sum"))
-        .reset_index()
-        .merge(hist_avg, on="opportunity_owner", how="left")
-    )
+    trend = trend.merge(hist_avg, on="opportunity_owner", how="left")
 
     territory = (
         df.groupby("opportunity_owner")["delivery_territory_center"]
@@ -340,9 +321,16 @@ def load_data() -> tuple[pd.DataFrame, pd.DataFrame, str, str | None]:
     # Option 1: compute live from opportunity_df via capacity engine
     if _ENGINE_AVAILABLE and opp_path.exists():
         try:
-            opp_df  = pd.read_csv(opp_path)
-            cap_df  = build_director_capacity_df(opp_df)
-            trd_df  = _build_trend_from_opportunity_df(opp_df)
+            as_of_date = pd.Timestamp.today().normalize()
+            opp_df = clean_opportunity_df(pd.read_csv(opp_path))
+            cap_df = build_director_capacity_df(
+                opp_df,
+                current_date=as_of_date,
+            )
+            trd_df = _build_trend_from_opportunity_df(
+                opp_df,
+                as_of_date=as_of_date,
+            )
             return cap_df, trd_df, "real", None
         except Exception as exc:
             _live_err = f"Live scoring failed ({type(exc).__name__}: {exc})"
@@ -354,7 +342,7 @@ def load_data() -> tuple[pd.DataFrame, pd.DataFrame, str, str | None]:
         try:
             cap_df = pd.read_csv(prebuilt)
             if _ENGINE_AVAILABLE and opp_path.exists():
-                opp_df = pd.read_csv(opp_path)
+                opp_df = clean_opportunity_df(pd.read_csv(opp_path))
                 trd_df = _build_trend_from_opportunity_df(opp_df)
             else:
                 trd_df = make_trend_df()
@@ -662,15 +650,19 @@ if page == "Director Capacity Dashboard":
         )
 
         n_owners = len(sdf)
-        bar_height = max(280, n_owners * 28 + 60)
+        bar_height = max(260, n_owners * 25 + 32)
 
         fig_bar.update_layout(
             height=bar_height,
-            margin=dict(l=0, r=80, t=8, b=30),
+            margin=dict(l=0, r=80, t=8, b=14),
             paper_bgcolor=_CHART_PAPER,
             plot_bgcolor=_CHART_PLOT,
             xaxis=dict(
-                title=dict(text="Capacity Score", font=dict(size=11, color="#78716C")),
+                title=dict(
+                    text="Capacity Score",
+                    font=dict(size=11, color="#78716C"),
+                    standoff=4,
+                ),
                 tickformat=".0%",
                 range=[0, 1.05],
                 gridcolor=_GRID_COLOR,

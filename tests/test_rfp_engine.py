@@ -27,16 +27,31 @@ def test_generate_assignment_context_matches_dashboard_contract():
     output = generate_assignment_context(
         "Need Azure migration support and dashboard reporting.",
         director_df,
+        historical_chunks=[
+            {
+                "proposal_id": "historical_azure",
+                "chunk_id": "historical_azure_chunk_001",
+                "source_type": "proposal",
+                "text": "Prior Azure migration and dashboard reporting proposal.",
+                "chunk_index": 0,
+                "opportunity_owner": None,
+                "opportunity_id": None,
+            }
+        ],
     )
 
     assert set(output) == {
         "rfp_summary",
+        "effort",
+        "similar_rfps",
         "retrieved_examples",
         "recommended_directors",
         "risk_flags",
         "notes",
     }
-    assert output["retrieved_examples"][0]["chunk_id"] == "proposal_001_chunk_001"
+    assert output["retrieved_examples"][0]["chunk_id"] == "historical_azure_chunk_001"
+    assert output["similar_rfps"][0]["source"] == "historical_azure_chunk_001"
+    assert output["effort"]["level"] in {"Low", "Medium", "High"}
     assert "similarity_score" in output["retrieved_examples"][0]
     assert "supporting_text" in output["retrieved_examples"][0]
     assert output["recommended_directors"][0]["director_name"] == "Director A"
@@ -44,6 +59,9 @@ def test_generate_assignment_context_matches_dashboard_contract():
     assert output["recommended_directors"][0]["capacity_label"] == "Available"
     assert output["recommended_directors"][0]["capacity_score"] == 0.72
     assert output["recommended_directors"][0]["relative_load"] == 0.65
+    assert "assignment_score" in output["recommended_directors"][0]
+    assert "capacity_explanation" in output["recommended_directors"][0]
+    assert "experience_match_explanation" in output["recommended_directors"][0]
     assert isinstance(output["recommended_directors"][0]["supporting_chunks"], list)
     assert output["notes"] == "Prototype output for dashboard integration."
 

@@ -149,11 +149,10 @@ series to calendar date before comparing; the corrected count is **379**
 anomaly worth a CGI question, but it is an order of magnitude smaller than the
 Sprint 1 alarm and no longer blocks time-based analysis wholesale.
 
-Note: Yixiao's `close_before_created_flag` in `opportunity_cleaner.py` still
-uses the un-normalized comparison and reports 3,049. The gap (2,670) is
-surfaced by `validate_quality_flags` as `flag_discrepancy_close_before_created`
-— see §4. This is a finding for Yixiao to fold into `opportunity_cleaner.py`,
-not something Role 2 edits in another owner's module.
+The cleaner's `close_before_created_flag` now uses the same normalized
+calendar-date comparison as `validate_date_duration_fields`, so
+`validate_quality_flags` reports zero discrepancy between the stored flag and
+the corrected validator count.
 
 **c. Duration outliers.** 152 opportunities show
 `project_duration_number_of_months > 60` (over 5 years), plus 43 at zero or
@@ -185,18 +184,14 @@ regenerate.
 | missing_duration_flag | 852 | matches `n_duration_null` |
 | invalid_duration_flag | 43 | duration <= 0 |
 | missing_revenue_start_date_flag | 1,092 | matches `n_revenue_start_date_null` |
-| close_before_created_flag | 3,049 | the cleaner's un-normalized count (see below) |
+| close_before_created_flag | 379 | normalized calendar-date count, matching `validate_date_duration_fields` |
 
 **Two cross-checks** confirm the flags reconcile with the field validators:
 
 - `flag_discrepancy_missing_revenue = 0` — `missing_revenue_flag` agrees
   exactly with `validate_revenue_fields`' `n_unscoreable_both_null`.
-- `flag_discrepancy_close_before_created = 2,670` — `close_before_created_flag`
-  (3,049) minus the corrected calendar-date count (379). The cleaner's flag
-  uses the same un-normalized timestamp comparison that was fixed in
-  `validate_date_duration_fields` this sprint. **Recommendation for Yixiao:**
-  normalize both dates in `opportunity_cleaner.py` so the flag matches the
-  corrected count.
+- `flag_discrepancy_close_before_created = 0` — `close_before_created_flag`
+  now matches the corrected calendar-date count (379).
 
 `duplicate_flag = 0` is worth calling out: the Sprint 1 worry about duplicate
 join keys does not materialise in the merged data, so the duplicate-row
@@ -323,9 +318,8 @@ with an explicit "No baseline" state, not a Low-confidence number.
 
 The 4-tier rule (No baseline / Low / Medium / High) is defined in
 `config/fallback_assumptions.yaml` (`baseline_reliability`). The
-`baseline_reliability` *column* itself belongs in Lyken's director table
-(`compute_historical_baseline`), which currently emits a 2-state boolean
-(`>= 4 quarters`); it should adopt the documented 4 tiers so the No-baseline
+`baseline_reliability` *column* itself belongs in Lyken's director table;
+`compute_historical_baseline` now emits those same four tiers so no-baseline
 owners are not collapsed into an ordinary score.
 
 **Owners with < 10 lifetime opportunities: 7.** These owners have a thin
@@ -341,19 +335,16 @@ active correction. `unmatched_flag` and `opps1_exclusive_flag` rows are kept —
 they are legitimate distinct opportunities.
 
 `build_owner_aggregates(cleaned_opportunity_df)` is a **validation
-cross-check**, not the dashboard table. As of PR #29, Lyken's
-`build_director_capacity_df` emits the owner-level director table that is the
-dashboard contract — that is the capacity engine's scope. `build_owner_aggregates`
-is an independent recomputation of the overlapping columns (`territory`,
-`late_stage_deal_count`, `weighted_pipeline_revenue`,
-`inferred_delivery_commitments`, `quarters_of_data`, `baseline_reliability`)
-plus the validation-specific outcome counts (`open_opportunity_count`,
-`lost_opportunity_count`, `duplicate_opportunity_count`). Running both on the
-same frame surfaces definition discrepancies to report back to Lyken — most
-materially `inferred_delivery_commitments` (953 from the cross-check vs 1,620
-from `build_director_capacity_df`, because the engine's `delivery_active` is
-not Won-gated). The full 24-row table is in the notebook and a CSV copy under
-`data/processed/` (gitignored — regenerate locally).
+cross-check**, not the dashboard table. Lyken's `build_director_capacity_df`
+emits the owner-level director table that is the dashboard contract — that is
+the capacity engine's scope. `build_owner_aggregates` is an independent
+recomputation of overlapping columns (`territory`, `late_stage_deal_count`,
+`weighted_pipeline_revenue`, `inferred_delivery_commitments`,
+`quarters_of_data`, `baseline_reliability`) plus validation-specific outcome
+counts (`open_opportunity_count`, `lost_opportunity_count`,
+`duplicate_opportunity_count`). The current capacity engine now uses the shared
+outcome taxonomy and won-gated delivery activity, so the most material
+definition discrepancies called out in the Sprint 2 handoff have been resolved.
 
 ---
 
@@ -415,13 +406,9 @@ written for Lyken.
    `opportunity_owner` works for `director_df`.
 
 **For Yixiao (opportunity_cleaner):**
-1. `close_before_created_flag` uses an un-normalized timestamp comparison and
-   over-counts by 2,670 (3,049 vs the corrected 379). Please normalize both
-   dates to calendar date in `opportunity_cleaner.py`.
-2. Confirm the Option B `status_reason` taxonomy (§5) so `build_owner_base_summary`
-   can stop folding `Duplicated` into `lost_opportunity_count` and import
-   `classify_opportunity_outcome` instead.
-3. The 1,067 unmatched opps2 rows — expected (CGI staged-loading) or a coverage
+1. Confirm the Option B `status_reason` taxonomy (§5) remains the shared
+   contract for downstream scoring.
+2. The 1,067 unmatched opps2 rows — expected (CGI staged-loading) or a coverage
    gap to escalate?
 
 **For CGI (Monday sync):**
