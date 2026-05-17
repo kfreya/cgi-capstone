@@ -80,6 +80,7 @@ Core technical documentation:
 Project process documentation:
 
 - [Team charter](docs/team_charter.md)
+- [Weekly reports and time management artifacts](docs/time_management/)
 
 ## Setup
 

@@ -80,13 +80,14 @@ documented in `docs/opportunity_cleaning.md`.
 ## Checks Completed
 
 - `python -m src.opportunity_cleaner` completed successfully.
-- `python -m pytest tests/test_opportunity_cleaner.py` passed with 6 tests.
+- `python -m pytest tests/test_opportunity_cleaner.py` passed.
 - `data/processed` outputs are ignored by Git.
 - Final `opportunity_df` preserves opportunity-level grain.
 
 ## Open Questions / Risks
 
-- Role 2 should validate revenue, date, duration, probability, status, and `sales_stage` fields.
+- Remaining validation findings for revenue, date, duration, probability,
+  status, and `sales_stage` are documented in `docs/data_validation.md`.
 - The 1067 `opps2`-only opportunity IDs should be reviewed as part of unmatched/source coverage notes.
 - `opps1` duplicate rows likely reflect service/product-level detail and are preserved in audit outputs.
 - Need downstream users to avoid using `opps1_supplemental_detail.csv` as an opportunity-level scoring input.
