@@ -23,17 +23,17 @@ capacity score → labeling.
 |---|---|---|---|
 | `opportunity_owner` | identifier | Owner / director key used for aggregation. | Primary key of the output table. Exactly one row per owner. |
 | `territory` | metadata | First observed `delivery_territory_center` per owner. | Informational grouping field. Not used in scoring logic. May be partially missing depending on upstream coverage. |
-| `current_load` | core metric | Sum of `sales_load + delivery_load` across all opportunities per owner. | Primary workload signal used in relative load calculation. |
+| `current_load` | core metric | Sum of open sales load plus active won-delivery load per owner. | Primary workload signal used in relative load calculation. Lost, duplicate, cancelled, and inactive records do not contribute. |
 | `relative_load` | derived metric | `current_load / historical_avg_load` (baseline-normalized load). | Key normalization signal. Can be unstable for low-history owners. |
 | `historical_avg_load` | baseline metric | Mean quarterly load per owner across available history. | Derived from `compute_historical_baseline`. Used as normalization denominator. |
 | `capacity_score` | derived metric | `max(0, 1 - min(relative_load, 1))` using capped `relative_load`. | Core capacity indicator used by dashboard visualization. Missing/invalid `relative_load` propagates NaN score. |
 | `capacity_label` | classification | Discrete capacity state derived from score thresholds. | Values: `Available`, `At Capacity`, `Overextended`. NaN scores are intentionally mapped to `At Capacity` for dashboard stability. |
-| `open_deal_count` | pipeline metric | Count of opportunities with `status_reason = open`. | Simple pipeline activity indicator per owner. |
+| `open_deal_count` | pipeline metric | Count of opportunities classified as open by the canonical outcome taxonomy. | Simple pipeline activity indicator per owner. |
 | `late_stage_deal_count` | pipeline metric | Count of open deals in late pipeline stages (Proposal → Signature). | Indicates near-term delivery risk / workload concentration. |
 | `weighted_pipeline_revenue` | pipeline metric | Sum of `revenue × probability` for open opportunities. | Proxy for expected pipeline load; used in forecasting and prioritization. |
-| `inferred_delivery_commitments` | delivery metric | Count of opportunities currently in active delivery window. | Approximates active execution burden per owner. |
+| `inferred_delivery_commitments` | delivery metric | Count of won opportunities currently in active delivery window. | Approximates active execution burden per owner. |
 | `quarters_of_data` | baseline quality metric | Number of unique quarters contributing to baseline. | Used to assess reliability of historical average load. |
-| `baseline_reliability` | baseline quality flag | Boolean indicating whether ≥4 quarters of data exist. | Signals whether baseline is statistically stable or noisy. |
+| `baseline_reliability` | baseline quality tier | Four-tier label derived from contributing quarters: `No baseline`, `Low`, `Medium`, or `High`. | Signals whether baseline is statistically stable or noisy. |
 
 ---
 
