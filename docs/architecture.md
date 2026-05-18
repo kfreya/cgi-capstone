@@ -225,7 +225,7 @@ CGI confirmed that the three labels are appropriate. Thresholds should remain co
 
 ## Historical Baseline
 
-Build the historical baseline from the actual date range in the data rather than a hard-coded range. For consistency, the historical baseline should use the same workload contribution logic as the current-load calculation, rather than only counting opportunities.
+Build the historical baseline from the actual date range in the data rather than a hard-coded range, ending no later than the current/as-of quarter. For consistency, the historical baseline should use the same workload contribution logic as the current-load calculation, rather than only counting opportunities.
 
 A simple opportunity count can be used as an initial baseline, but the preferred baseline should include stage, probability, revenue, and estimated duration where available.
 

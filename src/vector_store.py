@@ -24,6 +24,21 @@ except ModuleNotFoundError:
 
 
 EmbeddingFunction = Callable[[Sequence[str]], list[list[float]]]
+_DEFAULT_STORE: "InMemoryVectorStore | None" = None
+_LOCAL_EMBEDDING_TERMS = [
+    "cloud",
+    "azure",
+    "data",
+    "analytics",
+    "dashboard",
+    "security",
+    "migration",
+    "application",
+    "managed",
+    "service",
+    "delivery",
+    "support",
+]
 
 
 @dataclass(frozen=True)
@@ -51,6 +66,22 @@ class SearchResult:
             "score": self.score,
             "text": self.chunk.text,
             "metadata": self.chunk.metadata,
+        }
+
+    def to_retrieved_example(self) -> dict[str, Any]:
+        """Convert the result to the Week 2 dashboard retrieval shape.
+
+        @return: Flat retrieved-example dictionary for assignment context.
+        """
+
+        return {
+            "proposal_id": self.chunk.metadata.get(
+                "proposal_id",
+                self.chunk.document_id,
+            ),
+            "chunk_id": self.chunk.chunk_id,
+            "similarity_score": round(self.score, 4),
+            "supporting_text": self.chunk.text,
         }
 
 
@@ -320,25 +351,81 @@ def build_dashboard_payload(
     results: Sequence[SearchResult],
     rfp_summary: str = "",
     recommended_directors: Sequence[dict[str, Any]] | None = None,
-    notes: Sequence[str] | None = None,
+    effort: dict[str, Any] | None = None,
+    risk_flags: Sequence[dict[str, str]] | None = None,
+    notes: str = "Prototype output for dashboard integration.",
 ) -> dict[str, Any]:
-    """Create a stable mock output shape for downstream dashboard work.
+    """Create the Week 2 dashboard output shape for RFP assignment.
 
     @param query_text: New RFP text or short query used for retrieval.
     @param results: Retrieved chunks that support the recommendation.
     @param rfp_summary: Optional summary of the new RFP.
     @param recommended_directors: Optional director ranking records.
-    @param notes: Optional notes about assumptions or missing data.
+    @param risk_flags: Optional warning messages for the dashboard.
+    @param notes: Optional note about assumptions or missing data.
     @return: Dictionary shaped like the future dashboard/API response.
     """
 
+    supporting_chunks = [result.chunk.chunk_id for result in results]
+    directors = [
+        _dashboard_director_record(director, supporting_chunks)
+        for director in recommended_directors or []
+    ]
+
     return {
-        "rfp_summary": rfp_summary,
-        "query_text": query_text,
-        "recommended_directors": list(recommended_directors or []),
-        "supporting_chunks": [result.to_dict() for result in results],
-        "notes": list(notes or []),
+        "rfp_summary": rfp_summary or _summarize_query(query_text),
+        "effort": effort or {
+            "level": "Low",
+            "estimated_duration": "1-2 weeks",
+            "rationale": "Prototype estimate pending final RFP effort model.",
+        },
+        "similar_rfps": [
+            {
+                "title": result.chunk.title,
+                "similarity_score": round(result.score, 4),
+                "matched_chunk": result.chunk.text,
+                "source": result.chunk.chunk_id,
+            }
+            for result in results
+        ],
+        "retrieved_examples": [
+            result.to_retrieved_example() for result in results
+        ],
+        "recommended_directors": directors,
+        "risk_flags": list(risk_flags or []),
+        "notes": notes,
     }
+
+
+def build_vector_store(chunks: list[dict]):
+    """Build the local vector store expected by the dashboard placeholder.
+
+    @param chunks: Chunk dictionaries from `prepare_rfp_chunks`.
+    @return: In-memory vector store populated with those chunks.
+    """
+
+    global _DEFAULT_STORE
+
+    store = InMemoryVectorStore(_local_embedding)
+    store.add_chunks([_chunk_from_dict(chunk) for chunk in chunks])
+    _DEFAULT_STORE = store
+    return store
+
+
+def retrieve_relevant_chunks(query: str, top_k: int = 5):
+    """Retrieve chunks from the most recently built local vector store.
+
+    @param query: RFP text or query text to search with.
+    @param top_k: Maximum number of chunks to return.
+    @return: Ranked retrieved examples with similarity scores.
+    """
+
+    if _DEFAULT_STORE is None:
+        return []
+    return [
+        result.to_retrieved_example()
+        for result in _DEFAULT_STORE.query(query, top_k=top_k)
+    ]
 
 
 def _chroma_metadata(chunk: RFPChunk) -> dict[str, str | int | float | bool]:
@@ -368,3 +455,110 @@ def _chroma_metadata(chunk: RFPChunk) -> dict[str, str | int | float | bool]:
             metadata[key] = json.dumps(value, sort_keys=True)
 
     return metadata
+
+
+def _chunk_from_dict(chunk: dict[str, Any]) -> RFPChunk:
+    """Convert a dashboard chunk dictionary back into an RFPChunk object."""
+
+    if "document_id" in chunk:
+        return RFPChunk(
+            chunk_id=str(chunk["chunk_id"]),
+            document_id=str(chunk["document_id"]),
+            title=str(chunk["title"]),
+            section=str(chunk["section"]),
+            chunk_index=int(chunk["chunk_index"]),
+            text=str(chunk["text"]),
+            metadata=dict(chunk.get("metadata", {})),
+        )
+
+    proposal_id = str(chunk.get("proposal_id", "proposal_001"))
+    source_type = str(chunk.get("source_type", "proposal"))
+    return RFPChunk(
+        chunk_id=str(chunk["chunk_id"]),
+        document_id=proposal_id,
+        title=proposal_id,
+        section=source_type,
+        chunk_index=int(chunk["chunk_index"]),
+        text=str(chunk["text"]),
+        metadata={
+            "proposal_id": proposal_id,
+            "chunk_id": str(chunk["chunk_id"]),
+            "source_type": source_type,
+            "chunk_index": int(chunk["chunk_index"]),
+            "opportunity_owner": chunk.get("opportunity_owner"),
+            "opportunity_id": chunk.get("opportunity_id"),
+        },
+    )
+
+
+def _local_embedding(texts: Sequence[str]) -> list[list[float]]:
+    """Create small deterministic embeddings for local dashboard testing."""
+
+    embeddings: list[list[float]] = []
+    for text in texts:
+        lower_text = text.lower()
+        vector = [float(term in lower_text) for term in _LOCAL_EMBEDDING_TERMS]
+        vector.append(float(len(lower_text.split())) / 1_000)
+        embeddings.append(vector)
+    return embeddings
+
+
+def _dashboard_director_record(
+    director: dict[str, Any],
+    supporting_chunks: list[str],
+) -> dict[str, Any]:
+    """Normalize director records to the Week 2 dashboard contract."""
+
+    capacity_score = _as_float(director.get("capacity_score"), default=0.72)
+    relative_load = _as_float(director.get("relative_load"), default=0.65)
+    assignment_score = _as_float(
+        director.get("assignment_score"),
+        default=round((capacity_score * 0.45) + (0.35 if supporting_chunks else 0.15), 3),
+    )
+    director_name = director.get(
+        "director_name",
+        director.get("opportunity_owner", director.get("name", "Director A")),
+    )
+    capacity_label = director.get("capacity_label", "Available")
+    return {
+        "director_name": director_name,
+        "capacity_label": capacity_label,
+        "capacity_score": capacity_score,
+        "relative_load": relative_load,
+        "assignment_score": assignment_score,
+        "match_reason": director.get(
+            "match_reason",
+            director.get("reason", "Relevant historical experience and available capacity"),
+        ),
+        "capacity_explanation": director.get(
+            "capacity_explanation",
+            f"{director_name} is currently labeled {capacity_label} "
+            f"with capacity score {capacity_score:.2f} and relative load {relative_load:.2f}.",
+        ),
+        "experience_match_explanation": director.get(
+            "experience_match_explanation",
+            "Prototype fit is based on the retrieved historical/sample RFP chunks.",
+        ),
+        "risk_flags": list(director.get("risk_flags", [])),
+        "supporting_chunks": director.get("supporting_chunks", supporting_chunks[:2]),
+    }
+
+
+def _summarize_query(query_text: str, max_chars: int = 180) -> str:
+    """Create a short fallback summary when a real summary is not available."""
+
+    clean_text = " ".join(str(query_text).split())
+    if not clean_text:
+        return "Short summary of the input RFP"
+    if len(clean_text) <= max_chars:
+        return clean_text
+    return f"{clean_text[:max_chars].rstrip()}..."
+
+
+def _as_float(value: Any, default: float) -> float:
+    """Convert optional numeric fields while keeping the prototype stable."""
+
+    try:
+        return float(value)
+    except (TypeError, ValueError):
+        return default

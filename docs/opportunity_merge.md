@@ -72,67 +72,22 @@ Generated under `data/processed/`:
 
 These are local artifacts and should not be committed.
 
-Running the opportunity output pipeline now produces both the original Week 1
-merge artifacts and the Sprint 2 Role 1 handoff artifacts.
-`cleaned_opportunity_df.csv` is the prepared opportunity-level handoff for
-validation, scoring, and dashboard integration. `owner_base_summary.csv` is the
-owner-level validation and scoring sanity-check handoff. All generated CSVs
-under `data/processed/` remain local artifacts and should not be committed.
-
-## Sprint 2 Cleaning Note
-
-`opportunity_df` remains the Week 1 merged output: it preserves the original
-opportunity-level merge, source diagnostics, unmatched records, and audit
-artifacts.
-
-`src/opportunity_cleaner.py::clean_opportunity_df()` creates the Sprint 2
-cleaned/prepared dataframe from that merged output. This first non-breaking
-cleaning pass preserves all existing columns, coerces known numeric and date
-fields when present, and adds downstream-friendly flags for validation,
-scoring, and dashboard use:
-
-- `source_file_flag`
-- `duplicate_flag`
-- `unmatched_flag`
-- `opps1_exclusive_flag`
-
-It also adds lightweight data-quality flags for missing owner, probability,
-revenue, duration, revenue start date, invalid probability/duration, and
-`close_date < created_on`.
-
-The cleaned dataframe includes `authoritative_revenue` as the non-additive
-opportunity-level revenue fallback:
-
-```text
-total_estimated_revenue
-else opportunity_estimated_revenue_base_cad
-```
-
-`service_solution_estimated_revenue` remains separate and is not summed into
-`authoritative_revenue`. Kian still owns validation and reliability review of
-the revenue semantics.
-
-`src/opportunity_cleaner.py::build_owner_base_summary()` creates the Sprint 2
-Role 1 owner-level handoff artifact from `cleaned_opportunity_df`. It groups
-records by `opportunity_owner` and summarizes opportunity counts, simple status
-buckets using both `status` and `status_reason`, missing-data counts,
-merge/source flags, and separate revenue totals.
-
-This owner base summary is intended for Kian's validation checks and Lyken's
-scoring sanity checks. It is not final capacity scoring: it does not compute
-`capacity_score`, `relative_load`, or `capacity_label`. The final
-`director_capacity_df` remains part of the scoring module work.
+The opportunity output pipeline also creates prepared downstream artifacts
+(`cleaned_opportunity_df.csv` and `owner_base_summary.csv`) from the merged
+opportunity table. Their cleaning rules, added flags, and assumptions are
+documented in `docs/opportunity_cleaning.md`.
 
 ## Checks Completed
 
-- `python src/opportunity_cleaner.py` completed successfully.
-- `python -m pytest tests/test_opportunity_cleaner.py` passed with 6 tests.
+- `python -m src.opportunity_cleaner` completed successfully.
+- `python -m pytest tests/test_opportunity_cleaner.py` passed.
 - `data/processed` outputs are ignored by Git.
 - Final `opportunity_df` preserves opportunity-level grain.
 
 ## Open Questions / Risks
 
-- Role 2 should validate revenue, date, duration, probability, status, and `sales_stage` fields.
+- Remaining validation findings for revenue, date, duration, probability,
+  status, and `sales_stage` are documented in `docs/data_validation.md`.
 - The 1067 `opps2`-only opportunity IDs should be reviewed as part of unmatched/source coverage notes.
 - `opps1` duplicate rows likely reflect service/product-level detail and are preserved in audit outputs.
 - Need downstream users to avoid using `opps1_supplemental_detail.csv` as an opportunity-level scoring input.
