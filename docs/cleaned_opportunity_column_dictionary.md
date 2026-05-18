@@ -19,8 +19,8 @@ reliability review of the revenue semantics.
 | `opportunity_id` | identifier | CRM opportunity identifier used as the merge key. | Primary row identifier for joining and duplicate checks. |
 | `opportunity_owner` | owner | Owner/director associated with the opportunity. | Primary grouping field for owner-level validation and scoring sanity checks. Blank or missing owners are flagged by `missing_owner_flag`. |
 | `opportunity_manager` | owner | Manager or reporting-structure field from CRM. | Retained as metadata. Not the Sprint 2 capacity grouping field. |
-| `status` | status | High-level opportunity status. | Used with `status_reason` for simple open/won/lost owner summary buckets. Final scoring logic may use more precise validation rules. |
-| `status_reason` | status | CRM status reason or outcome detail. | Used with `status` so lost/cancelled/duplicated outcomes are counted in owner summaries. |
+| `status` | status | High-level opportunity status. | Used by Kian's shared `classify_opportunity_outcome()` taxonomy as the fallback only when `status_reason` is null or blank. |
+| `status_reason` | status | CRM status reason or outcome detail. | Primary input to `classify_opportunity_outcome()`: Cancelled/Canceled are counted as lost; Duplicated/Duplicate are excluded from open/won/lost counts. |
 | `sales_stage` | status | CRM sales stage for the opportunity. | Used by scoring to understand pipeline maturity. Validation should check stage coverage against expected stage weights. |
 | `probability` | status | Opportunity probability after numeric coercion where present. | Used for weighted pipeline logic. Missing and out-of-range values are flagged separately. |
 | `created_on` | date | CRM created date after date coercion where present. | Useful for historical baselines and validation of date plausibility. |
@@ -35,7 +35,7 @@ reliability review of the revenue semantics.
 | `opportunity_product` | supplemental | Product field carried from opps1 where available. | Supplemental context for analysis and dashboard filtering. |
 | `ip` | supplemental | IP-related field carried from opps1 where available. | Supplemental context. Semantics should be confirmed before using in scoring. |
 | `source_file_flag` | merge flag | Sprint 2 alias derived from `source_table` when available. Defaults to `unknown` if source metadata is absent. | Downstream-friendly source indicator for validation, scoring, and dashboard handoff. |
-| `duplicate_flag` | merge flag | Sprint 2 alias derived from `is_duplicate_join_key` when available. Defaults to `False` if absent. | Indicates rows whose opportunity ID is duplicated in the merged output. |
+| `duplicate_flag` | merge flag | Sprint 2 alias derived from `is_duplicate_join_key` when available. Defaults to `False` if absent. | Indicates rows whose opportunity ID is duplicated in the merged output. This merge-level flag is separate from CRM `status_reason` values such as Duplicated/Duplicate. |
 | `unmatched_flag` | merge flag | Sprint 2 alias derived from `is_unmatched_opps2_base` when available. Defaults to `False` if absent. | Identifies opps2/base records not matched to opps1. |
 | `opps1_exclusive_flag` | merge flag | Sprint 2 alias derived from `is_opps1_exclusive` when available. Defaults to `False` if absent. | Identifies opportunities found only in opps1 and appended to the base output. |
 | `missing_owner_flag` | data quality flag | True when `opportunity_owner` is null or blank. | Helps validation and owner-level summaries identify records with unclear ownership. |
@@ -45,4 +45,4 @@ reliability review of the revenue semantics.
 | `missing_duration_flag` | data quality flag | True when `project_duration_number_of_months` is missing after numeric coercion. | Helps quantify rows that may need duration fallback assumptions. |
 | `invalid_duration_flag` | data quality flag | True when `project_duration_number_of_months` is less than or equal to 0. | Should be reviewed before delivery-window or load calculations. |
 | `missing_revenue_start_date_flag` | data quality flag | True when `revenue_start_date` is missing after date coercion. | Helps validation quantify delivery-window uncertainty. |
-| `close_before_created_flag` | data quality flag | True when both dates are present and `close_date` is earlier than `created_on`. | Indicates date-order anomalies that need validation/CGI interpretation before time-to-close analysis. |
+| `close_before_created_flag` | data quality flag | True when both dates are present and the `close_date` calendar day is earlier than the `created_on` calendar day. | Uses calendar-date comparison, so same-day created/closed records are not flagged. Indicates date-order anomalies that need validation/CGI interpretation before time-to-close analysis. |

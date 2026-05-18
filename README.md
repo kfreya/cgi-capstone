@@ -21,7 +21,7 @@ The project has two core deliverables:
 ```text
 cgi-capstone/
 ├── app/
-│   ├── app.py                  # Week 1 Streamlit dashboard skeleton
+│   ├── app.py                  # Streamlit integrated prototype dashboard
 │   └── mock_data.py            # synthetic data for dashboard prototyping
 ├── src/
 │   ├── azure_client.py         # Azure/OpenAI environment validation helper
@@ -29,17 +29,23 @@ cgi-capstone/
 │   ├── data_loader.py          # local data loading helpers
 │   ├── opportunity_cleaner.py  # opportunity Excel merge/cleaning pipeline
 │   ├── data_validator.py       # validation summaries and owner aggregates
-│   ├── capacity_engine.py      # first-pass capacity scoring functions
+│   ├── capacity_engine.py      # capacity scoring and director output contract
+│   ├── rfp_engine.py           # dashboard-facing RFP assignment context
 │   ├── rfp_preprocessor.py     # RFP/proposal text extraction and chunking
 │   └── vector_store.py         # in-memory and Chroma vector retrieval helpers
-├── tests/                      # unit tests for Week 1 src modules
+├── tests/                      # unit tests for data, scoring, dashboard contracts, and RFP modules
 ├── config/
 │   └── fallback_assumptions.yaml # shared fallback rules for validation/scoring
 ├── docs/
 │   ├── architecture.md         # system architecture and modeling approach
 │   ├── opportunity_merge.md    # opportunity Excel merge strategy and outputs
+│   ├── opportunity_cleaning.md # cleaned opportunity layer and prepared artifacts
+│   ├── cleaned_opportunity_column_dictionary.md # cleaned opportunity schema
 │   ├── data_validation.md      # field validation findings and fallback notes
+│   ├── scoring_input_reliability.md # scoring input reliability contract
 │   ├── capacity_scoring.md     # capacity scoring workflow and assumptions
+│   ├── capacity_engine_integration.md # capacity engine integration contract
+│   ├── director_capacity_dashboard_column_dictionary.md # dashboard output schema
 │   ├── dashboard_requirements.md # dashboard data and UI contracts
 │   ├── rfp_pipeline.md         # RFP preprocessing and retrieval pipeline
 │   ├── team_charter.md         # team working agreement
@@ -54,6 +60,27 @@ cgi-capstone/
 ```
 
 The `data/` directory is for local CGI-provided files and generated artifacts only. It is ignored by Git and must not be committed.
+
+## Documentation
+
+Core technical documentation:
+
+- [Architecture](docs/architecture.md)
+- [Opportunity merge](docs/opportunity_merge.md)
+- [Opportunity cleaning](docs/opportunity_cleaning.md)
+- [Cleaned opportunity column dictionary](docs/cleaned_opportunity_column_dictionary.md)
+- [Data validation](docs/data_validation.md)
+- [Scoring input reliability](docs/scoring_input_reliability.md)
+- [Capacity scoring](docs/capacity_scoring.md)
+- [Capacity engine integration](docs/capacity_engine_integration.md)
+- [Director capacity dashboard column dictionary](docs/director_capacity_dashboard_column_dictionary.md)
+- [Dashboard requirements](docs/dashboard_requirements.md)
+- [RFP pipeline](docs/rfp_pipeline.md)
+
+Project process documentation:
+
+- [Team charter](docs/team_charter.md)
+- [Weekly reports and time management artifacts](docs/time_management/)
 
 ## Setup
 
@@ -93,7 +120,7 @@ data/csv_files/anonymized_opps_2.xlsx
 data/proposals_responses.json
 ```
 
-The Excel filenames should match the listed names exactly because the Week 1 data pipeline reads from those expected paths.
+The Excel filenames should match the listed names exactly because the opportunity merge/cleaning pipeline reads from those expected paths.
 
 Generated local output folders:
 
@@ -119,7 +146,7 @@ python src/check_env.py
 Build the merged opportunity dataset:
 
 ```bash
-python src/opportunity_cleaner.py
+python -m src.opportunity_cleaner
 ```
 
 Run the Streamlit app:
@@ -131,27 +158,43 @@ streamlit run app/app.py
 Run all tests:
 
 ```bash
-python -m pytest tests
+python -m pytest
 ```
 
-Run a selected test file:
+Run selected validation suites:
 
 ```bash
 python -m pytest tests/test_opportunity_cleaner.py
+python -m pytest tests/test_capacity_engine.py
+python -m pytest tests/test_rfp_engine.py tests/test_vector_store.py
 ```
 
-## Week 1 Status
+## Week 2 Prototype Status
+
+This repository is a Week 2 integrated capstone prototype. It is not a
+production system.
 
 Week 1 established the project foundations:
 
 - Opportunity merge pipeline for the two anonymized opportunity Excel workbooks.
 - Data validation notes and reusable validation helpers for field quality checks and owner-level aggregates.
-- Capacity scoring engine skeleton as a first-pass foundation for sales load, delivery load, historical baseline, relative load, scores, and labels.
-- Streamlit dashboard skeleton with mock data for the Director Capacity Dashboard and RFP Assignment Tool views.
-- RFP preprocessing and vector store skeletons as first-pass foundations for proposal/response extraction, chunking, and retrieval experiments.
-- Architecture, dashboard input, validation, capacity engine, RFP pipeline, team charter, and time management documentation.
+- Base capacity scoring, dashboard, RFP preprocessing, and vector retrieval modules.
 
-These are Week 1 foundations and skeletons. Final model behavior, production integration, and validated business rules are still in progress.
+Week 2 moved the project toward a first integrated prototype:
+
+- Opportunity cleaning now produces `cleaned_opportunity_df.csv` and
+  `owner_base_summary.csv` as local prepared artifacts.
+- Capacity scoring uses the shared opportunity outcome taxonomy and gates
+  current load to open sales pipeline plus active won delivery commitments.
+- The dashboard uses cleaned opportunity data when available, or raw
+  `opportunity_df.csv` plus cleaning as a fallback.
+- The RFP pipeline provides preprocessing, chunking, sample historical
+  retrieval, and a dashboard-compatible `generate_assignment_context()` output.
+- Documentation has been organized around functional areas: merge, cleaning,
+  validation, scoring, dashboard, and RFP pipeline.
+
+Full Azure/Chroma end-to-end integration, production retrieval quality, and
+final recommendation logic remain future work.
 
 ## Data Security
 
