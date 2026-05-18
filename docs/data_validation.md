@@ -1,25 +1,23 @@
 # Data Validation
 
-**Author:** Kian (Data Validation Owner)
-**Issue:** [#21 Sprint 2: Validate scoring and dashboard input fields](../../issues/21)
 **Source data:** `cleaned_opportunity_df` from
 `src.opportunity_cleaner.clean_opportunity_df(build_opportunity_df()[0])` —
-8,746 opportunity-level rows as of 2026-05-14. This is the Sprint 2 input:
-the Week 1 merged `opportunity_df` plus Yixiao's additive cleaning pass
+8,746 opportunity-level rows as of 2026-05-14. This is the prepared scoring
+and validation input: the merged `opportunity_df` plus the additive cleaning pass
 (merge-provenance flags, eight data-quality flags, a precomputed
 `authoritative_revenue`).
 **Companion files:**
-- `src/data_validator.py` — reusable validation, taxonomy, and handoff functions
+- `src/data_validator.py` — reusable validation, taxonomy, and reporting functions
 - `tests/test_data_validator.py` — contract tests
 - `notebooks/role2_validation.ipynb` — full re-runnable analysis
 - `config/fallback_assumptions.yaml` — machine-readable fallback rules for validation/scoring
-- `docs/scoring_input_reliability_handoff.md` — the targeted Kian to Lyken scoring-input contract
+- `docs/scoring_input_reliability.md` — the scoring-input reliability contract
 
 This document covers the issue-#21 deliverables: missingness, revenue
 hierarchy, date/duration validation, the new data-quality flag summary, the
 `status_reason` outcome taxonomy, fallback assumptions, the owner-level
-summary, and field reliability for scoring. A list of open questions for
-Lyken, Yixiao, and CGI sits at the end.
+summary, and field reliability for scoring. A list of open questions sits at
+the end.
 
 The machine-readable fallback rules live in
 [`config/fallback_assumptions.yaml`](../config/fallback_assumptions.yaml).
@@ -83,10 +81,10 @@ authoritative_revenue =
     else MISSING (row excluded from load calculation)
 ```
 
-**The two revenue fields now overlap and cross-validate.** In Sprint 1 the
-fields were mutually exclusive in the merged data, so no cross-field check was
-possible. Yixiao's Sprint 2 merge adds `opportunity_estimated_revenue_base_cad`
-to the supplemental fields carried onto matched rows, so the picture is now:
+**The two revenue fields now overlap and cross-validate.** In the first merge
+output the fields were mutually exclusive, so no cross-field check was
+possible. The current merge adds `opportunity_estimated_revenue_base_cad` to
+the supplemental fields carried onto matched rows, so the picture is now:
 
 | row group | count | primary | fallback |
 |---|---:|---|---|
@@ -149,11 +147,10 @@ series to calendar date before comparing; the corrected count is **379**
 anomaly worth a CGI question, but it is an order of magnitude smaller than the
 Sprint 1 alarm and no longer blocks time-based analysis wholesale.
 
-Note: Yixiao's `close_before_created_flag` in `opportunity_cleaner.py` still
-uses the un-normalized comparison and reports 3,049. The gap (2,670) is
-surfaced by `validate_quality_flags` as `flag_discrepancy_close_before_created`
-— see §4. This is a finding for Yixiao to fold into `opportunity_cleaner.py`,
-not something Role 2 edits in another owner's module.
+The cleaner's `close_before_created_flag` now uses the same normalized
+calendar-date comparison as `validate_date_duration_fields`, so
+`validate_quality_flags` reports zero discrepancy between the stored flag and
+the corrected validator count.
 
 **c. Duration outliers.** 152 opportunities show
 `project_duration_number_of_months > 60` (over 5 years), plus 43 at zero or
@@ -185,18 +182,14 @@ regenerate.
 | missing_duration_flag | 852 | matches `n_duration_null` |
 | invalid_duration_flag | 43 | duration <= 0 |
 | missing_revenue_start_date_flag | 1,092 | matches `n_revenue_start_date_null` |
-| close_before_created_flag | 3,049 | the cleaner's un-normalized count (see below) |
+| close_before_created_flag | 379 | normalized calendar-date count, matching `validate_date_duration_fields` |
 
 **Two cross-checks** confirm the flags reconcile with the field validators:
 
 - `flag_discrepancy_missing_revenue = 0` — `missing_revenue_flag` agrees
   exactly with `validate_revenue_fields`' `n_unscoreable_both_null`.
-- `flag_discrepancy_close_before_created = 2,670` — `close_before_created_flag`
-  (3,049) minus the corrected calendar-date count (379). The cleaner's flag
-  uses the same un-normalized timestamp comparison that was fixed in
-  `validate_date_duration_fields` this sprint. **Recommendation for Yixiao:**
-  normalize both dates in `opportunity_cleaner.py` so the flag matches the
-  corrected count.
+- `flag_discrepancy_close_before_created = 0` — `close_before_created_flag`
+  now matches the corrected calendar-date count (379).
 
 `duplicate_flag = 0` is worth calling out: the Sprint 1 worry about duplicate
 join keys does not materialise in the merged data, so the duplicate-row
@@ -208,10 +201,8 @@ data, not an active correction.
 ## 5. status_reason outcome taxonomy
 
 `status_reason` is the architecture-canonical outcome field. Beyond Won / Open
-/ Lost it carries `Cancelled ...` and `Duplicated` values, and Sprint 2 had to
-decide how those map into outcome buckets. Yixiao's `build_owner_base_summary`
-currently folds Cancelled and Duplicated into `lost_opportunity_count` with a
-first-pass regex and explicitly deferred the real taxonomy to Role 2.
+/ Lost it carries `Cancelled ...` and `Duplicated` values, so the validation
+layer defines how those values map into outcome buckets.
 
 **The three options considered:**
 
@@ -239,11 +230,11 @@ opportunity), not a merge artefact and not a sales win/loss outcome. Folding
 loss counts and distort their win rates with records that never represented a
 real pursuit. Cancelled, by contrast, is a genuine pipeline exit — a pursuit
 that ended unwon — so it is lost-like. Option C was rejected as a premature
-schema cost on Yixiao's `owner_base_summary` and Lyken's scoring before CGI
-has even confirmed the semantics.
+schema cost on `owner_base_summary` and downstream scoring before CGI has
+confirmed the semantics.
 
 **Implementation.** `classify_opportunity_outcome(df)` in `src/data_validator.py`
-is the shared helper; Yixiao and Lyken should import it rather than re-deriving
+is the shared helper; downstream code should import it rather than re-deriving
 buckets. It returns one of `won | lost | open | duplicate | unknown`:
 
 - `status_reason` is read first (canonical); `status` is the fallback for the
@@ -322,11 +313,9 @@ NaN and they cannot be scored against a baseline; the dashboard must show them
 with an explicit "No baseline" state, not a Low-confidence number.
 
 The 4-tier rule (No baseline / Low / Medium / High) is defined in
-`config/fallback_assumptions.yaml` (`baseline_reliability`). The
-`baseline_reliability` *column* itself belongs in Lyken's director table
-(`compute_historical_baseline`), which currently emits a 2-state boolean
-(`>= 4 quarters`); it should adopt the documented 4 tiers so the No-baseline
-owners are not collapsed into an ordinary score.
+`config/fallback_assumptions.yaml` (`baseline_reliability`).
+`compute_historical_baseline` emits those same four tiers so no-baseline owners
+are not collapsed into an ordinary score.
 
 **Owners with < 10 lifetime opportunities: 7.** These owners have a thin
 historical record; their capacity scores should carry a Low reliability tag
@@ -341,19 +330,16 @@ active correction. `unmatched_flag` and `opps1_exclusive_flag` rows are kept —
 they are legitimate distinct opportunities.
 
 `build_owner_aggregates(cleaned_opportunity_df)` is a **validation
-cross-check**, not the dashboard table. As of PR #29, Lyken's
-`build_director_capacity_df` emits the owner-level director table that is the
-dashboard contract — that is the capacity engine's scope. `build_owner_aggregates`
-is an independent recomputation of the overlapping columns (`territory`,
-`late_stage_deal_count`, `weighted_pipeline_revenue`,
-`inferred_delivery_commitments`, `quarters_of_data`, `baseline_reliability`)
-plus the validation-specific outcome counts (`open_opportunity_count`,
-`lost_opportunity_count`, `duplicate_opportunity_count`). Running both on the
-same frame surfaces definition discrepancies to report back to Lyken — most
-materially `inferred_delivery_commitments` (953 from the cross-check vs 1,620
-from `build_director_capacity_df`, because the engine's `delivery_active` is
-not Won-gated). The full 24-row table is in the notebook and a CSV copy under
-`data/processed/` (gitignored — regenerate locally).
+cross-check**, not the dashboard table. `build_director_capacity_df` emits the
+owner-level director table that is the dashboard contract; that is the capacity
+engine's scope. `build_owner_aggregates` is an independent recomputation of
+overlapping columns (`territory`, `late_stage_deal_count`,
+`weighted_pipeline_revenue`, `inferred_delivery_commitments`,
+`quarters_of_data`, `baseline_reliability`) plus validation-specific outcome
+counts (`open_opportunity_count`, `lost_opportunity_count`,
+`duplicate_opportunity_count`). The current capacity engine now uses the shared
+outcome taxonomy and won-gated delivery activity, so the most material
+definition discrepancies called out in the Sprint 2 handoff have been resolved.
 
 ---
 
@@ -393,17 +379,15 @@ only field **not usable for formal scoring**.
 
 The targeted, scoring-focused version of this table — reliable / risky /
 not-usable, with fallback hierarchies and the owner-level findings — is in
-[`docs/scoring_input_reliability_handoff.md`](scoring_input_reliability_handoff.md),
-written for Lyken.
+[`docs/scoring_input_reliability.md`](scoring_input_reliability.md).
 
 ---
 
 ## Open questions
 
-**For Lyken (capacity_engine):**
-1. Import `classify_opportunity_outcome` for Won/Lost/Open routing, or want
-   Role 2 to wire it into `compute_delivery_load` / `compute_sales_load` on a
-   separate PR?
+**Capacity engine:**
+1. Confirm `classify_opportunity_outcome` remains the shared routing helper for
+   Won/Lost/Open logic in `compute_delivery_load` and `compute_sales_load`.
 2. Add row-counter outputs for `probability = 0` and `duration = 12`
    default-fills so the dashboard can tell missing-data rows from real-zero
    rows?
@@ -414,17 +398,13 @@ written for Lyken.
    `open/lost/duplicate_opportunity_count` — confirm the join contract on
    `opportunity_owner` works for `director_df`.
 
-**For Yixiao (opportunity_cleaner):**
-1. `close_before_created_flag` uses an un-normalized timestamp comparison and
-   over-counts by 2,670 (3,049 vs the corrected 379). Please normalize both
-   dates to calendar date in `opportunity_cleaner.py`.
-2. Confirm the Option B `status_reason` taxonomy (§5) so `build_owner_base_summary`
-   can stop folding `Duplicated` into `lost_opportunity_count` and import
-   `classify_opportunity_outcome` instead.
-3. The 1,067 unmatched opps2 rows — expected (CGI staged-loading) or a coverage
+**Opportunity cleaning:**
+1. Confirm the Option B `status_reason` taxonomy (§5) remains the shared
+   contract for downstream scoring.
+2. The 1,067 unmatched opps2 rows — expected (CGI staged-loading) or a coverage
    gap to escalate?
 
-**For CGI (Monday sync):**
+**CGI review:**
 1. **379 rows where `close_date < created_on`** (calendar-date basis) — what is
    the CRM convention: backdating, projected-close-date semantics, or a
    migration artefact?
@@ -439,8 +419,8 @@ written for Lyken.
 ## Use of Generative AI
 
 Anthropic Claude (Opus 4.7) was used for drafting and editing assistance on
-this document. All validation logic, computed metrics, and conclusions are my
-own — derived from running the validator functions in `src/data_validator.py`
-against the team's `cleaned_opportunity_df`, and verified against the
-underlying data. No CGI data (opportunity rows, owner names, revenue figures,
-proposal text) was sent to the tool.
+this document. All validation logic, computed metrics, and conclusions were
+derived from running the validator functions in `src/data_validator.py` against
+`cleaned_opportunity_df`, and verified against the underlying data. No CGI data
+(opportunity rows, owner names, revenue figures, proposal text) was sent to the
+tool.
