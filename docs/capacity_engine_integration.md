@@ -48,8 +48,9 @@ steps:
 5. `compute_relative_load()` compares current load with each owner's
    historical average load.
 6. `compute_capacity_score()` converts relative load into a capped score.
-7. `assign_capacity_label()` assigns exactly one of `Available`,
-   `At Capacity`, or `Overextended`.
+7. `assign_capacity_label()` assigns a temporary relative-load band:
+   `Available`, `Near Historical Norm`, `High Load`, `Overextended`, or
+   `No baseline`.
 
 The final output column order is fixed by
 `DIRECTOR_CAPACITY_DASHBOARD_COLUMNS`. See
@@ -144,6 +145,14 @@ capacity labels, and dashboard output columns.
   contribution.
 - Missing delivery-window dates prevent delivery contribution.
 - Missing or unusable baselines propagate a missing `capacity_score`.
-- Missing scores are labeled `At Capacity` for dashboard stability.
+- Missing or unusable baselines are labeled `No baseline` rather than forcing a
+  capacity state.
 - Fine-grained overload severity should be interpreted with `relative_load`,
   not only the discrete label.
+- Current label thresholds are a temporary project-side decision based on the
+  observed director-level distribution and business interpretation; they remain
+  subject to CGI judgment.
+- Dashboard row-level filters narrow the current opportunity workload being
+  viewed. Historical baselines remain anchored to the full selected
+  owner/territory history so `relative_load` still compares filtered current
+  work against a stable historical norm.

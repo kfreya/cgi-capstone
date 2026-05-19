@@ -146,21 +146,30 @@ This is still prototype logic and not business validated.
 
 ### Capacity Labels
 
-Label bands are applied to **`capacity_score`**, not raw `relative_load`, per `docs/architecture.md`:
+Label bands are applied to **`relative_load`** so the dashboard language
+directly describes each director's workload compared with their own historical
+norm:
 
-- **Available**: `capacity_score >= 0.35`
-- **At Capacity**: `0.15 <= capacity_score < 0.35`
-- **Overextended**: `capacity_score < 0.15`
+- **Available**: `relative_load <= 0.85`
+- **Near Historical Norm**: `0.85 < relative_load < 1.25`
+- **High Load**: `1.25 <= relative_load < 2.00`
+- **Overextended**: `relative_load >= 2.00`
+- **No baseline**: missing or unusable historical baseline
 
-Earlier drafts used `relative_load` placeholder cutoffs; those are superseded by the architecture contract. Thresholds remain configurable in code.
+This is a temporary project-side calibration based on the current distribution
+of director `relative_load` values and a business interpretation that 2x
+historical norm is meaningfully overextended. CGI should review and adjust the
+thresholds before production use. Thresholds remain configurable in code.
 
 ---
 
 ## Known Issues / Open Questions
 
-### 1. Large Number of "Overextended" Labels
+### 1. Capacity Label Calibration
 
-The current prototype still produces many directors labeled as "Overextended".
+The current prototype uses relative-load label thresholds that should be
+validated with CGI. The current recommendation intentionally reserves
+`Overextended` for directors at or above 2x their historical average workload.
 
 Possible reasons:
 - historical baseline window may be too small
@@ -169,7 +178,8 @@ Possible reasons:
 - sales and delivery effort may partially overlap
 - workload formulas are not yet calibrated
 
-At this stage this is expected and does not necessarily indicate a bug.
+At this stage label counts are expected to be directional and do not necessarily
+indicate a bug.
 
 ---
 
