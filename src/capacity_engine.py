@@ -35,10 +35,14 @@ DEFAULT_STAGE_WEIGHTS = {
 }
 
 
-# Band edges on capacity_score (see docs/architecture.md).
+# Temporary label calibration on relative_load (see docs/architecture.md).
+# These bands are based on the current director-level distribution and a
+# business-readable interpretation of workload vs historical norm. They should
+# remain configurable and subject to CGI stakeholder review.
 DEFAULT_LABEL_THRESHOLDS = {
-    "score_available_min": 0.35,
-    "score_at_capacity_min": 0.15,
+    "available_max_relative_load": 0.85,
+    "high_load_min_relative_load": 1.25,
+    "overextended_min_relative_load": 2.0,
 }
 
 
@@ -637,25 +641,27 @@ def assign_capacity_label(
     if thresholds is None:
         thresholds = DEFAULT_LABEL_THRESHOLDS
 
-    lo = thresholds["score_at_capacity_min"]
-    hi = thresholds["score_available_min"]
-    score = working_df["capacity_score"]
+    available_max = thresholds["available_max_relative_load"]
+    high_load_min = thresholds["high_load_min_relative_load"]
+    overextended_min = thresholds["overextended_min_relative_load"]
+    relative_load = pd.to_numeric(working_df["relative_load"], errors="coerce")
 
-    # Exactly three labels (architecture / dashboard contract).
     labeled = np.select(
         [
-            score >= hi,
-            (score >= lo) & (score < hi),
+            relative_load.isna(),
+            relative_load <= available_max,
+            relative_load < high_load_min,
+            relative_load < overextended_min,
         ],
         [
+            "No baseline",
             "Available",
-            "At Capacity",
+            "Near Historical Norm",
+            "High Load",
         ],
         default="Overextended",
     )
     working_df["capacity_label"] = labeled
-    # Missing score: no usable baseline — neutral band for UI (not a 4th label).
-    working_df.loc[score.isna(), "capacity_label"] = "At Capacity"
 
     return working_df
 
