@@ -27,7 +27,7 @@ capacity score → labeling.
 | `relative_load` | derived metric | `current_load / historical_avg_load` (baseline-normalized load). | Key normalization signal. Can be unstable for low-history owners. |
 | `historical_avg_load` | baseline metric | Mean quarterly load per owner across available history. | Derived from `compute_historical_baseline`. Used as normalization denominator. |
 | `capacity_score` | derived metric | `max(0, 1 - min(relative_load, 1))` using capped `relative_load`. | Core capacity indicator used by dashboard visualization. Missing/invalid `relative_load` propagates NaN score. |
-| `capacity_label` | classification | Discrete capacity state derived from score thresholds. | Values: `Available`, `At Capacity`, `Overextended`. NaN scores are intentionally mapped to `At Capacity` for dashboard stability. |
+| `capacity_label` | classification | Discrete capacity state derived from temporary `relative_load` thresholds. | Values: `Available`, `Near Historical Norm`, `High Load`, `Overextended`, `No baseline`. The current thresholds are a project-side calibration based on observed distribution and business interpretation, subject to CGI review. |
 | `open_deal_count` | pipeline metric | Count of opportunities classified as open by the canonical outcome taxonomy. | Simple pipeline activity indicator per owner. |
 | `late_stage_deal_count` | pipeline metric | Count of open deals in late pipeline stages (Proposal → Signature). | Indicates near-term delivery risk / workload concentration. |
 | `weighted_pipeline_revenue` | pipeline metric | Sum of `revenue × probability` for open opportunities. | Proxy for expected pipeline load; used in forecasting and prioritization. |

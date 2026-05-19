@@ -81,7 +81,7 @@ For v1, current workload is estimated as the sum of two components:
 2.  Inferred delivery load
 
 ``` text
-current_workload = sales_pipeline_load + inferred_delivery_load
+current_load = sales_load + delivery_load
 ```
 
 Open opportunities alone are too sparse for a reliable capacity view. The EDA found only 374 currently open opportunities, so the dashboard should also estimate delivery commitments using dates, project duration, and historical workload.
@@ -94,19 +94,19 @@ For opportunities still in the sales pipeline, estimate opportunity-level worklo
 sales_load_i =
     stage_weight_i
   * (probability_i / 100)
-  * log1p(total_estimated_revenue_i)
+  * log1p(authoritative_revenue_i)
   * duration_weight_i
 ```
 
-`duration_weight_i` should be bounded so that duration does not inflate workload without limit. For v1, compute it from normalized or log-scaled `project_duration_number_of_months`.
+`duration_weight_i` is bounded so that duration does not inflate workload without limit. For v1, compute it from log-scaled `project_duration_number_of_months`, normalized to a 12-month project.
 
-Example:
+Current implementation:
 
 ``` text
-duration_weight_i = log1p(project_duration_number_of_months_i)
+duration_weight_i = log1p(project_duration_number_of_months_i) / log1p(12)
 ```
 
-Then normalize or cap the result before using it in the load formula. If `project_duration_number_of_months` is missing, use a documented default duration and flag the record so missing-duration assumptions are visible in the dashboard or methodology.
+If `project_duration_number_of_months` is missing, use a documented 12-month default and keep the assumption visible in the methodology.
 
 Initial `stage_weight` values should use the observed CRM `sales_stage` values and can be refined through stakeholder feedback. Example starting point:
 
@@ -120,15 +120,16 @@ Initial `stage_weight` values should use the observed CRM `sales_stage` values a
 6-Negotiation&Signature    : 1.7
 ```
 
-Won opportunities should move to delivery load. Lost, cancelled, duplicated, and closed opportunities should not contribute to current sales pipeline load.
+Sales load applies only to opportunities classified as open by the shared opportunity-outcome helper. Won opportunities move to delivery load. Lost, cancelled, duplicated, and closed opportunities should not contribute to current sales pipeline load.
 
 Sales pipeline fields:
 
 ``` text
 status
+status_reason
 sales_stage
 probability
-total_estimated_revenue
+authoritative_revenue
 project_duration_number_of_months
 ```
 
@@ -137,16 +138,15 @@ project_duration_number_of_months
 For won or historical opportunities that may still be in delivery, estimate delivery load from dates, duration, and revenue:
 
 ``` text
-delivery_load_i =
-    delivery_active_i
-  * log1p(total_estimated_revenue_i)
-  * duration_weight_i
+monthly_revenue_i = authoritative_revenue_i / project_duration_number_of_months_i
+
+delivery_load_i = delivery_active_i * log1p(monthly_revenue_i)
 ```
 
 Where:
 
 ``` text
-delivery_active_i = 1 if current_date falls within the estimated delivery window
+delivery_active_i = 1 if opportunity is Won and current_date falls within the estimated delivery window
 ```
 
 CGI confirmed that using won opportunities plus date and duration fields is a reasonable proxy for delivery load.
@@ -176,7 +176,7 @@ Delivery-load fields:
 ``` text
 status
 status_reason
-total_estimated_revenue
+authoritative_revenue
 revenue_start_date
 close_date
 project_duration_number_of_months
@@ -211,17 +211,30 @@ relative_load_owner = current_load_owner / historical_average_load_owner
 capacity_score_owner = max(0, 1 - min(relative_load_owner, 1))
 ```
 
-Keep both `relative_load_owner` and `capacity_score_owner` in the dashboard. Because `capacity_score_owner` is capped at 0 once `relative_load_owner` reaches 1, the dashboard should always display `relative_load_owner` alongside `capacity_score_owner` to show the severity of overextension.
+Use `relative_load_owner` as the primary dashboard metric. The legacy `capacity_score_owner` remains in the backend output for compatibility, but it is not displayed in the dashboard because it is capped at 0 once `relative_load_owner` reaches 1 and therefore does not express overextension severity.
 
-Suggested capacity labels:
+Temporary capacity labels are assigned from `relative_load_owner`, not from
+the capped `capacity_score_owner`:
 
 ``` text
-Available    : capacity_score >= 0.35
-At Capacity  : 0.15 <= capacity_score < 0.35
-Overextended : capacity_score < 0.15
+Available             : relative_load_owner <= 0.85
+Near Historical Norm  : 0.85 < relative_load_owner < 1.25
+High Load             : 1.25 <= relative_load_owner < 2.00
+Overextended          : relative_load_owner >= 2.00
+No baseline           : historical_average_load_owner is missing or zero
 ```
 
-CGI confirmed that the three labels are appropriate. Thresholds should remain configurable, either in the dashboard or in a config file, so they can be refined through stakeholder review.
+This calibration is a project-side temporary decision based on the observed
+director-level `relative_load_owner` distribution and a business interpretation
+that carrying at least 2x historical norm should be called `Overextended`.
+CGI should review and adjust these thresholds before production use.
+Thresholds should remain configurable, either in the dashboard or in a config
+file, so they can be refined through stakeholder review.
+
+In the dashboard, row-level filters should narrow the current opportunities
+being viewed, while historical baselines remain anchored to the full selected
+owner/territory history. This keeps `relative_load_owner` interpretable as
+filtered current workload versus a stable historical norm.
 
 ## Historical Baseline
 
@@ -410,10 +423,12 @@ PROCESSING LAYER
 
 CAPACITY ENGINE
   capacity_engine.py
+    compute_sales_load()
+    compute_delivery_load()
+    compute_current_load_by_owner()
     compute_historical_baseline()
-    compute_current_sales_load()
-    compute_estimated_delivery_load()
     compute_relative_load()
+    compute_capacity_score()
     assign_capacity_label()
 
 RFP ENGINE
@@ -443,14 +458,15 @@ PRESENTATION LAYER
 Page 1: Director Capacity Dashboard
 
 ``` text
-capacity score by director
-capacity label: Available / At Capacity / Overextended
-current load vs historical average
+relative load by director
+capacity label: Available / Near Historical Norm / High Load / Overextended / No baseline
+label mix
+current load vs historical average on a log scale
 open opportunities
 weighted pipeline
 estimated delivery commitments
 late-stage opportunities
-trend over time
+workload trend over time on a log scale
 owner-level view with optional manager metadata
 ```
 
@@ -459,13 +475,14 @@ Filters:
 ``` text
 territory
 opportunity owner
-opportunity manager
 status
 sales stage
 opportunity type
 sales model
-date range
+created date range
 ```
+
+Territory and opportunity-owner filters define the selected population for both current workload and baseline. Row-level filters such as status, sales stage, opportunity type, sales model, and created date range narrow the current workload and trend being viewed, while the historical average remains anchored to the full selected owner/territory history.
 
 Page 2: RFP Assignment Tool
 
@@ -494,7 +511,7 @@ qualitative feedback loop
 case studies on selected RFPs and directors
 ```
 
-Capacity labels and RFP recommendation weights should be refined after CGI reviews early director-level outputs. The feedback loop should test whether specific directors labeled `Available`, `At Capacity`, or `Overextended` align with business intuition.
+Capacity labels and RFP recommendation weights should be refined after CGI reviews early director-level outputs. The feedback loop should test whether specific directors labeled `Available`, `Near Historical Norm`, `High Load`, `Overextended`, or `No baseline` align with business intuition.
 
 ## Build Phases
 

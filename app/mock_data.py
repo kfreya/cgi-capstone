@@ -48,10 +48,10 @@ _RAW: list[tuple[str, str, float, float]] = [
     ("Alice Martin",  "Atlantic",       80.0, 0.28),
     ("Bob Chen",      "Atlantic",       90.0, 0.55),
     ("Carol Davis",   "Atlantic",       75.0, 0.72),
-    ("David Park",    "Media Atlantic", 70.0, 0.82),
-    ("Emma Wilson",   "Media Atlantic", 95.0, 0.92),
+    ("David Park",    "Media Atlantic", 70.0, 0.95),
+    ("Emma Wilson",   "Media Atlantic", 95.0, 1.45),
     ("Frank Nguyen",  "Atlantic",       85.0, 0.40),
-    ("Grace Lee",     "Media Atlantic", 88.0, 1.16),  # overextended >1
+    ("Grace Lee",     "Media Atlantic", 88.0, 2.20),
     ("Henry Brooks",  "Atlantic",       72.0, 0.48),
 ]
 
@@ -66,11 +66,15 @@ _QUARTERS_SEEN = [12, 10, 14, 8,  12, 11, 9,  13]
 _RELIABILITY   = ["High", "High", "High", "Medium", "High", "High", "Medium", "High"]
 
 
-def _capacity_label(score: float) -> str:
-    if score >= 0.35:
+def _capacity_label(relative_load: float) -> str:
+    if pd.isna(relative_load):
+        return "No baseline"
+    if relative_load <= 0.85:
         return "Available"
-    if score >= 0.15:
-        return "At Capacity"
+    if relative_load < 1.25:
+        return "Near Historical Norm"
+    if relative_load < 2.0:
+        return "High Load"
     return "Overextended"
 
 
@@ -87,7 +91,7 @@ def make_director_capacity_df() -> pd.DataFrame:
             "relative_load":               round(rel_load, 3),
             "current_load":                current_load,
             "capacity_score":              capacity_score,
-            "capacity_label":              _capacity_label(capacity_score),
+            "capacity_label":              _capacity_label(rel_load),
             "open_deal_count":             _OPEN_DEALS[i],
             "late_stage_deal_count":       _LATE_STAGE[i],
             "weighted_pipeline_revenue":   _PIPELINE_REV[i],

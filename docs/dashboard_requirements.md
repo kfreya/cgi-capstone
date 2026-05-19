@@ -32,7 +32,7 @@ Required columns:
 | `relative_load` | Current load divided by historical average load. |
 | `current_load` | Current workload score. |
 | `capacity_score` | Availability score from 0 to 1. |
-| `capacity_label` | One of `Available`, `At Capacity`, or `Overextended`. |
+| `capacity_label` | One of `Available`, `Near Historical Norm`, `High Load`, `Overextended`, or `No baseline`. |
 | `open_deal_count` | Count of currently open opportunities. |
 | `late_stage_deal_count` | Count of open opportunities in late sales stages. |
 | `weighted_pipeline_revenue` | Probability-weighted open pipeline revenue in CAD. |
@@ -44,6 +44,12 @@ The workload trend chart expects one row per owner per quarter.
 For live opportunity data, the trend should show the last eight quarters ending
 at the current/as-of quarter, not future quarters created by projected delivery
 end dates.
+
+Dashboard row-level filters (`Status`, `Sales Stage`, `Created Date Range`,
+`Opportunity Type`, `Sales Model`) narrow the current opportunities being
+viewed. Historical baselines should remain anchored to the full selected
+owner/territory history so filtered `relative_load` values still compare
+current filtered work against a stable norm.
 
 Required columns:
 
@@ -80,7 +86,7 @@ Suggested shape:
   "recommended_directors": [
     {
       "director_name": "...",
-      "capacity_label": "Available | At Capacity | Overextended",
+      "capacity_label": "Available | Near Historical Norm | High Load | Overextended | No baseline",
       "assignment_score": 0.0,
       "capacity_explanation": "...",
       "experience_match_explanation": "...",
