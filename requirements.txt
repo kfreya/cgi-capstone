@@ -6,3 +6,4 @@ openai
 chromadb
 scikit-learn
 python-dotenv
+pytest
