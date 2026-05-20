@@ -532,7 +532,7 @@ st.markdown(
       <div class="cgi-vdivider"></div>
       <div class="cgi-title-group">
         <div class="cgi-page-title">{page}</div>
-        <div class="cgi-page-sub">CGI Atlantic · Media Atlantic Business Unit · Week 2 Prototype</div>
+        <div class="cgi-page-sub">CGI Atlantic · Media Atlantic Business Unit · Week 3 Prototype</div>
       </div>
     </div>
     """,
@@ -1120,8 +1120,13 @@ elif page == "RFP Assignment Tool":
                 st.session_state.pop("rfp_assignment_input", None)
                 st.warning("Please paste RFP text before running the analysis.")
             else:
-                st.session_state["rfp_assignment_context"] = generate_assignment_context(rfp_text)
-                st.session_state["rfp_assignment_input"] = rfp_text
+                try:
+                    st.session_state["rfp_assignment_context"] = generate_assignment_context(rfp_text)
+                    st.session_state["rfp_assignment_input"] = rfp_text
+                    st.session_state.pop("rfp_assignment_error", None)
+                except Exception as exc:
+                    st.session_state["rfp_assignment_error"] = str(exc)
+                    st.session_state.pop("rfp_assignment_context", None)
 
     with col_results:
         _ph = (
@@ -1130,6 +1135,14 @@ elif page == "RFP Assignment Tool":
             "color:#A8A29E;font-size:0.82rem;"
         )
         context = st.session_state.get("rfp_assignment_context")
+        _engine_error = st.session_state.get("rfp_assignment_error")
+
+        if _engine_error:
+            st.error(
+                f"The RFP assignment pipeline encountered an error: {_engine_error}\n\n"
+                "The local fallback path should not fail under normal conditions. "
+                "Check that the project dependencies are installed and try again."
+            )
 
         if not context:
             st.markdown('<div class="sec-head">Estimated Effort</div>', unsafe_allow_html=True)
@@ -1201,10 +1214,15 @@ elif page == "RFP Assignment Tool":
                     preview = supporting_text[:320].rstrip()
                     if len(supporting_text) > 320:
                         preview = f"{preview}..."
+                    raw_score = example.get("similarity_score")
+                    try:
+                        score_str = f"{float(raw_score):.2f}"
+                    except (TypeError, ValueError):
+                        score_str = str(raw_score) if raw_score not in (None, "") else "n/a"
                     st.markdown(
                         f"**{index}. {example.get('proposal_id', 'Unknown proposal')}**  \n"
                         f"`chunk_id`: `{example.get('chunk_id', 'unknown')}`  \n"
-                        f"`similarity_score`: `{example.get('similarity_score', 'n/a')}`"
+                        f"`similarity_score`: `{score_str}`"
                     )
                     st.write(preview or "No supporting text returned.")
 
