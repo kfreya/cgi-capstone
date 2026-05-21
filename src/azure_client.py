@@ -90,3 +90,26 @@ def embed_texts(texts: Sequence[str]) -> list[list[float]]:
 if __name__ == "__main__":
     validate_azure_config()
     print("Azure OpenAI configuration loaded successfully.")
+
+
+# --- Week 3 Add-ons Starts here---
+def azure_embedding_available() -> bool:
+    """Return True if embedding config looks usable (no API call)."""
+    try:
+        validate_azure_config(require_embedding=True)
+    except Exception:
+        return False
+    return True
+
+
+def get_embedding_function(prefer_azure: bool = True):
+    """Return an embedding function(texts)->embeddings with safe fallback.
+
+    - If prefer_azure and Azure env is present, returns embed_texts (real Azure call).
+    - Otherwise returns None so caller can fall back to local embeddings.
+    """
+    if prefer_azure and azure_embedding_available():
+        return embed_texts
+    return None
+
+# --- Week 3 Add-ons Ends here ---

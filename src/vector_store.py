@@ -562,3 +562,87 @@ def _as_float(value: Any, default: float) -> float:
         return float(value)
     except (TypeError, ValueError):
         return default
+
+# --- Week 3 Add-ons Starts here ---
+def build_chroma_from_chunks(
+    chunks: list[dict],
+    *,
+    persist_directory: str = "data/vector_store",
+    collection_name: str = "rfp_chunks",
+    embedding_function=None,
+) -> "ChromaVectorStore":
+    """Embed chunks and persist them into Chroma.
+
+    chunks: dashboard-style chunk dicts (same shape accepted by build_vector_store()).
+    embedding_function: callable(texts)->list[list[float]]; if None, uses Azure embed_texts().
+    """
+    if embedding_function is None:
+        try:
+            from src.azure_client import embed_texts as embedding_function
+        except ModuleNotFoundError:
+            from azure_client import embed_texts as embedding_function
+
+    rfp_chunks = [_chunk_from_dict(chunk) for chunk in (chunks or [])]
+    texts = [chunk.text for chunk in rfp_chunks]
+    embeddings = embedding_function(texts) if texts else []
+
+    store = ChromaVectorStore(
+        persist_directory=persist_directory,
+        collection_name=collection_name,
+    )
+    store.add_chunks(rfp_chunks, embeddings)
+    return store
+
+
+def query_chroma(
+    query_text: str,
+    *,
+    persist_directory: str = "data/vector_store",
+    collection_name: str = "rfp_chunks",
+    top_k: int = 5,
+    embedding_function=None,
+) -> list[dict[str, Any]]:
+    """Query Chroma using Azure embeddings and return dashboard-style retrieved_examples."""
+    if embedding_function is None:
+        try:
+            from src.azure_client import embed_texts as embedding_function
+        except ModuleNotFoundError:
+            from azure_client import embed_texts as embedding_function
+
+    query_embedding = embedding_function([query_text])[0]
+    store = ChromaVectorStore(
+        persist_directory=persist_directory,
+        collection_name=collection_name,
+    )
+    raw = store.query(query_embedding, top_k=top_k)
+
+    # Chroma returns dict with lists; normalize to retrieved_examples shape.
+    ids = (raw.get("ids") or [[]])[0]
+    docs = (raw.get("documents") or [[]])[0]
+    dists = (raw.get("distances") or [[]])[0]
+    metas = (raw.get("metadatas") or [[]])[0]
+
+    out: list[dict[str, Any]] = []
+    for chunk_id, doc, dist, meta in zip(ids, docs, dists, metas):
+        # Many Chroma setups use distance; convert to a similarity-like score if desired.
+        # Here we keep a simple monotonic transform.
+        try:
+            similarity = 1.0 / (1.0 + float(dist))
+        except (TypeError, ValueError):
+            similarity = None
+
+        proposal_id = None
+        if isinstance(meta, dict):
+            proposal_id = meta.get("proposal_id") or meta.get("document_id")
+
+        out.append(
+            {
+                "proposal_id": proposal_id or "unknown",
+                "chunk_id": chunk_id,
+                "similarity_score": round(similarity, 4) if similarity is not None else None,
+                "supporting_text": doc,
+            }
+        )
+
+    return out
+# --- Week 3 Add-ons Ends here ---
