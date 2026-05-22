@@ -1,33 +1,33 @@
-# Week 3 — Role 3 (Lyken) Handoff: Azure Embedding + Vector Store
+# Azure Embedding + Vector Store (Week 3)
 
 ## Responsibility Summary
 This week's focus is moving the RFP retrieval pipeline from a purely local prototype toward an Azure-backed retrieval path **without breaking the existing fallback**.
 
-What was already working (Week 2 baseline):
+What was already working:
 - `proposals_responses.json` → text extraction → chunking
 - local deterministic embedding → in-memory retrieval
 - `generate_assignment_context()` → dashboard-facing `assignment_context` schema
 - RFP-related unit tests passing
 
-My Week 3 responsibility (Role 3):
+My Week 3 responsibility:
 - Add Azure OpenAI embedding capability behind a clean interface
 - Add an Azure embeddings → Chroma persist/query path in the vector store layer
 - Keep local fallback retrieval available and stable
-- Keep tests green (no team blocking)
+- Keep tests passed
 
 ## Code Deliverables (What I Added)
-### A. `src/azure_client.py` (new helper functions)
+### A. `src/azure_client.py`
 Added helper functions to:
-- Validate Azure env configuration (no secrets printed)
-- Create Azure OpenAI SDK client (factory)
+- Validate Azure env configuration
+- Create Azure OpenAI SDK client
 - Embed texts via Azure OpenAI embeddings deployment
-- Provide "availability check / safe selection" helpers (so callers can decide Azure vs fallback without crashing)
+- Provide "availability check / safe selection" helpers, so callers can decide Azure vs fallback without crashing
 
 Intent:
 - Make Azure embedding a **drop-in embedding function**: `embedding_function(texts) -> embeddings`
 - Make it possible to test logic and keep the dashboard working even when Azure env vars are missing.
 
-### B. `src/vector_store.py` (new helper functions)
+### B. `src/vector_store.py`
 Added helper functions to support:
 - Building/persisting a Chroma vector store from dashboard-style chunks:
   - `chunks (dict list) → RFPChunk objects → embeddings → Chroma persist`
@@ -38,7 +38,7 @@ Added helper functions to support:
 Intent:
 - Enable an Azure+Chroma retrieval path while preserving the local in-memory retrieval path.
 
-## How to Call / Use (Integration Notes)
+## How to Call / Use 
 ### Azure embedding function
 - Primary entrypoint is the embedding function that takes `Sequence[str]` and returns `list[list[float]]`.
 - This is designed to plug into vector store build/query helpers.
@@ -81,7 +81,7 @@ python src/check_env.py
 Expected:
 - Required variables show `FOUND`
 
-### Step 2 — run minimal embedding smoke test (no secrets printed)
+### Step 2 — run minimal embedding smoke test 
 Run from repo root (prints only counts/dimensions):
 ```bash
 python - << 'PY'
@@ -95,9 +95,9 @@ PY
 
 Expected:
 - `n_vectors: 1`
-- `dim: <positive integer>` (model-dependent)
+- `dim: <positive integer>` 
 
-### Step 3 — (optional) Chroma smoke test (persist + query)
+### Step 3 — (optional) Chroma smoke test 
 ```bash
 python - << 'PY'
 from src.rfp_preprocessor import prepare_rfp_chunks
@@ -116,7 +116,7 @@ Expected:
 - `n_results: 1..3`
 - result keys include: `proposal_id`, `chunk_id`, `similarity_score`, `supporting_text`
 
-## 6) Current Blockers / Dependencies
+## 6 Current Blockers / Dependencies
 - Azure embeddings cannot be validated end-to-end until CGI provides:
   - `AZURE_OPENAI_API_VERSION`
   - `AZURE_OPENAI_EMBEDDING_DEPLOYMENT`
@@ -124,8 +124,5 @@ Expected:
   - Local fallback retrieval remains verified and usable (tests pass)
   - Assignment context schema remains stable for dashboard + assignment logic development
 
-## 7) Key Principle (Fallback-Safe)
-Even if Azure / Chroma is unavailable:
-- The RFP dashboard page should remain runnable
-- `assignment_context` should remain stable
-- Retrieval should still return `retrieved_examples` via local fallback
+## 7 Smoke Test
+PENDING 
