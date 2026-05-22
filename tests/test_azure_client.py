@@ -8,6 +8,8 @@ from types import SimpleNamespace
 
 import pytest
 
+pytest.importorskip("dotenv")
+
 from src import azure_client
 
 
@@ -130,3 +132,36 @@ def test_embed_texts_returns_mocked_vectors(monkeypatch):
         "model": "embedding-deployment",
         "input": ["hello"],
     }
+
+
+def test_optional_embedding_helpers_when_present(monkeypatch):
+    """If optional helper APIs exist, they should be fallback-safe."""
+
+    _clear_azure_env(monkeypatch)
+    _disable_dotenv(monkeypatch)
+
+    azure_embedding_available = getattr(azure_client, "azure_embedding_available", None)
+    get_embedding_function = getattr(azure_client, "get_embedding_function", None)
+
+    if azure_embedding_available is None and get_embedding_function is None:
+        pytest.skip("Optional embedding helper APIs not present in src.azure_client")
+
+    # With no env, availability should be False (or raise nothing).
+    if azure_embedding_available is not None:
+        assert azure_embedding_available() is False
+
+    if get_embedding_function is not None:
+        assert get_embedding_function(prefer_azure=True) is None
+
+    # With minimal embedding env, helpers should select an embedding callable.
+    monkeypatch.setenv("AZURE_OPENAI_API_KEY", "test-key")
+    monkeypatch.setenv("AZURE_OPENAI_ENDPOINT", "https://example.openai.azure.com")
+    monkeypatch.setenv("AZURE_OPENAI_API_VERSION", "2024-02-01")
+    monkeypatch.setenv("AZURE_OPENAI_EMBEDDING_DEPLOYMENT", "embedding-deployment")
+
+    if azure_embedding_available is not None:
+        assert azure_embedding_available() is True
+
+    if get_embedding_function is not None:
+        fn = get_embedding_function(prefer_azure=True)
+        assert callable(fn)

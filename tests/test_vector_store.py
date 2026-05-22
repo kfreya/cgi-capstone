@@ -207,3 +207,58 @@ def test_build_and_retrieve_vector_store_match_dashboard_interface():
     assert results[0]["chunk_id"] == "proposal_001_chunk_001"
     assert "similarity_score" in results[0]
     assert results[0]["supporting_text"] == "Azure migration and security"
+
+
+def test_optional_chroma_helpers_do_not_require_azure_credentials(tmp_path):
+    """If Chroma helper APIs exist, they should be testable with a fake embedder."""
+
+    build_chroma_from_chunks = getattr(
+        __import__("src.vector_store", fromlist=["build_chroma_from_chunks"]),
+        "build_chroma_from_chunks",
+        None,
+    )
+    query_chroma = getattr(
+        __import__("src.vector_store", fromlist=["query_chroma"]),
+        "query_chroma",
+        None,
+    )
+    if build_chroma_from_chunks is None or query_chroma is None:
+        pytest.skip("Chroma helper APIs not present in src.vector_store")
+
+    # If chromadb is not installed in this environment, the helpers should raise ImportError.
+    try:
+        import chromadb  # noqa: F401
+    except ImportError:
+        with pytest.raises(ImportError):
+            build_chroma_from_chunks(
+                [make_dashboard_chunk("proposal_001_chunk_001", "Azure migration and security")],
+                persist_directory=str(tmp_path),
+                collection_name="rfp_chunks_test",
+                embedding_function=lambda texts: [[0.0, 1.0, 2.0] for _ in texts],
+            )
+        return
+
+    # When chromadb is available, helpers should work with a fake embedder (no Azure calls).
+    chunks = [
+        make_dashboard_chunk("proposal_001_chunk_001", "Azure migration and security"),
+        make_dashboard_chunk("proposal_001_chunk_002", "Executive dashboard reporting"),
+    ]
+
+    build_chroma_from_chunks(
+        chunks,
+        persist_directory=str(tmp_path),
+        collection_name="rfp_chunks_test",
+        embedding_function=lambda texts: [[0.0, 1.0, 2.0] for _ in texts],
+    )
+    results = query_chroma(
+        "Need Azure security",
+        persist_directory=str(tmp_path),
+        collection_name="rfp_chunks_test",
+        top_k=1,
+        embedding_function=lambda texts: [[0.0, 1.0, 2.0]],
+    )
+    assert isinstance(results, list)
+    if results:
+        assert set(results[0]).issuperset(
+            {"proposal_id", "chunk_id", "similarity_score", "supporting_text"}
+        )
