@@ -15,7 +15,7 @@ from src.vector_store import build_vector_store
 
 
 def test_generate_assignment_context_matches_dashboard_contract():
-    """Check that the assignment output matches the Week 2 contract."""
+    """Check that the assignment output matches the Week 3 contract."""
 
     director_df = pd.DataFrame(
         {
@@ -76,6 +76,10 @@ def test_generate_assignment_context_uses_mock_director_when_missing():
     assert output["recommended_directors"][0]["director_name"] == "Director A"
     assert output["recommended_directors"][0]["capacity_label"] == "Available"
     assert isinstance(output["risk_flags"], list)
+    assert any(
+        "mock director data" in flag["message"].lower()
+        for flag in output["risk_flags"]
+    )
 
 
 def test_generate_assignment_context_does_not_retrieve_new_rfp_from_stale_store():
@@ -107,3 +111,128 @@ def test_generate_assignment_context_does_not_retrieve_new_rfp_from_stale_store(
         "sample historical corpus" in flag["message"].lower()
         for flag in output["risk_flags"]
     )
+
+
+def test_generate_assignment_context_ranks_directors_by_capacity_signal():
+    """Check that better capacity signals move a director higher."""
+
+    director_df = pd.DataFrame(
+        {
+            "opportunity_owner": ["Director Busy", "Director Ready"],
+            "capacity_label": ["Overextended", "Available"],
+            "capacity_score": [0.05, 0.88],
+            "relative_load": [2.4, 0.4],
+            "service_domain": ["Cloud Infrastructure", "Cloud Infrastructure"],
+        }
+    )
+    historical_chunks = [
+        {
+            "proposal_id": "historical_cloud",
+            "chunk_id": "historical_cloud_chunk_001",
+            "source_type": "proposal",
+            "text": "Prior Azure cloud migration and dashboard proposal.",
+            "chunk_index": 0,
+            "opportunity_owner": None,
+            "opportunity_id": None,
+        }
+    ]
+
+    output = generate_assignment_context(
+        "Need Azure cloud migration and dashboard reporting.",
+        director_df=director_df,
+        historical_chunks=historical_chunks,
+    )
+
+    directors = output["recommended_directors"]
+    assert directors[0]["director_name"] == "Director Ready"
+    assert directors[0]["assignment_score"] > directors[1]["assignment_score"]
+    assert any(
+        "overextended" in flag["message"].lower()
+        for flag in output["risk_flags"]
+    )
+
+
+def test_generate_assignment_context_flags_missing_capacity_fields():
+    """Check that incomplete director data is labelled as a risk."""
+
+    director_df = pd.DataFrame(
+        {
+            "opportunity_owner": ["Director Partial"],
+            "capacity_label": ["Available"],
+            "capacity_score": [None],
+            "relative_load": [None],
+        }
+    )
+
+    output = generate_assignment_context(
+        "Need analytics dashboard support.",
+        director_df=director_df,
+        historical_chunks=[
+            {
+                "proposal_id": "historical_dashboard",
+                "chunk_id": "historical_dashboard_chunk_001",
+                "source_type": "proposal",
+                "text": "Prior analytics dashboard support proposal.",
+                "chunk_index": 0,
+                "opportunity_owner": None,
+                "opportunity_id": None,
+            }
+        ],
+    )
+
+    assert any(
+        "capacity fields are missing" in flag["message"].lower()
+        for flag in output["risk_flags"]
+    )
+
+
+def test_generate_assignment_context_flags_low_similarity():
+    """Check that weak retrieval evidence is labelled as a risk."""
+
+    output = generate_assignment_context(
+        "Need Azure migration and dashboard reporting.",
+        historical_chunks=[
+            {
+                "proposal_id": "historical_legal",
+                "chunk_id": "historical_legal_chunk_001",
+                "source_type": "proposal",
+                "text": "General procurement terms and contract instructions.",
+                "chunk_index": 0,
+                "opportunity_owner": None,
+                "opportunity_id": None,
+            }
+        ],
+    )
+
+    assert any(
+        "low similarity" in flag["message"].lower()
+        for flag in output["risk_flags"]
+    )
+
+
+def test_generate_assignment_context_effort_uses_complexity_signals():
+    """Check that service breadth and complexity can raise effort."""
+
+    long_complex_rfp = " ".join(
+        ["enterprise Azure migration security integration managed services"]
+        * 70
+    )
+
+    output = generate_assignment_context(
+        long_complex_rfp,
+        historical_chunks=[
+            {
+                "proposal_id": "historical_complex",
+                "chunk_id": "historical_complex_chunk_001",
+                "source_type": "proposal",
+                "text": "Azure migration security integration managed services.",
+                "chunk_index": 0,
+                "opportunity_owner": None,
+                "opportunity_id": None,
+            }
+        ],
+    )
+
+    assert output["effort"]["level"] == "High"
+    assert "service areas" in output["effort"]["rationale"]
+    assert "complexity terms" in output["effort"]["rationale"]
