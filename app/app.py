@@ -13,6 +13,7 @@ Data loading precedence:
 
 from __future__ import annotations
 
+import html
 import sys
 from pathlib import Path
 
@@ -25,15 +26,23 @@ import streamlit as st
 _APP_DIR = Path(__file__).parent
 _PROJECT_ROOT = _APP_DIR.parent
 sys.path.insert(0, str(_APP_DIR))
+sys.path.insert(0, str(_PROJECT_ROOT))
 sys.path.insert(0, str(_PROJECT_ROOT / "src"))
 
 from mock_data import make_director_capacity_df, make_trend_df
+from rfp_engine import generate_assignment_context
 
 try:
     from capacity_engine import (
+        assign_capacity_label,
         build_director_capacity_df,
+        compute_capacity_score,
+        compute_current_load_by_owner,
+        compute_historical_baseline,
         compute_quarterly_workload_by_owner,
+        compute_relative_load,
     )
+    from data_validator import classify_opportunity_outcome
     from opportunity_cleaner import clean_opportunity_df
     _ENGINE_AVAILABLE = True
 except ImportError:
@@ -52,21 +61,27 @@ CGI_RED = "#CC0000"
 APP_BG  = "#F8FAFC"
 
 LABEL_COLORS = {
-    "Available":    "#7DA0B1",
-    "At Capacity":  "#581C87",
-    "Overextended": "#991B1B",
+    "Available":            "#7DA0B1",
+    "Near Historical Norm": "#6F6685",
+    "High Load":            "#581C87",
+    "Overextended":         "#991B1B",
+    "No baseline":          "#475569",
 }
 
 LABEL_TINTS = {
-    "Available":    "#EAF2F6",
-    "At Capacity":  "#F1E7F8",
-    "Overextended": "#F8E7E7",
+    "Available":            "#E6F3F1",
+    "Near Historical Norm": "#EFECF4",
+    "High Load":            "#F1E7F8",
+    "Overextended":         "#F8E7E7",
+    "No baseline":          "#F1F5F9",
 }
 
 LABEL_INK = {
-    "Available":    "#476A7C",
-    "At Capacity":  "#4C1D75",
-    "Overextended": "#7F1D1D",
+    "Available":            "#476A7C",
+    "Near Historical Norm": "#514960",
+    "High Load":            "#4C1D75",
+    "Overextended":         "#7F1D1D",
+    "No baseline":          "#334155",
 }
 
 LABEL_NEUTRAL = "#475569"
@@ -192,9 +207,11 @@ st.markdown(f"""
   }}
 
   .badge {{ border-radius: 4px; padding: 2px 9px; font-size: 0.72rem; font-weight: 600; display: inline-block; }}
-  .badge-available    {{ background: {LABEL_TINTS['Available']};    color: {LABEL_INK['Available']}; }}
-  .badge-atcapacity   {{ background: {LABEL_TINTS['At Capacity']};  color: {LABEL_INK['At Capacity']}; }}
+  .badge-available    {{ background: {LABEL_TINTS['Available']}; color: {LABEL_INK['Available']}; }}
+  .badge-nearnorm     {{ background: {LABEL_TINTS['Near Historical Norm']}; color: {LABEL_INK['Near Historical Norm']}; }}
+  .badge-highload     {{ background: {LABEL_TINTS['High Load']}; color: {LABEL_INK['High Load']}; }}
   .badge-overextended {{ background: {LABEL_TINTS['Overextended']}; color: {LABEL_INK['Overextended']}; }}
+  .badge-nobaseline   {{ background: {LABEL_TINTS['No baseline']}; color: {LABEL_INK['No baseline']}; }}
 
   .rec-card {{
     background: #fff;
@@ -308,9 +325,101 @@ def _build_trend_from_opportunity_df(
     return trend.sort_values(["opportunity_owner", "quarter_sort"]).reset_index(drop=True)
 
 
+def _select_options(df: pd.DataFrame | None, column: str) -> list[str]:
+    if df is None or column not in df.columns:
+        return ["All"]
+    values = (
+        df[column]
+        .dropna()
+        .astype(str)
+        .str.strip()
+    )
+    return ["All"] + sorted(v for v in values.unique() if v)
+
+
+def _filter_by_status(work: pd.DataFrame, selected: str) -> pd.DataFrame:
+    if selected == "All" or work.empty:
+        return work
+
+    outcomes = classify_opportunity_outcome(work)
+    reason = work["status_reason"].astype("string").str.strip().str.lower().fillna("")
+    cancelled = reason.str.startswith(("cancelled", "canceled")).fillna(False)
+
+    if selected == "Cancelled":
+        return work[cancelled]
+    if selected == "Lost":
+        return work[outcomes.eq("lost") & ~cancelled]
+    return work[outcomes.eq(selected.lower())]
+
+
+def _filter_opportunities(
+    opp_df: pd.DataFrame,
+    *,
+    territory: str,
+    owner: str,
+    status: str,
+    sales_stage: str,
+    date_range: object,
+    opportunity_type: str,
+    sales_model: str,
+) -> pd.DataFrame:
+    work = opp_df.copy()
+
+    if territory != "All" and "delivery_territory_center" in work.columns:
+        work = work[work["delivery_territory_center"].eq(territory)]
+    if owner != "All" and "opportunity_owner" in work.columns:
+        work = work[work["opportunity_owner"].eq(owner)]
+    if sales_stage != "All" and "sales_stage" in work.columns:
+        work = work[work["sales_stage"].eq(sales_stage)]
+    if opportunity_type != "All" and "opportunity_type" in work.columns:
+        work = work[work["opportunity_type"].eq(opportunity_type)]
+    if sales_model != "All" and "sales_model" in work.columns:
+        work = work[work["sales_model"].eq(sales_model)]
+
+    work = _filter_by_status(work, status)
+
+    if "created_on" in work.columns and isinstance(date_range, tuple) and len(date_range) == 2:
+        start, end = date_range
+        if start is not None and end is not None:
+            created = pd.to_datetime(work["created_on"], errors="coerce").dt.date
+            work = work[(created >= start) & (created <= end)]
+
+    return work
+
+
+def _baseline_population(
+    opp_df: pd.DataFrame,
+    *,
+    territory: str,
+    owner: str,
+) -> pd.DataFrame:
+    work = opp_df.copy()
+    if territory != "All" and "delivery_territory_center" in work.columns:
+        work = work[work["delivery_territory_center"].eq(territory)]
+    if owner != "All" and "opportunity_owner" in work.columns:
+        work = work[work["opportunity_owner"].eq(owner)]
+    return work
+
+
+def _build_capacity_from_filtered_current(
+    current_opp_df: pd.DataFrame,
+    baseline_opp_df: pd.DataFrame,
+    as_of_date: pd.Timestamp,
+) -> pd.DataFrame:
+    current_df = compute_current_load_by_owner(current_opp_df)
+    baseline_df = compute_historical_baseline(
+        baseline_opp_df,
+        as_of_date=as_of_date,
+    )
+    out = compute_relative_load(current_df, baseline_df)
+    out = compute_capacity_score(out)
+    out = assign_capacity_label(out)
+    return out
+
+
 @st.cache_data
-def load_data() -> tuple[pd.DataFrame, pd.DataFrame, str, str | None]:
-    """Load capacity data. Returns (capacity_df, trend_df, source_label, warning).
+def load_data() -> tuple[pd.DataFrame, pd.DataFrame, pd.DataFrame | None, str, str | None]:
+    """Load capacity data. Returns capacity, trend, opportunity rows, source, warning.
 
     warning is None on success or a short error description when the preferred
     source failed and mock data was used instead.
@@ -324,9 +433,9 @@ def load_data() -> tuple[pd.DataFrame, pd.DataFrame, str, str | None]:
         try:
             as_of_date = pd.Timestamp.today().normalize()
             if cleaned_path.exists():
-                opp_df = pd.read_csv(cleaned_path)
+                opp_df = pd.read_csv(cleaned_path, low_memory=False)
             else:
-                opp_df = clean_opportunity_df(pd.read_csv(opp_path))
+                opp_df = clean_opportunity_df(pd.read_csv(opp_path, low_memory=False))
             cap_df = build_director_capacity_df(
                 opp_df,
                 current_date=as_of_date,
@@ -335,7 +444,7 @@ def load_data() -> tuple[pd.DataFrame, pd.DataFrame, str, str | None]:
                 opp_df,
                 as_of_date=as_of_date,
             )
-            return cap_df, trd_df, "real", None
+            return cap_df, trd_df, opp_df, "real", None
         except Exception as exc:
             _live_err = f"Live scoring failed ({type(exc).__name__}: {exc})"
     else:
@@ -346,11 +455,12 @@ def load_data() -> tuple[pd.DataFrame, pd.DataFrame, str, str | None]:
         try:
             as_of_date = pd.Timestamp.today().normalize()
             cap_df = pd.read_csv(prebuilt)
+            opp_df = None
             if _ENGINE_AVAILABLE and (cleaned_path.exists() or opp_path.exists()):
                 if cleaned_path.exists():
-                    opp_df = pd.read_csv(cleaned_path)
+                    opp_df = pd.read_csv(cleaned_path, low_memory=False)
                 else:
-                    opp_df = clean_opportunity_df(pd.read_csv(opp_path))
+                    opp_df = clean_opportunity_df(pd.read_csv(opp_path, low_memory=False))
                 trd_df = _build_trend_from_opportunity_df(
                     opp_df,
                     as_of_date=as_of_date,
@@ -358,7 +468,7 @@ def load_data() -> tuple[pd.DataFrame, pd.DataFrame, str, str | None]:
             else:
                 trd_df = make_trend_df()
             warning = _live_err  # surface live-scoring error even though we recovered
-            return cap_df, trd_df, "prebuilt", warning
+            return cap_df, trd_df, opp_df, "prebuilt", warning
         except Exception as exc:
             _prebuilt_err = f"Pre-built CSV failed ({type(exc).__name__}: {exc})"
     else:
@@ -367,10 +477,10 @@ def load_data() -> tuple[pd.DataFrame, pd.DataFrame, str, str | None]:
     # Option 3: mock — build a combined warning so the operator can diagnose
     parts = [e for e in [_live_err, _prebuilt_err] if e]
     warning = "; ".join(parts) if parts else "Real data unavailable — mock data shown."
-    return make_director_capacity_df(), make_trend_df(), "mock", warning
+    return make_director_capacity_df(), make_trend_df(), None, "mock", warning
 
 
-capacity_df, trend_df, _data_source, _load_warning = load_data()
+capacity_df, trend_df, opportunity_df, _data_source, _load_warning = load_data()
 
 # Normalise baseline_reliability: bool True/False → "Reliable"/"Limited"
 if capacity_df["baseline_reliability"].dtype == bool or capacity_df["baseline_reliability"].isin([True, False]).all():
@@ -422,7 +532,7 @@ st.markdown(
       <div class="cgi-vdivider"></div>
       <div class="cgi-title-group">
         <div class="cgi-page-title">{page}</div>
-        <div class="cgi-page-sub">CGI Atlantic · Media Atlantic Business Unit · Week 2 Prototype</div>
+        <div class="cgi-page-sub">CGI Atlantic · Media Atlantic Business Unit · Week 3 Prototype</div>
       </div>
     </div>
     """,
@@ -463,63 +573,125 @@ if _load_warning:
 # ==============================================================================
 if page == "Director Capacity Dashboard":
 
+    row_filters_available = opportunity_df is not None and _ENGINE_AVAILABLE
+    created_dates = (
+        pd.to_datetime(opportunity_df["created_on"], errors="coerce").dropna()
+        if row_filters_available and "created_on" in opportunity_df.columns
+        else pd.Series(dtype="datetime64[ns]")
+    )
+    if not created_dates.empty:
+        created_min = created_dates.min().date()
+        created_max = created_dates.max().date()
+        created_default = ()
+    else:
+        created_min = created_max = pd.Timestamp.today().date()
+        created_default = ()
+
     # ── Filters ───────────────────────────────────────────────────────────────
     with st.expander("Filters", expanded=False):
         fc1, fc2, fc3, fc4 = st.columns(4)
         with fc1:
-            territory_vals = sorted(capacity_df["territory"].dropna().unique())
-            territories = ["All"] + territory_vals
+            territories = (
+                _select_options(opportunity_df, "delivery_territory_center")
+                if row_filters_available
+                else ["All"] + sorted(capacity_df["territory"].dropna().unique())
+            )
             sel_territory = st.selectbox("Territory", territories)
         with fc2:
-            owners = ["All"] + sorted(capacity_df["opportunity_owner"].dropna().unique())
+            owners = (
+                _select_options(opportunity_df, "opportunity_owner")
+                if row_filters_available
+                else ["All"] + sorted(capacity_df["opportunity_owner"].dropna().unique())
+            )
             sel_owner = st.selectbox("Opportunity Owner", owners)
         with fc3:
-            labels = ["All", "Available", "At Capacity", "Overextended"]
+            labels = [
+                "All",
+                "Available",
+                "Near Historical Norm",
+                "High Load",
+                "Overextended",
+                "No baseline",
+            ]
             sel_label = st.selectbox("Capacity Label", labels)
         with fc4:
-            st.selectbox(
+            sel_status = st.selectbox(
                 "Status",
-                ["All", "Open", "Won", "Lost", "Cancelled"],
-                disabled=True,
-                help="Available once opportunity_df filtering is connected",
+                ["All", "Open", "Won", "Lost", "Cancelled", "Duplicate"],
+                disabled=not row_filters_available,
+                help=None if row_filters_available else "Requires live opportunity data",
             )
 
         fc5, fc6, fc7, fc8 = st.columns(4)
         with fc5:
-            st.selectbox(
+            sel_sales_stage = st.selectbox(
                 "Sales Stage",
-                ["All", "0-Lead/Suspect", "1-Identification", "2-Qualification",
-                 "3-Bid Planning", "4-Proposal", "5-Client Decision", "6-Negotiation&Signature"],
-                disabled=True,
-                help="Available once opportunity_df filtering is connected",
+                _select_options(opportunity_df, "sales_stage"),
+                disabled=not row_filters_available,
+                help=None if row_filters_available else "Requires live opportunity data",
             )
         with fc6:
-            st.date_input(
-                "Date Range",
-                value=[],
-                disabled=True,
-                help="Available once opportunity_df filtering is connected",
+            sel_date_range = st.date_input(
+                "Created Date Range",
+                value=created_default,
+                min_value=created_min,
+                max_value=created_max,
+                disabled=not row_filters_available or created_dates.empty,
+                help=None if row_filters_available else "Requires live opportunity data",
             )
         with fc7:
-            st.selectbox(
+            sel_opportunity_type = st.selectbox(
                 "Opportunity Type",
-                ["All", "New Business", "Extension", "Renewal", "Change Request"],
-                disabled=True,
-                help="Available once opportunity_df filtering is connected",
+                _select_options(opportunity_df, "opportunity_type"),
+                disabled=not row_filters_available,
+                help=None if row_filters_available else "Requires live opportunity data",
             )
         with fc8:
-            st.selectbox(
+            sel_sales_model = st.selectbox(
                 "Sales Model",
-                ["All", "Direct", "Partner", "Framework", "Public Sector Tender"],
-                disabled=True,
-                help="Available once opportunity_df filtering is connected",
+                _select_options(opportunity_df, "sales_model"),
+                disabled=not row_filters_available,
+                help=None if row_filters_available else "Requires live opportunity data",
             )
 
-    fdf = capacity_df.copy()
-    if sel_territory != "All":
-        fdf = fdf[fdf["territory"] == sel_territory]
-    if sel_owner != "All":
-        fdf = fdf[fdf["opportunity_owner"] == sel_owner]
+    if row_filters_available:
+        filtered_opp_df = _filter_opportunities(
+            opportunity_df,
+            territory=sel_territory,
+            owner=sel_owner,
+            status=sel_status,
+            sales_stage=sel_sales_stage,
+            date_range=sel_date_range,
+            opportunity_type=sel_opportunity_type,
+            sales_model=sel_sales_model,
+        )
+        if filtered_opp_df.empty:
+            fdf = capacity_df.iloc[0:0].copy()
+            active_trend_df = trend_df.iloc[0:0].copy()
+        else:
+            as_of_date = pd.Timestamp.today().normalize()
+            baseline_opp_df = _baseline_population(
+                opportunity_df,
+                territory=sel_territory,
+                owner=sel_owner,
+            )
+            fdf = _build_capacity_from_filtered_current(
+                filtered_opp_df,
+                baseline_opp_df,
+                as_of_date,
+            )
+            active_trend_df = _build_trend_from_opportunity_df(
+                filtered_opp_df,
+                as_of_date=as_of_date,
+            )
+    else:
+        fdf = capacity_df.copy()
+        active_trend_df = trend_df
+        if sel_territory != "All":
+            fdf = fdf[fdf["territory"] == sel_territory]
+        if sel_owner != "All":
+            fdf = fdf[fdf["opportunity_owner"] == sel_owner]
+
     if sel_label != "All":
         fdf = fdf[fdf["capacity_label"] == sel_label]
 
@@ -528,14 +700,16 @@ if page == "Director Capacity Dashboard":
         st.stop()
 
     # ── KPI row ───────────────────────────────────────────────────────────────
-    k1, k2, k3, k4 = st.columns(4)
+    k1, k2, k3, k4, k5, k6 = st.columns(6)
     kpi_cfg = [
-        ("Directors",    len(fdf),                                        "#222222"),
-        ("Available",    (fdf["capacity_label"] == "Available").sum(),    LABEL_COLORS["Available"]),
-        ("At Capacity",  (fdf["capacity_label"] == "At Capacity").sum(),  LABEL_COLORS["At Capacity"]),
-        ("Overextended", (fdf["capacity_label"] == "Overextended").sum(), LABEL_COLORS["Overextended"]),
+        ("Directors",      len(fdf), "#222222"),
+        ("Available",      (fdf["capacity_label"] == "Available").sum(), LABEL_COLORS["Available"]),
+        ("Near Norm",      (fdf["capacity_label"] == "Near Historical Norm").sum(), LABEL_COLORS["Near Historical Norm"]),
+        ("High Load",      (fdf["capacity_label"] == "High Load").sum(), LABEL_COLORS["High Load"]),
+        ("Overextended",   (fdf["capacity_label"] == "Overextended").sum(), LABEL_COLORS["Overextended"]),
+        ("No baseline",    (fdf["capacity_label"] == "No baseline").sum(), LABEL_COLORS["No baseline"]),
     ]
-    for col, (label, val, color) in zip([k1, k2, k3, k4], kpi_cfg):
+    for col, (label, val, color) in zip([k1, k2, k3, k4, k5, k6], kpi_cfg):
         col.markdown(
             f"<div class='kpi-wrap'>"
             f"  <div class='kpi-body'>"
@@ -549,24 +723,42 @@ if page == "Director Capacity Dashboard":
     st.markdown("<div style='height:0.5rem'></div>", unsafe_allow_html=True)
 
     # ── Score explanation ─────────────────────────────────────────────────────
-    with st.expander("How is the Capacity Score calculated?", expanded=False):
+    with st.expander("How is the Relative Load calculated?", expanded=False):
         st.markdown(
             """
-**Capacity Score** = `max(0, 1 − min(relative_load, 1))`
-
-| Score range | Label | Meaning |
-|---|---|---|
-| ≥ 0.35 | **Available** | Director has meaningful room for new work |
-| 0.15 – 0.34 | **At Capacity** | Director is near their historical average load |
-| < 0.15 | **Overextended** | Director's current load exceeds their historical norm |
-
 **Relative Load** = `current_load / historical_avg_load`
 
-**Current Load** combines two components:
-- *Sales load* — weighted by sales stage, win probability, estimated revenue, and project duration
-- *Delivery load* — active inferred deliveries based on revenue start date and project duration
+| Relative load range | Label | Meaning |
+|---|---|---|
+| ≤ 0.85x | **Available** | Director is below their historical workload norm |
+| > 0.85x and < 1.25x | **Near Historical Norm** | Director is close to their historical workload norm |
+| ≥ 1.25x and < 2.00x | **High Load** | Director is materially above historical norm |
+| ≥ 2.00x | **Overextended** | Director is carrying at least double historical norm |
+| missing baseline | **No baseline** | Director has no usable historical denominator |
 
-**Historical Average Load** = mean quarterly load across all quarters in the CRM data.
+**Current Load** combines two components:
+- *Sales load* — active open opportunities weighted by sales stage, win probability, estimated revenue, and project duration
+- *Delivery load* — active won delivery commitments based on revenue start date, close date fallback, project duration, and monthly revenue
+
+**Historical Average Load** = mean quarterly load across the director's full
+selected owner/territory history. Row-level filters such as status, sales stage,
+opportunity type, sales model, and created date change the current workload
+being viewed; they do not redefine the historical baseline.
+
+Workload score uses logarithmic revenue terms so very large opportunities affect
+load without fully dominating the scale:
+
+`current_load = sales_load + delivery_load`
+
+`sales_load = stage_weight × probability × log1p(revenue) × duration_weight`
+
+`duration_weight = log1p(duration_months) / log1p(12)`
+
+`delivery_load = log1p(revenue / duration_months)` for active won deliveries
+
+These label bands are a temporary project calibration based on the current
+director-level distribution and business interpretation of load vs historical
+norm. They should be reviewed and adjusted with CGI judgment.
 
 > Scores are based on anonymized CRM opportunity records. Missing revenue, dates, or
 > probability fields are handled using documented fallback assumptions.
@@ -576,89 +768,48 @@ if page == "Director Capacity Dashboard":
 
     st.markdown("<div style='height:0.5rem'></div>", unsafe_allow_html=True)
 
-    # ── Row 1: Capacity score bars  |  Label donut ───────────────────────────
+    # ── Row 1: Relative load bars  |  Label donut ────────────────────────────
     col_bars, col_donut = st.columns([3, 1.1])
 
     with col_bars:
-        st.markdown('<div class="sec-head">Capacity Score by Director</div>', unsafe_allow_html=True)
+        st.markdown('<div class="sec-head">Relative Load by Director</div>', unsafe_allow_html=True)
 
-        sdf = fdf.sort_values("capacity_score", na_position="first")
+        sdf = fdf.sort_values("relative_load", ascending=True, na_position="first")
 
-        # Safe display values — NaN scores shown as 0 in chart (labeled At Capacity by engine)
-        score_display = sdf["capacity_score"].fillna(0).values
-        rel_display   = sdf["relative_load"].fillna(0).values
+        rel_display = sdf["relative_load"].fillna(0).values
+        text_display = [
+            "  No baseline" if pd.isna(v) else f"  {v:.2f}x"
+            for v in sdf["relative_load"]
+        ]
+        max_rel = pd.to_numeric(sdf["relative_load"], errors="coerce").max()
+        x_max = max(2.25, float(max_rel) * 1.08) if pd.notna(max_rel) else 2.25
 
         fig_bar = go.Figure()
         customdata = np.column_stack([
-            score_display,
             rel_display,
+            sdf["current_load"].fillna(0).values,
+            sdf["historical_avg_load"].fillna(0).values,
             sdf["capacity_label"].values,
         ])
 
         fig_bar.add_trace(go.Bar(
             y=sdf["opportunity_owner"],
-            x=score_display,
+            x=rel_display,
             orientation="h",
-            marker_color=[LABEL_COLORS.get(l, LABEL_COLORS["At Capacity"]) for l in sdf["capacity_label"]],
+            marker_color=[LABEL_COLORS.get(l, LABEL_NEUTRAL) for l in sdf["capacity_label"]],
             marker_line_width=0,
-            text=[f"  {v:.0%}" for v in score_display],
+            text=text_display,
             textposition="outside",
             textfont=dict(size=11, color="#57534E", family="Inter"),
             customdata=customdata,
             hovertemplate=(
                 "<b>%{y}</b><br>"
-                "Capacity Score: %{customdata[0]:.0%}<br>"
-                "Relative Load: %{customdata[1]:.0%}<br>"
-                "Label: %{customdata[2]}<extra></extra>"
+                "Relative Load: %{customdata[0]:.2f}x<br>"
+                "Current Load: %{customdata[1]:.2f}<br>"
+                "Historical Avg: %{customdata[2]:.2f}<br>"
+                "Label: %{customdata[3]}<extra></extra>"
             ),
         ))
-
-        zero_sdf = sdf[sdf["capacity_score"].fillna(0) == 0]
-        if not zero_sdf.empty:
-            zero_customdata = np.column_stack([
-                zero_sdf["capacity_score"].fillna(0).values,
-                zero_sdf["relative_load"].fillna(0).values,
-                zero_sdf["capacity_label"].values,
-            ])
-            fig_bar.add_trace(go.Scatter(
-                y=zero_sdf["opportunity_owner"],
-                x=[0] * len(zero_sdf),
-                mode="markers",
-                marker=dict(opacity=0, size=16),
-                customdata=zero_customdata,
-                hovertemplate=(
-                    "<b>%{y}</b><br>"
-                    "Capacity Score: %{customdata[0]:.0%}<br>"
-                    "Relative Load: %{customdata[1]:.0%}<br>"
-                    "Label: %{customdata[2]}<extra></extra>"
-                ),
-                showlegend=False,
-            ))
-
-        for x_val, color in [(0.35, LABEL_COLORS["Available"]),
-                             (0.15, LABEL_COLORS["Overextended"])]:
-            fig_bar.add_shape(
-                type="line",
-                x0=x_val, x1=x_val, y0=0, y1=1, yref="paper",
-                line=dict(dash="2,4", color=color, width=1),
-            )
-
-        fig_bar.add_annotation(
-            x=0.36, xref="x", y=0.04, yref="paper",
-            text="Available ≥ 35%",
-            showarrow=False, xanchor="left", yanchor="bottom",
-            font=dict(size=9, color=LABEL_COLORS["Available"], family="Inter"),
-            bgcolor="rgba(248,250,252,0.90)",
-            borderpad=3, borderwidth=0,
-        )
-        fig_bar.add_annotation(
-            x=0.16, xref="x", y=0.12, yref="paper",
-            text="Overextended < 15%",
-            showarrow=False, xanchor="left", yanchor="bottom",
-            font=dict(size=9, color=LABEL_COLORS["Overextended"], family="Inter"),
-            bgcolor="rgba(248,250,252,0.90)",
-            borderpad=4, borderwidth=0,
-        )
 
         n_owners = len(sdf)
         bar_height = max(260, n_owners * 25 + 32)
@@ -670,12 +821,13 @@ if page == "Director Capacity Dashboard":
             plot_bgcolor=_CHART_PLOT,
             xaxis=dict(
                 title=dict(
-                    text="Capacity Score",
+                    text="Relative Load",
                     font=dict(size=11, color="#78716C"),
                     standoff=4,
                 ),
-                tickformat=".0%",
-                range=[0, 1.05],
+                tickformat=".1f",
+                ticksuffix="x",
+                range=[0, x_max],
                 gridcolor=_GRID_COLOR,
                 showgrid=True,
                 zeroline=False,
@@ -704,9 +856,11 @@ if page == "Director Capacity Dashboard":
                 colors=[LABEL_COLORS.get(l, "#aaa") for l in lc["label"]],
                 line=dict(color=APP_BG, width=3),
             ),
-            textinfo="value",
-            textposition="outside",
-            textfont=dict(size=11, color="#44403C", family="Inter"),
+            textinfo="none",
+            texttemplate="%{value}",
+            textposition="inside",
+            insidetextorientation="horizontal",
+            textfont=dict(size=13, color="#FFFFFF", family="Inter"),
             hovertemplate="<b>%{label}</b><br>%{value} directors (%{percent})<extra></extra>",
             sort=False,
             direction="clockwise",
@@ -726,35 +880,69 @@ if page == "Director Capacity Dashboard":
             showlegend=False,
             font=_CHART_FONT,
             hoverlabel=_HOVER,
+            uniformtext=dict(minsize=12, mode="show"),
         )
         st.plotly_chart(fig_donut, width="stretch", config={"displayModeBar": False})
 
     # ── Row 2: Current load vs historical average ─────────────────────────────
     st.markdown('<div class="sec-head">Current Load vs Historical Average</div>', unsafe_allow_html=True)
 
-    ldf = fdf.sort_values("current_load", ascending=False).reset_index(drop=True)
+    ldf = fdf.sort_values("relative_load", ascending=False, na_position="last").reset_index(drop=True)
+    load_floor = 0.01
+    ldf["_current_load_display"] = (
+        pd.to_numeric(ldf["current_load"], errors="coerce")
+        .clip(lower=load_floor)
+    )
+    ldf["_historical_avg_display"] = (
+        pd.to_numeric(ldf["historical_avg_load"], errors="coerce")
+        .clip(lower=load_floor)
+    )
     fig_load = go.Figure()
     fig_load.add_trace(go.Bar(
         name="Current Load",
         x=ldf["opportunity_owner"],
-        y=ldf["current_load"],
-        marker_color=[LABEL_COLORS.get(l, LABEL_COLORS["At Capacity"]) for l in ldf["capacity_label"]],
+        y=ldf["_current_load_display"],
+        marker_color=[LABEL_COLORS.get(l, LABEL_NEUTRAL) for l in ldf["capacity_label"]],
         marker_line_width=0,
-        hovertemplate="<b>%{x}</b><br>Current Load: %{y:.1f}<extra></extra>",
+        customdata=np.column_stack([
+            ldf["current_load"].fillna(0),
+            ldf["historical_avg_load"].fillna(0),
+            ldf["relative_load"].fillna(0),
+            ldf["capacity_label"],
+        ]),
+        hovertemplate=(
+            "<b>%{x}</b><br>"
+            "Current Load: %{customdata[0]:.4f}<br>"
+            "Historical Avg: %{customdata[1]:.4f}<br>"
+            "Relative Load: %{customdata[2]:.2f}x<br>"
+            "Label: %{customdata[3]}<extra></extra>"
+        ),
     ))
 
     _AVG_INK = "#44403C"
-    for xi, row in ldf.iterrows():
-        fig_load.add_shape(
-            type="line",
-            x0=xi - 0.32, x1=xi + 0.32,
-            y0=row["historical_avg_load"], y1=row["historical_avg_load"],
-            line=dict(color=_AVG_INK, width=2.5),
-        )
+    avg_marker_df = ldf[ldf["historical_avg_load"].notna()].copy()
     fig_load.add_trace(go.Scatter(
-        x=[None], y=[None], mode="lines",
-        line=dict(color=_AVG_INK, width=2.5),
+        x=avg_marker_df["opportunity_owner"],
+        y=avg_marker_df["_historical_avg_display"],
+        mode="markers",
+        marker=dict(
+            symbol="line-ew",
+            size=28,
+            color=_AVG_INK,
+            line=dict(color=_AVG_INK, width=3),
+        ),
         name="Historical Avg",
+        customdata=np.column_stack([
+            avg_marker_df["current_load"].fillna(0),
+            avg_marker_df["historical_avg_load"].fillna(0),
+            avg_marker_df["relative_load"].fillna(0),
+        ]),
+        hovertemplate=(
+            "<b>%{x}</b><br>"
+            "Current Load: %{customdata[0]:.4f}<br>"
+            "Historical Avg: %{customdata[1]:.4f}<br>"
+            "Relative Load: %{customdata[2]:.2f}x<extra></extra>"
+        ),
     ))
 
     fig_load.update_layout(
@@ -767,11 +955,17 @@ if page == "Director Capacity Dashboard":
             font=dict(size=11, color="#57534E"), bgcolor="rgba(0,0,0,0)",
         ),
         yaxis=dict(
-            title=dict(text="Workload Score", font=dict(size=11, color="#78716C")),
+            title=dict(text="Workload Score (log scale)", font=dict(size=11, color="#78716C")),
+            type="log",
             gridcolor=_GRID_COLOR, zeroline=False, showline=False,
             tickfont=dict(size=10, color="#78716C"),
         ),
-        xaxis=dict(title="", showgrid=False, tickfont=dict(size=11, color="#1C1917"), tickangle=-35),
+        xaxis=dict(
+            title="",
+            showgrid=False,
+            tickfont=dict(size=11, color="#1C1917"),
+            tickangle=0 if len(ldf) <= 6 else -35,
+        ),
         font=_CHART_FONT,
         bargap=0.42,
         hoverlabel=_HOVER,
@@ -789,7 +983,7 @@ if page == "Director Capacity Dashboard":
             else fdf["opportunity_owner"].tolist()
         )
         tdf = (
-            trend_df[trend_df["opportunity_owner"].isin(trend_owners)]
+            active_trend_df[active_trend_df["opportunity_owner"].isin(trend_owners)]
             .sort_values("quarter_sort")
         )
 
@@ -799,14 +993,19 @@ if page == "Director Capacity Dashboard":
             if odf.empty:
                 continue
             color = BRAND_PALETTE[idx % len(BRAND_PALETTE)]
+            trend_display = (
+                pd.to_numeric(odf["current_load"], errors="coerce")
+                .clip(lower=load_floor)
+            )
             fig_trend.add_trace(go.Scatter(
                 x=odf["quarter_label"],
-                y=odf["current_load"],
+                y=trend_display,
                 name=owner,
                 mode="lines+markers",
                 line=dict(color=color, width=2.5, shape="spline", smoothing=1.1),
                 marker=dict(size=6, color=color, line=dict(color=APP_BG, width=1.5)),
-                hovertemplate=f"<b>{owner}</b><br>%{{x}}: %{{y:.1f}}<extra></extra>",
+                customdata=odf["current_load"],
+                hovertemplate=f"<b>{owner}</b><br>%{{x}}: %{{customdata:.2f}}<extra></extra>",
             ))
 
         if not fig_trend.data:
@@ -828,7 +1027,8 @@ if page == "Director Capacity Dashboard":
                 borderwidth=0,
             ),
             yaxis=dict(
-                title=dict(text="Workload Score", font=dict(size=11, color="#78716C")),
+                title=dict(text="Workload Score (log scale)", font=dict(size=11, color="#78716C")),
+                type="log",
                 gridcolor=_GRID_COLOR, zeroline=False, showline=False,
                 tickfont=dict(size=10, color="#78716C"),
             ),
@@ -845,15 +1045,12 @@ if page == "Director Capacity Dashboard":
         st.markdown('<div class="sec-head">Director Summary</div>', unsafe_allow_html=True)
 
         display = fdf[[
-            "opportunity_owner", "territory", "capacity_label", "capacity_score",
-            "relative_load",
+            "opportunity_owner", "territory", "capacity_label", "relative_load",
             "open_deal_count", "late_stage_deal_count",
             "weighted_pipeline_revenue", "inferred_delivery_commitments",
             "baseline_reliability",
         ]].copy()
 
-        display["capacity_score"] = display["capacity_score"].fillna(0)
-        display["capacity_score"] = (display["capacity_score"] * 100).round(1)
         # relative_load: show as "2.3x" — reveals overextension severity when score = 0
         display["relative_load"] = display["relative_load"].apply(
             lambda x: f"{x:.1f}x" if pd.notna(x) else "—"
@@ -863,7 +1060,7 @@ if page == "Director Capacity Dashboard":
             lambda x: f"${x / 1_000_000:.1f}M" if pd.notna(x) else "—"
         )
         display.columns = [
-            "Director", "Territory", "Label", "Score (%)", "Rel. Load",
+            "Director", "Territory", "Label", "Rel. Load",
             "Open Deals", "Late-Stage", "Pipeline (CAD)",
             "Active Deliveries", "Baseline",
         ]
@@ -872,18 +1069,16 @@ if page == "Director Capacity Dashboard":
 
 
 # ==============================================================================
-#  PAGE 2 – RFP Assignment Tool  (UI shell — backend owned by Jai / Role 5)
+#  PAGE 2 – RFP Assignment Tool
 # ==============================================================================
 elif page == "RFP Assignment Tool":
 
     st.markdown(
         "<div style='background:#F5F2EC;border:1px solid #E7E2D8;border-radius:8px;"
         "padding:0.75rem 1.1rem;margin-bottom:1.2rem;font-size:0.82rem;color:#57534E'>"
-        "This page is the <b>UI shell</b> for the RFP Assignment Tool. "
-        "The backend pipeline (chunking, embeddings, retrieval, director ranking) "
-        "is being built by <b>Jai (Role 5)</b> in "
-        "<code>src/rfp_preprocessor.py</code> and <code>src/vector_store.py</code>. "
-        "Jai's <code>generate_assignment_context()</code> output will plug into the results panel below."
+        "This page uses the current <b>fallback RFP assignment pipeline</b>. "
+        "Results are generated from local retrieval and heuristic/prototype assignment logic "
+        "while Azure-backed retrieval is pending."
         "</div>",
         unsafe_allow_html=True,
     )
@@ -900,7 +1095,7 @@ elif page == "RFP Assignment Tool":
             help="Available once RFP document parsing is connected (Role 5)",
         )
 
-        st.text_area(
+        rfp_text = st.text_area(
             "RFP text",
             height=220,
             label_visibility="collapsed",
@@ -916,8 +1111,22 @@ elif page == "RFP Assignment Tool":
                 "Data & Analytics", "Cloud & Infrastructure", "Application Services",
             ])
 
-        st.button("Analyze RFP", type="primary", width="stretch", disabled=True)
-        st.caption("Backend not connected — enable once Jai's pipeline is integrated.")
+        st.caption("Territory and service domain are UI context only for now; backend scoring does not use them yet.")
+
+        analyze_clicked = st.button("Analyze RFP", type="primary", width="stretch")
+        if analyze_clicked:
+            if not rfp_text.strip():
+                st.session_state.pop("rfp_assignment_context", None)
+                st.session_state.pop("rfp_assignment_input", None)
+                st.warning("Please paste RFP text before running the analysis.")
+            else:
+                try:
+                    st.session_state["rfp_assignment_context"] = generate_assignment_context(rfp_text)
+                    st.session_state["rfp_assignment_input"] = rfp_text
+                    st.session_state.pop("rfp_assignment_error", None)
+                except Exception as exc:
+                    st.session_state["rfp_assignment_error"] = str(exc)
+                    st.session_state.pop("rfp_assignment_context", None)
 
     with col_results:
         _ph = (
@@ -925,52 +1134,144 @@ elif page == "RFP Assignment Tool":
             "padding:1.5rem 1.25rem;margin-bottom:0.75rem;text-align:center;"
             "color:#A8A29E;font-size:0.82rem;"
         )
+        context = st.session_state.get("rfp_assignment_context")
+        _engine_error = st.session_state.get("rfp_assignment_error")
 
-        st.markdown('<div class="sec-head">Estimated Effort</div>', unsafe_allow_html=True)
-        st.markdown(
-            f"<div style='{_ph}'>Effort level and estimated duration will appear here<br>"
-            "<span style='font-size:0.72rem'>"
-            "Source: <code>generate_assignment_context()</code> → <code>effort</code></span></div>",
-            unsafe_allow_html=True,
-        )
+        if _engine_error:
+            st.error(
+                f"The RFP assignment pipeline encountered an error: {_engine_error}\n\n"
+                "The local fallback path should not fail under normal conditions. "
+                "Check that the project dependencies are installed and try again."
+            )
 
-        st.markdown('<div class="sec-head">Similar Historical RFPs</div>', unsafe_allow_html=True)
-        st.markdown(
-            f"<div style='{_ph}'>Retrieved RFP chunks ranked by semantic similarity will appear here<br>"
-            "<span style='font-size:0.72rem'>"
-            "Source: <code>retrieve_relevant_chunks()</code> → <code>retrieved_examples</code></span></div>",
-            unsafe_allow_html=True,
-        )
+        if not context:
+            st.markdown('<div class="sec-head">Estimated Effort</div>', unsafe_allow_html=True)
+            st.markdown(
+                f"<div style='{_ph}'>Effort level and estimated duration will appear here<br>"
+                "<span style='font-size:0.72rem'>"
+                "Source: <code>generate_assignment_context()</code> → <code>effort</code></span></div>",
+                unsafe_allow_html=True,
+            )
 
-        st.markdown('<div class="sec-head">Recommended Directors</div>', unsafe_allow_html=True)
-        st.markdown(
-            f"<div style='{_ph}'>Ranked director recommendations with capacity, experience,<br>"
-            "and assignment scores will appear here<br>"
-            "<span style='font-size:0.72rem'>"
-            "Source: <code>generate_assignment_context()</code> → <code>recommended_directors</code></span></div>",
-            unsafe_allow_html=True,
-        )
+            st.markdown('<div class="sec-head">Similar Historical RFPs</div>', unsafe_allow_html=True)
+            st.markdown(
+                f"<div style='{_ph}'>Retrieved RFP chunks ranked by local fallback similarity will appear here<br>"
+                "<span style='font-size:0.72rem'>"
+                "Source: <code>generate_assignment_context()</code> → <code>retrieved_examples</code></span></div>",
+                unsafe_allow_html=True,
+            )
 
-        st.markdown('<div class="sec-head">Capacity Explanation</div>', unsafe_allow_html=True)
-        st.markdown(
-            f"<div style='{_ph}'>Capacity rationale for each recommended director will appear here<br>"
-            "<span style='font-size:0.72rem'>"
-            "Source: <code>recommended_directors[].capacity_label</code> + score</span></div>",
-            unsafe_allow_html=True,
-        )
+            st.markdown('<div class="sec-head">Recommended Directors</div>', unsafe_allow_html=True)
+            st.markdown(
+                f"<div style='{_ph}'>Ranked director recommendations with capacity, experience,<br>"
+                "and assignment scores will appear here<br>"
+                "<span style='font-size:0.72rem'>"
+                "Source: <code>generate_assignment_context()</code> → <code>recommended_directors</code></span></div>",
+                unsafe_allow_html=True,
+            )
 
-        st.markdown('<div class="sec-head">Experience Match Explanation</div>', unsafe_allow_html=True)
-        st.markdown(
-            f"<div style='{_ph}'>Relevant past work, similarity evidence, and fit rationale will appear here<br>"
-            "<span style='font-size:0.72rem'>"
-            "Source: <code>recommended_directors[].match_reason</code> + supporting chunks</span></div>",
-            unsafe_allow_html=True,
-        )
+            st.markdown('<div class="sec-head">Risk Flags</div>', unsafe_allow_html=True)
+            st.markdown(
+                f"<div style='{_ph}'>Low-confidence matches, capacity conflicts, or data-quality warnings will appear here<br>"
+                "<span style='font-size:0.72rem'>"
+                "Source: <code>generate_assignment_context()</code> → <code>risk_flags</code></span></div>",
+                unsafe_allow_html=True,
+            )
+        else:
+            st.info(
+                "Prototype fallback output: this analysis uses local fallback retrieval "
+                "and heuristic assignment logic while Azure-backed retrieval is pending. "
+                "Do not treat it as final CGI assignment guidance."
+            )
 
-        st.markdown('<div class="sec-head">Risk Flags</div>', unsafe_allow_html=True)
-        st.markdown(
-            f"<div style='{_ph}'>Low-confidence matches, capacity conflicts, or data-quality warnings will appear here<br>"
-            "<span style='font-size:0.72rem'>"
-            "Source: <code>generate_assignment_context()</code> → <code>risk_flags</code></span></div>",
-            unsafe_allow_html=True,
-        )
+            st.markdown('<div class="sec-head">RFP Summary</div>', unsafe_allow_html=True)
+            st.write(context.get("rfp_summary") or "No summary returned.")
+
+            effort = context.get("effort") or {}
+            if not isinstance(effort, dict):
+                effort = {}
+            effort_level = str(effort.get("level") or "Unknown")
+            effort_class = f"effort-{effort_level.lower()}" if effort_level in {"Low", "Medium", "High"} else "badge"
+
+            st.markdown('<div class="sec-head">Estimated Effort</div>', unsafe_allow_html=True)
+            st.markdown(
+                f"<span class='{effort_class}'>{html.escape(effort_level)}</span>",
+                unsafe_allow_html=True,
+            )
+            if effort.get("estimated_duration"):
+                st.caption(f"Estimated duration: {effort.get('estimated_duration')}")
+            st.write(effort.get("rationale") or "No effort rationale returned.")
+
+            retrieved_examples = context.get("retrieved_examples") or []
+            st.markdown('<div class="sec-head">Similar Historical RFPs</div>', unsafe_allow_html=True)
+            if not isinstance(retrieved_examples, list) or not retrieved_examples:
+                st.info("No retrieved examples returned.")
+            else:
+                for index, example in enumerate(retrieved_examples, start=1):
+                    if not isinstance(example, dict):
+                        continue
+                    supporting_text = str(example.get("supporting_text") or "")
+                    preview = supporting_text[:320].rstrip()
+                    if len(supporting_text) > 320:
+                        preview = f"{preview}..."
+                    raw_score = example.get("similarity_score")
+                    try:
+                        score_str = f"{float(raw_score):.2f}"
+                    except (TypeError, ValueError):
+                        score_str = str(raw_score) if raw_score not in (None, "") else "n/a"
+                    st.markdown(
+                        f"**{index}. {example.get('proposal_id', 'Unknown proposal')}**  \n"
+                        f"`chunk_id`: `{example.get('chunk_id', 'unknown')}`  \n"
+                        f"`similarity_score`: `{score_str}`"
+                    )
+                    st.write(preview or "No supporting text returned.")
+
+            recommended_directors = context.get("recommended_directors") or []
+            st.markdown('<div class="sec-head">Recommended Directors</div>', unsafe_allow_html=True)
+            if not isinstance(recommended_directors, list) or not recommended_directors:
+                st.info("No recommended directors returned.")
+            else:
+                for index, director in enumerate(recommended_directors, start=1):
+                    if not isinstance(director, dict):
+                        continue
+                    with st.expander(
+                        f"{index}. {director.get('director_name', 'Unnamed director')}",
+                        expanded=index == 1,
+                    ):
+                        st.markdown(
+                            f"**Capacity:** {director.get('capacity_label', 'Unknown')}  \n"
+                            f"**Capacity score:** {director.get('capacity_score', 'n/a')}  \n"
+                            f"**Relative load:** {director.get('relative_load', 'n/a')}  \n"
+                            f"**Assignment score:** {director.get('assignment_score', 'n/a')}"
+                        )
+                        if director.get("match_reason"):
+                            st.write(director.get("match_reason"))
+                        if director.get("capacity_explanation"):
+                            st.markdown("**Capacity explanation**")
+                            st.write(director.get("capacity_explanation"))
+                        if director.get("experience_match_explanation"):
+                            st.markdown("**Experience match explanation**")
+                            st.write(director.get("experience_match_explanation"))
+                        supporting_chunks = director.get("supporting_chunks") or []
+                        if supporting_chunks:
+                            st.caption(
+                                "Supporting chunks: "
+                                + ", ".join(str(chunk_id) for chunk_id in supporting_chunks)
+                            )
+
+            risk_flags = context.get("risk_flags") or []
+            st.markdown('<div class="sec-head">Risk Flags</div>', unsafe_allow_html=True)
+            if not isinstance(risk_flags, list) or not risk_flags:
+                st.info("No risk flags returned.")
+            else:
+                for flag in risk_flags:
+                    if isinstance(flag, dict):
+                        level = flag.get("level", "Info")
+                        message = flag.get("message", "")
+                        st.warning(f"{level}: {message}" if message else str(level))
+                    else:
+                        st.warning(str(flag))
+
+            if context.get("notes"):
+                st.markdown('<div class="sec-head">Notes</div>', unsafe_allow_html=True)
+                st.caption(str(context.get("notes")))

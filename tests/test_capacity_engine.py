@@ -15,6 +15,8 @@ These tests validate:
 Utilization: python -m pytest tests/test_capacity_engine.py
 """
 
+import math
+
 import pandas as pd
 
 from src.capacity_engine import (
@@ -46,6 +48,26 @@ def test_compute_sales_load_creates_positive_sales_load():
 
     assert "sales_load" in result.columns
     assert result.loc[0, "sales_load"] > 0
+
+
+def test_compute_sales_load_uses_documented_log_formula():
+    df = pd.DataFrame(
+        {
+            "status": ["open"],
+            "status_reason": ["Open"],
+            "sales_stage": ["4-Proposal"],
+            "probability": [80],
+            "authoritative_revenue": [100000],
+            "project_duration_number_of_months": [12],
+        }
+    )
+
+    result = compute_sales_load(df)
+
+    expected = 1.3 * 0.8 * math.log1p(100000) * (
+        math.log1p(12) / math.log1p(12)
+    )
+    assert abs(result.loc[0, "sales_load"] - expected) < 1e-12
 
 
 def test_compute_sales_load_sets_won_status_to_zero():
@@ -87,6 +109,26 @@ def test_compute_delivery_load_creates_active_delivery_load():
     assert "delivery_load" in result.columns
     assert bool(result.loc[0, "delivery_active"]) is True
     assert result.loc[0, "delivery_load"] > 0
+
+
+def test_compute_delivery_load_uses_monthly_revenue_log_formula():
+    df = pd.DataFrame(
+        {
+            "status": ["closed"],
+            "status_reason": ["Won"],
+            "authoritative_revenue": [1200000],
+            "project_duration_number_of_months": [12],
+            "revenue_start_date": ["2026-01-01"],
+            "close_date": ["2025-12-01"],
+        }
+    )
+
+    result = compute_delivery_load(
+        df,
+        current_date="2026-05-01",
+    )
+
+    assert result.loc[0, "delivery_load"] == math.log1p(100000)
 
 
 def test_compute_delivery_load_sets_non_won_status_to_zero():
@@ -353,6 +395,41 @@ def test_compute_relative_load_divides_current_by_baseline():
     assert result.loc[0, "relative_load"] == 2.0
 
 
+def test_relative_load_can_compare_filtered_current_to_stable_baseline():
+    filtered_current_df = pd.DataFrame(
+        {
+            "opportunity_owner": ["Owner 1"],
+            "current_load": [20],
+        }
+    )
+
+    selected_population_baseline_df = pd.DataFrame(
+        {
+            "opportunity_owner": ["Owner 1"],
+            "historical_avg_load": [10],
+        }
+    )
+
+    filtered_denominator_df = pd.DataFrame(
+        {
+            "opportunity_owner": ["Owner 1"],
+            "historical_avg_load": [20],
+        }
+    )
+
+    result = compute_relative_load(
+        filtered_current_df,
+        selected_population_baseline_df,
+    )
+    filtered_denominator_result = compute_relative_load(
+        filtered_current_df,
+        filtered_denominator_df,
+    )
+
+    assert result.loc[0, "relative_load"] == 2.0
+    assert filtered_denominator_result.loc[0, "relative_load"] == 1.0
+
+
 def test_compute_capacity_score_uses_hard_capped_scoring():
     df = pd.DataFrame(
         {
@@ -380,7 +457,7 @@ def test_assign_capacity_label_returns_available():
     assert result.loc[0, "capacity_label"] == "Available"
 
 
-def test_assign_capacity_label_returns_at_capacity():
+def test_assign_capacity_label_returns_near_historical_norm():
     df = pd.DataFrame(
         {
             "relative_load": [1.0],
@@ -390,29 +467,62 @@ def test_assign_capacity_label_returns_at_capacity():
 
     result = assign_capacity_label(df)
 
-    assert result.loc[0, "capacity_label"] == "At Capacity"
+    assert result.loc[0, "capacity_label"] == "Near Historical Norm"
 
 
-def test_assign_capacity_label_nan_score_uses_at_capacity():
+def test_assign_capacity_label_returns_high_load():
     df = pd.DataFrame(
         {
+            "relative_load": [1.5],
+            "capacity_score": [0.0],
+        }
+    )
+
+    result = assign_capacity_label(df)
+
+    assert result.loc[0, "capacity_label"] == "High Load"
+
+
+def test_assign_capacity_label_nan_relative_load_uses_no_baseline():
+    df = pd.DataFrame(
+        {
+            "relative_load": [float("nan")],
             "capacity_score": [float("nan")],
         }
     )
 
     result = assign_capacity_label(df)
 
-    assert result.loc[0, "capacity_label"] == "At Capacity"
+    assert result.loc[0, "capacity_label"] == "No baseline"
 
 
-def test_assign_capacity_label_returns_overextended():
+def test_assign_capacity_label_returns_overextended_at_double_norm():
     df = pd.DataFrame(
         {
-            "relative_load": [1.5],
-            "capacity_score": [0.1],
+            "relative_load": [2.0],
+            "capacity_score": [0.0],
         }
     )
 
     result = assign_capacity_label(df)
 
     assert result.loc[0, "capacity_label"] == "Overextended"
+
+
+def test_assign_capacity_label_applies_relative_load_boundaries():
+    df = pd.DataFrame(
+        {
+            "relative_load": [0.85, 0.8501, 1.25, 1.9999, 2.0],
+            "capacity_score": [0.0, 0.0, 0.0, 0.0, 0.0],
+        }
+    )
+
+    result = assign_capacity_label(df)
+
+    assert list(result["capacity_label"]) == [
+        "Available",
+        "Near Historical Norm",
+        "High Load",
+        "High Load",
+        "Overextended",
+    ]
