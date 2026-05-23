@@ -13,15 +13,15 @@ My Week 3 responsibility:
 - Add Azure OpenAI embedding capability behind a clean interface
 - Add an Azure embeddings → Chroma persist/query path in the vector store layer
 - Keep local fallback retrieval available and stable
-- Keep tests passed
+- Keep tests passing / non-blocking for the team
 
 ## Code Deliverables (What I Added)
 ### A. `src/azure_client.py`
 Added helper functions to:
-- Validate Azure env configuration
-- Create Azure OpenAI SDK client
-- Embed texts via Azure OpenAI embeddings deployment
-- Provide "availability check / safe selection" helpers, so callers can decide Azure vs fallback without crashing
+- Validate Azure env configuration (strict validation + fallback-safe inspection)
+- Create Azure OpenAI SDK client (factory only; no API call on creation)
+- Embed texts via Azure OpenAI embeddings deployment (`embed_texts`)
+- Provide availability + safe selection helpers so callers can decide Azure vs fallback without crashing
 
 Intent:
 - Make Azure embedding a **drop-in embedding function**: `embedding_function(texts) -> embeddings`
@@ -65,7 +65,7 @@ Notes:
   - `AZURE_OPENAI_API_VERSION`
   - `AZURE_OPENAI_EMBEDDING_DEPLOYMENT`
 
-## Smoke Test: How to Validate Azure Embeddings Once Env Vars Arrive
+## Smoke Test: Run Immediately Once Env Vars Arrive
 ### Required env vars (stored locally in `data/.env`, not committed)
 Minimum for embeddings:
 - `AZURE_OPENAI_API_KEY`
@@ -116,7 +116,7 @@ Expected:
 - `n_results: 1..3`
 - result keys include: `proposal_id`, `chunk_id`, `similarity_score`, `supporting_text`
 
-## 6 Current Blockers / Dependencies
+## Current Blockers / Dependencies
 - Azure embeddings cannot be validated end-to-end until CGI provides:
   - `AZURE_OPENAI_API_VERSION`
   - `AZURE_OPENAI_EMBEDDING_DEPLOYMENT`
@@ -124,5 +124,7 @@ Expected:
   - Local fallback retrieval remains verified and usable (tests pass)
   - Assignment context schema remains stable for dashboard + assignment logic development
 
-## 7 Smoke Test
-PENDING 
+## Next Steps (Once CGI Unblocks)
+- Run Step 2 (Azure embedding smoke test) and record vector dimension only (no secrets).
+- If Step 2 passes, run Step 3 (Chroma smoke test) to validate persist/query locally.
+- Keep fallback path enabled so dashboard + assignment logic remain non-blocking.
