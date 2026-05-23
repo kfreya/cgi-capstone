@@ -294,6 +294,10 @@ def generate_sample_chunk_rows(
     """Create sample chunk rows for handoff to retrieval/assignment owners."""
 
     chunks = preprocess_proposals(proposals, chunk_size=chunk_size, overlap=overlap)
+    sampled_chunks = _sample_chunks_across_documents(
+        chunks,
+        sample_size=max(sample_size, 0),
+    )
     proposal_aliases = _stable_alias_lookup(
         [str(chunk.metadata.get("proposal_id") or "") for chunk in chunks],
         prefix="proposal",
@@ -304,7 +308,7 @@ def generate_sample_chunk_rows(
     )
     sample_rows: list[dict[str, Any]] = []
 
-    for chunk in chunks[: max(sample_size, 0)]:
+    for chunk in sampled_chunks:
         sample_rows.append(
             _sample_row_from_chunk(
                 chunk,
@@ -450,6 +454,8 @@ def _sample_row_from_chunk(
     document_aliases: dict[str, str],
 ) -> dict[str, Any]:
     row = _chunk_to_required_fields(chunk)
+    row["title"] = chunk.title
+    row["section"] = chunk.section
     if anonymize_ids:
         proposal_key = str(chunk.metadata.get("proposal_id") or "")
         document_key = str(chunk.document_id)
@@ -460,6 +466,9 @@ def _sample_row_from_chunk(
         row["chunk_id"] = f"{document_alias}__chunk_{chunk.chunk_index:04d}"
         row["opportunity_owner"] = None
         row["opportunity_id"] = None
+        row["title"] = proposal_alias
+        # Keep section categorical in anonymized exports to avoid leaking names.
+        row["section"] = row.get("source_type") or "unknown"
     row["text_char_count"] = len(chunk.text)
     row["text_token_count_estimate"] = estimate_token_count(chunk.text)
     if include_text:
@@ -475,6 +484,47 @@ def _stable_alias_lookup(values: list[str], *, prefix: str) -> dict[str, str]:
         value: f"{prefix}_{index + 1:03d}"
         for index, value in enumerate(ordered_unique)
     }
+
+
+def _sample_chunks_across_documents(
+    chunks: list[RFPChunk],
+    *,
+    sample_size: int,
+) -> list[RFPChunk]:
+    """Return a representative sample spanning multiple source documents."""
+
+    if sample_size <= 0 or not chunks:
+        return []
+
+    by_document: dict[str, list[RFPChunk]] = {}
+    for chunk in chunks:
+        by_document.setdefault(chunk.document_id, []).append(chunk)
+
+    document_buckets = list(by_document.values())
+
+    if sample_size <= len(document_buckets):
+        if sample_size == 1:
+            return [document_buckets[0][0]]
+        doc_indices = [
+            round(index * (len(document_buckets) - 1) / (sample_size - 1))
+            for index in range(sample_size)
+        ]
+        return [document_buckets[index][0] for index in doc_indices]
+
+    sampled = [bucket[0] for bucket in document_buckets]
+    remaining_needed = sample_size - len(sampled)
+    doc_index = 0
+    while remaining_needed > 0:
+        bucket = document_buckets[doc_index % len(document_buckets)]
+        next_chunk_index = 1 + (doc_index // len(document_buckets))
+        if next_chunk_index < len(bucket):
+            sampled.append(bucket[next_chunk_index])
+            remaining_needed -= 1
+        doc_index += 1
+        if doc_index > len(chunks) * 2:
+            break
+
+    return sampled[:sample_size]
 
 
 def _hash_text(value: str) -> str:

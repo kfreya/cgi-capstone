@@ -133,6 +133,8 @@ def test_generate_sample_chunk_rows_anonymization_preserves_grouping():
 
     assert all(row["opportunity_owner"] is None for row in anon_rows)
     assert all(row["opportunity_id"] is None for row in anon_rows)
+    assert all("title" in row for row in anon_rows)
+    assert all("section" in row for row in anon_rows)
 
 
 def test_generate_sample_chunk_rows_includes_text_when_requested():
@@ -147,6 +149,22 @@ def test_generate_sample_chunk_rows_includes_text_when_requested():
 
     assert len(rows[0]["text"]) <= 24
     assert rows[0]["text_char_count"] >= len(rows[0]["text"])
+
+
+def test_generate_sample_chunk_rows_samples_across_documents():
+    rows = generate_sample_chunk_rows(
+        _sample_proposals(),
+        chunk_size=2,
+        overlap=0,
+        sample_size=6,
+    )
+
+    document_ids = {str(row["document_id"]) for row in rows}
+    source_types = {str(row["source_type"]) for row in rows}
+
+    assert len(document_ids) >= 3
+    assert "proposal" in source_types
+    assert "proposal_response" in source_types
 
 
 def test_profile_documents_returns_source_types():

@@ -111,8 +111,18 @@ def main() -> None:
         "Owner/opportunity linkage available: "
         f"{report['chunk_metadata_validation']['can_link_to_owner_or_opportunity']}"
     )
-    print(f"Wrote validation summary -> {summary_path.relative_to(PROJECT_ROOT)}")
-    print(f"Wrote sample chunks -> {samples_path.relative_to(PROJECT_ROOT)}")
+    print(f"Wrote validation summary -> {_display_path(summary_path)}")
+    print(f"Wrote sample chunks -> {_display_path(samples_path)}")
+
+
+def _display_path(path: Path) -> str:
+    """Print relative paths when possible, absolute otherwise."""
+
+    resolved_path = path.resolve()
+    try:
+        return str(resolved_path.relative_to(PROJECT_ROOT.resolve()))
+    except ValueError:
+        return str(resolved_path)
 
 
 if __name__ == "__main__":
