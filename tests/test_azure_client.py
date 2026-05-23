@@ -165,3 +165,26 @@ def test_optional_embedding_helpers_when_present(monkeypatch):
     if get_embedding_function is not None:
         fn = get_embedding_function(prefer_azure=True)
         assert callable(fn)
+
+
+def test_try_validate_azure_config_reports_missing_keys(monkeypatch):
+    """try_validate_azure_config should return missing keys instead of raising."""
+
+    try_validate = getattr(azure_client, "try_validate_azure_config", None)
+    missing_keys = getattr(azure_client, "missing_azure_config", None)
+    if try_validate is None or missing_keys is None:
+        pytest.skip("Fallback-safe config helpers not present in src.azure_client")
+
+    _clear_azure_env(monkeypatch)
+    _disable_dotenv(monkeypatch)
+
+    config, missing = try_validate(require_embedding=True)
+    assert config is None
+    assert isinstance(missing, list)
+    assert "AZURE_OPENAI_ENDPOINT" in ", ".join(missing)
+    assert "AZURE_OPENAI_API_VERSION" in ", ".join(missing)
+    assert "AZURE_OPENAI_EMBEDDING_DEPLOYMENT" in ", ".join(missing)
+
+    # missing_azure_config should be consistent with try_validate
+    missing_direct = missing_keys(require_embedding=True)
+    assert set(missing).issubset(set(missing_direct))
