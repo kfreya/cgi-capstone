@@ -210,6 +210,39 @@ one signal:
   `relative_load`, retrieved similarity, and simple service-keyword overlap
 - risk flags cover fallback retrieval, limited examples, low similarity, missing
   director capacity data, missing capacity fields, and overextended directors
+- risk flag messages explain why the result should be treated carefully, so the
+  dashboard can surface prototype limits instead of hiding them
+
+The assignment score is intentionally simple and explainable for this stage of
+the project. It combines capacity signals, retrieval similarity, and basic
+service-keyword overlap so the dashboard can show why a recommendation appeared.
+This is useful for prototype review, but it should not be treated as a final
+staffing decision.
+
+To manually smoke test the dashboard-facing function from the repository root:
+
+```bash
+python
+```
+
+Then run:
+
+```python
+from src.rfp_engine import generate_assignment_context
+
+rfp_text = """
+CGI is responding to an RFP for cloud migration, dashboard reporting,
+data analytics, managed services, and executive risk tracking.
+"""
+
+output = generate_assignment_context(rfp_text)
+
+output.keys()
+output["rfp_summary"]
+output["effort"]
+output["recommended_directors"]
+output["risk_flags"]
+```
 
 ### `tests/test_rfp_preprocessor.py`
 
@@ -250,6 +283,7 @@ It checks that:
 - the wrapper still works if real director data is not passed in
 - director ranking, effort estimates, and risk flags behave consistently for
   important fallback cases
+- empty dashboard input still returns safe output types instead of crashing
 
 ## Current Limitations
 

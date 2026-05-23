@@ -321,7 +321,9 @@ def _risk_flags(
                 "level": "Medium",
                 "message": (
                     "Built-in sample historical corpus was used because real "
-                    "historical proposal data was unavailable."
+                    "historical proposal data was unavailable. Treat retrieval "
+                    "evidence as a prototype signal until the approved proposal "
+                    "data is connected."
                 ),
             }
         )
@@ -329,21 +331,32 @@ def _risk_flags(
         flags.append(
             {
                 "level": "Medium",
-                "message": "Limited historical examples found for this RFP type.",
+                "message": (
+                    "Limited historical examples found for this RFP type. The "
+                    "dashboard should show this recommendation carefully until "
+                    "more historical examples are indexed."
+                ),
             }
         )
     if retrieved_examples and _max_similarity(retrieved_examples) < 0.2:
         flags.append(
             {
                 "level": "Medium",
-                "message": "Top retrieved example has low similarity to the input RFP.",
+                "message": (
+                    "Top retrieved example has low similarity to the input RFP. "
+                    "The recommendation may need human review before it is used."
+                ),
             }
         )
     if not director_records:
         flags.append(
             {
                 "level": "Medium",
-                "message": "Director capacity data was unavailable, so mock director data was used.",
+                "message": (
+                    "Director capacity data was unavailable, so mock director "
+                    "data was used. Replace this with real capacity output "
+                    "before making staffing decisions."
+                ),
             }
         )
     else:
@@ -351,20 +364,34 @@ def _risk_flags(
             flags.append(
                 {
                     "level": "Medium",
-                    "message": "Some director capacity fields are missing and were filled with heuristic defaults.",
+                    "message": (
+                        "Some director capacity fields are missing and were "
+                        "filled with heuristic defaults. Confirm these fields "
+                        "before trusting the ranking."
+                    ),
                 }
             )
         if any(_is_overextended(record) for record in director_records):
             flags.append(
                 {
                     "level": "High",
-                    "message": "At least one candidate director is overextended based on capacity signals.",
+                    "message": (
+                        "At least one candidate director is overextended based "
+                        "on capacity signals. This should be reviewed before "
+                        "assignment."
+                    ),
                 }
             )
     return flags
 
 
 def _notes(used_sample_corpus: bool = False) -> str:
+    """Create a short note describing the current prototype mode.
+
+    @param used_sample_corpus: Whether built-in fallback historical text was used.
+    @return: Dashboard note string.
+    """
+
     if used_sample_corpus:
         return (
             "Prototype output for dashboard integration. Built-in sample "
@@ -390,6 +417,8 @@ def _effort_estimate(
     complexity_hits = _matched_terms(clean_text, COMPLEXITY_TERMS)
     best_similarity = _max_similarity(retrieved_examples)
 
+    # The effort score is intentionally simple for Week 3. It gives the
+    # dashboard a stable prototype estimate without pretending to be final.
     effort_points = 0
     effort_points += 2 if word_count >= 800 else 1 if word_count >= 250 else 0
     effort_points += 1 if len(services) >= 2 else 0
@@ -421,7 +450,11 @@ def _effort_estimate(
 
 
 def _similar_rfps(retrieved_examples: list[dict[str, Any]]) -> list[dict[str, Any]]:
-    """Expose retrieved examples under the dashboard's similar-RFP contract."""
+    """Expose retrieved examples under the dashboard's similar-RFP contract.
+
+    @param retrieved_examples: Local retrieval results from the vector store.
+    @return: Similar RFP records using the dashboard field names.
+    """
 
     return [
         {
@@ -435,7 +468,10 @@ def _similar_rfps(retrieved_examples: list[dict[str, Any]]) -> list[dict[str, An
 
 
 def _mock_director_record() -> dict[str, Any]:
-    """Return the fallback director record used when capacity data is missing."""
+    """Return the fallback director record used when capacity data is missing.
+
+    @return: Mock director record with the fields the dashboard expects.
+    """
 
     return {
         "director_name": "Director A",
@@ -447,7 +483,12 @@ def _mock_director_record() -> dict[str, Any]:
 
 
 def _as_float(value: Any, default: float) -> float:
-    """Convert numeric dashboard fields without failing on missing values."""
+    """Convert numeric dashboard fields without failing on missing values.
+
+    @param value: Raw value from a director record or retrieval result.
+    @param default: Value to use when conversion fails.
+    @return: Float value for scoring.
+    """
 
     try:
         return float(value)
@@ -456,7 +497,11 @@ def _as_float(value: Any, default: float) -> float:
 
 
 def _service_labels(text: str) -> list[str]:
-    """Return service labels detected in the RFP text."""
+    """Return service labels detected in the RFP text.
+
+    @param text: RFP text or director expertise text.
+    @return: Service labels found from the keyword map.
+    """
 
     lower_text = str(text).lower()
     labels = [
@@ -468,14 +513,23 @@ def _service_labels(text: str) -> list[str]:
 
 
 def _matched_terms(text: str, terms: set[str]) -> list[str]:
-    """Return matching terms in stable alphabetical order."""
+    """Return matching terms in stable alphabetical order.
+
+    @param text: Input text to search.
+    @param terms: Terms to look for.
+    @return: Matching terms sorted alphabetically.
+    """
 
     lower_text = str(text).lower()
     return sorted(term for term in terms if term in lower_text)
 
 
 def _first_sentence(text: str) -> str:
-    """Return the first useful sentence-like span from the RFP text."""
+    """Return the first useful sentence-like span from the RFP text.
+
+    @param text: Cleaned RFP text.
+    @return: First sentence-like span, or a short text prefix.
+    """
 
     for separator in (". ", "\n", "? ", "! "):
         if separator in text:
@@ -484,7 +538,11 @@ def _first_sentence(text: str) -> str:
 
 
 def _max_similarity(retrieved_examples: list[dict[str, Any]]) -> float:
-    """Return the strongest retrieved similarity score, or zero if missing."""
+    """Return the strongest retrieved similarity score, or zero if missing.
+
+    @param retrieved_examples: Retrieved RFP chunk records.
+    @return: Highest similarity score found.
+    """
 
     scores = [
         _as_float(example.get("similarity_score"), default=0.0)
@@ -495,7 +553,12 @@ def _max_similarity(retrieved_examples: list[dict[str, Any]]) -> float:
 
 
 def _director_keyword_overlap(record: dict[str, Any], rfp_text: str) -> float:
-    """Estimate simple service fit between a director record and the RFP."""
+    """Estimate simple service fit between a director record and the RFP.
+
+    @param record: Director record with optional expertise/service fields.
+    @param rfp_text: New RFP text from the dashboard.
+    @return: Fraction of RFP service labels also found in the director record.
+    """
 
     rfp_labels = set(_service_labels(rfp_text))
     if not rfp_labels:
@@ -518,7 +581,11 @@ def _director_keyword_overlap(record: dict[str, Any], rfp_text: str) -> float:
 
 
 def _capacity_label_bonus(capacity_label: Any) -> float:
-    """Translate capacity labels into a small scoring adjustment."""
+    """Translate capacity labels into a small scoring adjustment.
+
+    @param capacity_label: Capacity label from the capacity engine/dashboard.
+    @return: Small positive or negative score adjustment.
+    """
 
     label = str(capacity_label or "").strip().lower()
     if label == "available":
@@ -540,9 +607,20 @@ def _match_reason(
     keyword_overlap: float,
     supporting_chunks: list[str],
 ) -> str:
-    """Create a short reason for the prototype director recommendation."""
+    """Create a short reason for the prototype director recommendation.
 
-    evidence = "retrieved historical examples" if supporting_chunks else "limited retrieval evidence"
+    @param capacity_label: Director capacity label.
+    @param similarity_signal: Best retrieved similarity score.
+    @param keyword_overlap: Simple service-keyword overlap score.
+    @param supporting_chunks: Retrieved chunk IDs used as evidence.
+    @return: Short match explanation for the dashboard.
+    """
+
+    evidence = (
+        "retrieved historical examples"
+        if supporting_chunks
+        else "limited retrieval evidence"
+    )
     return (
         f"Capacity is labelled {capacity_label}; {evidence} produced a top "
         f"similarity score of {similarity_signal:.2f}; service keyword overlap is "
@@ -556,7 +634,14 @@ def _capacity_explanation(
     capacity_score: float,
     relative_load: float,
 ) -> str:
-    """Create the capacity explanation displayed in the dashboard."""
+    """Create the capacity explanation displayed in the dashboard.
+
+    @param director_name: Director name shown in the recommendation.
+    @param capacity_label: Capacity label from the capacity engine/dashboard.
+    @param capacity_score: Numeric capacity score used in assignment scoring.
+    @param relative_load: Director relative load used in assignment scoring.
+    @return: Plain-language capacity explanation.
+    """
 
     return (
         f"{director_name} is labelled {capacity_label} with capacity score "
@@ -569,7 +654,12 @@ def _experience_explanation(
     keyword_overlap: float,
     retrieved_examples: list[dict[str, Any]],
 ) -> str:
-    """Create the experience-match explanation displayed in the dashboard."""
+    """Create the experience-match explanation displayed in the dashboard.
+
+    @param keyword_overlap: Simple service-keyword overlap score.
+    @param retrieved_examples: Retrieved RFP chunk records.
+    @return: Plain-language experience explanation.
+    """
 
     if not retrieved_examples:
         return "No retrieved examples were available, so experience fit is weak."
@@ -580,14 +670,22 @@ def _experience_explanation(
 
 
 def _missing_capacity_fields(record: dict[str, Any]) -> bool:
-    """Check whether a director record is missing key capacity fields."""
+    """Check whether a director record is missing key capacity fields.
+
+    @param record: Director record from real or mock capacity data.
+    @return: True if capacity fields are missing.
+    """
 
     required_fields = ("capacity_label", "capacity_score", "relative_load")
     return any(record.get(field) in (None, "") for field in required_fields)
 
 
 def _is_overextended(record: dict[str, Any]) -> bool:
-    """Check whether a director record looks overextended."""
+    """Check whether a director record looks overextended.
+
+    @param record: Director record from real or mock capacity data.
+    @return: True if the label/load suggests the director is overextended.
+    """
 
     label = str(record.get("capacity_label", "")).strip().lower()
     relative_load = _as_float(record.get("relative_load"), default=0.0)

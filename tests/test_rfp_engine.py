@@ -82,6 +82,20 @@ def test_generate_assignment_context_uses_mock_director_when_missing():
     )
 
 
+def test_generate_assignment_context_returns_stable_types_for_empty_text():
+    """Check that empty dashboard input still returns safe output types."""
+
+    output = generate_assignment_context("")
+
+    assert isinstance(output["rfp_summary"], str)
+    assert isinstance(output["effort"], dict)
+    assert isinstance(output["similar_rfps"], list)
+    assert isinstance(output["retrieved_examples"], list)
+    assert isinstance(output["recommended_directors"], list)
+    assert isinstance(output["risk_flags"], list)
+    assert isinstance(output["notes"], str)
+
+
 def test_generate_assignment_context_does_not_retrieve_new_rfp_from_stale_store():
     """Check that the new RFP is only the query, never the retrieval corpus."""
 
@@ -150,6 +164,42 @@ def test_generate_assignment_context_ranks_directors_by_capacity_signal():
         "overextended" in flag["message"].lower()
         for flag in output["risk_flags"]
     )
+
+
+def test_generate_assignment_context_uses_service_domain_signal():
+    """Check that matching service experience helps the director ranking."""
+
+    director_df = pd.DataFrame(
+        {
+            "opportunity_owner": ["Director Data", "Director Apps"],
+            "capacity_label": ["Available", "Available"],
+            "capacity_score": [0.70, 0.70],
+            "relative_load": [0.8, 0.8],
+            "service_domain": ["Data Analytics and Reporting", "Application Development"],
+        }
+    )
+    historical_chunks = [
+        {
+            "proposal_id": "historical_reporting",
+            "chunk_id": "historical_reporting_chunk_001",
+            "source_type": "proposal",
+            "text": "Prior data analytics dashboard reporting proposal.",
+            "chunk_index": 0,
+            "opportunity_owner": None,
+            "opportunity_id": None,
+        }
+    ]
+
+    output = generate_assignment_context(
+        "Need data analytics dashboard reporting.",
+        director_df=director_df,
+        historical_chunks=historical_chunks,
+    )
+
+    directors = output["recommended_directors"]
+    assert directors[0]["director_name"] == "Director Data"
+    assert directors[0]["assignment_score"] > directors[1]["assignment_score"]
+    assert "service-keyword overlap" in directors[0]["experience_match_explanation"]
 
 
 def test_generate_assignment_context_flags_missing_capacity_fields():
