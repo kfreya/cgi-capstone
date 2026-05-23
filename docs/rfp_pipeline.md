@@ -97,6 +97,53 @@ For the dashboard wrapper, each chunk uses this flat metadata shape:
 }
 ```
 
+This dashboard wrapper shape is intentionally minimal and does **not** include
+`document_id`. It is designed for a single pasted RFP input path.
+
+### Chunk Metadata Contract (Sprint 3)
+
+Issue #38 formalizes the required metadata dictionary for historical-chunk
+validation and retrieval handoff. The canonical required fields are:
+
+```python
+[
+    "proposal_id",
+    "chunk_id",
+    "document_id",
+    "source_type",
+    "chunk_index",
+    "text",
+    "opportunity_owner",
+    "opportunity_id",
+]
+```
+
+Field-level rules:
+
+- `proposal_id` (string): stable proposal-level grouping key.
+- `chunk_id` (string): unique chunk identifier.
+- `document_id` (string): source document ID (`...__proposal` or
+  `...__response__...`).
+- `source_type` (string): expected values are `proposal` or
+  `proposal_response`.
+- `chunk_index` (int): zero-based index within one source document.
+- `text` (string): chunk payload used for embedding/retrieval.
+- `opportunity_owner` (nullable string): currently null in historical chunks.
+- `opportunity_id` (nullable string): currently null in historical chunks.
+
+Current limitation (validated in Sprint 3):
+
+- `opportunity_owner` / `opportunity_id` are null for all current chunks, so
+  proposal-to-director linkage cannot be inferred from chunk metadata alone.
+
+Validation and sample export references:
+
+- `src/rfp_data_validator.py`
+- `scripts/validate_rfp_data_and_export_samples.py`
+- `docs/rfp_data_validation.md`
+- `outputs/rfp_validation/rfp_validation_summary.json`
+- `outputs/rfp_validation/rfp_sample_chunks.json`
+
 ### `src/vector_store.py`
 
 This file handles retrieval over embedded RFP chunks.

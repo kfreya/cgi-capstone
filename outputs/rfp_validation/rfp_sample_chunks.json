@@ -1,0 +1,122 @@
+[
+  {
+    "proposal_id": "proposal_011",
+    "chunk_id": "document_029__chunk_0000",
+    "document_id": "document_029",
+    "source_type": "proposal",
+    "chunk_index": 0,
+    "text": "<redacted; use --include-text to export preview>",
+    "opportunity_owner": null,
+    "opportunity_id": null,
+    "text_char_count": 6754,
+    "text_token_count_estimate": 500
+  },
+  {
+    "proposal_id": "proposal_011",
+    "chunk_id": "document_029__chunk_0001",
+    "document_id": "document_029",
+    "source_type": "proposal",
+    "chunk_index": 1,
+    "text": "<redacted; use --include-text to export preview>",
+    "opportunity_owner": null,
+    "opportunity_id": null,
+    "text_char_count": 7632,
+    "text_token_count_estimate": 500
+  },
+  {
+    "proposal_id": "proposal_011",
+    "chunk_id": "document_029__chunk_0002",
+    "document_id": "document_029",
+    "source_type": "proposal",
+    "chunk_index": 2,
+    "text": "<redacted; use --include-text to export preview>",
+    "opportunity_owner": null,
+    "opportunity_id": null,
+    "text_char_count": 3246,
+    "text_token_count_estimate": 500
+  },
+  {
+    "proposal_id": "proposal_011",
+    "chunk_id": "document_029__chunk_0003",
+    "document_id": "document_029",
+    "source_type": "proposal",
+    "chunk_index": 3,
+    "text": "<redacted; use --include-text to export preview>",
+    "opportunity_owner": null,
+    "opportunity_id": null,
+    "text_char_count": 3185,
+    "text_token_count_estimate": 500
+  },
+  {
+    "proposal_id": "proposal_011",
+    "chunk_id": "document_029__chunk_0004",
+    "document_id": "document_029",
+    "source_type": "proposal",
+    "chunk_index": 4,
+    "text": "<redacted; use --include-text to export preview>",
+    "opportunity_owner": null,
+    "opportunity_id": null,
+    "text_char_count": 3182,
+    "text_token_count_estimate": 500
+  },
+  {
+    "proposal_id": "proposal_011",
+    "chunk_id": "document_029__chunk_0005",
+    "document_id": "document_029",
+    "source_type": "proposal",
+    "chunk_index": 5,
+    "text": "<redacted; use --include-text to export preview>",
+    "opportunity_owner": null,
+    "opportunity_id": null,
+    "text_char_count": 3241,
+    "text_token_count_estimate": 500
+  },
+  {
+    "proposal_id": "proposal_011",
+    "chunk_id": "document_029__chunk_0006",
+    "document_id": "document_029",
+    "source_type": "proposal",
+    "chunk_index": 6,
+    "text": "<redacted; use --include-text to export preview>",
+    "opportunity_owner": null,
+    "opportunity_id": null,
+    "text_char_count": 3010,
+    "text_token_count_estimate": 500
+  },
+  {
+    "proposal_id": "proposal_011",
+    "chunk_id": "document_029__chunk_0007",
+    "document_id": "document_029",
+    "source_type": "proposal",
+    "chunk_index": 7,
+    "text": "<redacted; use --include-text to export preview>",
+    "opportunity_owner": null,
+    "opportunity_id": null,
+    "text_char_count": 3168,
+    "text_token_count_estimate": 500
+  },
+  {
+    "proposal_id": "proposal_011",
+    "chunk_id": "document_029__chunk_0008",
+    "document_id": "document_029",
+    "source_type": "proposal",
+    "chunk_index": 8,
+    "text": "<redacted; use --include-text to export preview>",
+    "opportunity_owner": null,
+    "opportunity_id": null,
+    "text_char_count": 3183,
+    "text_token_count_estimate": 500
+  },
+  {
+    "proposal_id": "proposal_011",
+    "chunk_id": "document_029__chunk_0009",
+    "document_id": "document_029",
+    "source_type": "proposal",
+    "chunk_index": 9,
+    "text": "<redacted; use --include-text to export preview>",
+    "opportunity_owner": null,
+    "opportunity_id": null,
+    "text_char_count": 3271,
+    "text_token_count_estimate": 500
+  }
+]
