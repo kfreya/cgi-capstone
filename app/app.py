@@ -13,6 +13,7 @@ Data loading precedence:
 
 from __future__ import annotations
 
+import html
 import sys
 from pathlib import Path
 
@@ -29,6 +30,7 @@ sys.path.insert(0, str(_PROJECT_ROOT))
 sys.path.insert(0, str(_PROJECT_ROOT / "src"))
 
 from mock_data import make_director_capacity_df, make_trend_df
+from rfp_engine import generate_assignment_context
 
 try:
     from capacity_engine import (
@@ -530,7 +532,7 @@ st.markdown(
       <div class="cgi-vdivider"></div>
       <div class="cgi-title-group">
         <div class="cgi-page-title">{page}</div>
-        <div class="cgi-page-sub">CGI Atlantic · Media Atlantic Business Unit · Week 2 Prototype</div>
+        <div class="cgi-page-sub">CGI Atlantic · Media Atlantic Business Unit · Week 3 Prototype</div>
       </div>
     </div>
     """,
@@ -1067,18 +1069,16 @@ norm. They should be reviewed and adjusted with CGI judgment.
 
 
 # ==============================================================================
-#  PAGE 2 – RFP Assignment Tool  (UI shell — backend owned by Jai / Role 5)
+#  PAGE 2 – RFP Assignment Tool
 # ==============================================================================
 elif page == "RFP Assignment Tool":
 
     st.markdown(
         "<div style='background:#F5F2EC;border:1px solid #E7E2D8;border-radius:8px;"
         "padding:0.75rem 1.1rem;margin-bottom:1.2rem;font-size:0.82rem;color:#57534E'>"
-        "This page is the <b>UI shell</b> for the RFP Assignment Tool. "
-        "The backend pipeline (chunking, embeddings, retrieval, director ranking) "
-        "is being built by <b>Jai (Role 5)</b> in "
-        "<code>src/rfp_preprocessor.py</code> and <code>src/vector_store.py</code>. "
-        "Jai's <code>generate_assignment_context()</code> output will plug into the results panel below."
+        "This page uses the current <b>fallback RFP assignment pipeline</b>. "
+        "Results are generated from local retrieval and heuristic/prototype assignment logic "
+        "while Azure-backed retrieval is pending."
         "</div>",
         unsafe_allow_html=True,
     )
@@ -1095,7 +1095,7 @@ elif page == "RFP Assignment Tool":
             help="Available once RFP document parsing is connected (Role 5)",
         )
 
-        st.text_area(
+        rfp_text = st.text_area(
             "RFP text",
             height=220,
             label_visibility="collapsed",
@@ -1111,8 +1111,22 @@ elif page == "RFP Assignment Tool":
                 "Data & Analytics", "Cloud & Infrastructure", "Application Services",
             ])
 
-        st.button("Analyze RFP", type="primary", width="stretch", disabled=True)
-        st.caption("Backend not connected — enable once Jai's pipeline is integrated.")
+        st.caption("Territory and service domain are UI context only for now; backend scoring does not use them yet.")
+
+        analyze_clicked = st.button("Analyze RFP", type="primary", width="stretch")
+        if analyze_clicked:
+            if not rfp_text.strip():
+                st.session_state.pop("rfp_assignment_context", None)
+                st.session_state.pop("rfp_assignment_input", None)
+                st.warning("Please paste RFP text before running the analysis.")
+            else:
+                try:
+                    st.session_state["rfp_assignment_context"] = generate_assignment_context(rfp_text)
+                    st.session_state["rfp_assignment_input"] = rfp_text
+                    st.session_state.pop("rfp_assignment_error", None)
+                except Exception as exc:
+                    st.session_state["rfp_assignment_error"] = str(exc)
+                    st.session_state.pop("rfp_assignment_context", None)
 
     with col_results:
         _ph = (
@@ -1120,52 +1134,144 @@ elif page == "RFP Assignment Tool":
             "padding:1.5rem 1.25rem;margin-bottom:0.75rem;text-align:center;"
             "color:#A8A29E;font-size:0.82rem;"
         )
+        context = st.session_state.get("rfp_assignment_context")
+        _engine_error = st.session_state.get("rfp_assignment_error")
 
-        st.markdown('<div class="sec-head">Estimated Effort</div>', unsafe_allow_html=True)
-        st.markdown(
-            f"<div style='{_ph}'>Effort level and estimated duration will appear here<br>"
-            "<span style='font-size:0.72rem'>"
-            "Source: <code>generate_assignment_context()</code> → <code>effort</code></span></div>",
-            unsafe_allow_html=True,
-        )
+        if _engine_error:
+            st.error(
+                f"The RFP assignment pipeline encountered an error: {_engine_error}\n\n"
+                "The local fallback path should not fail under normal conditions. "
+                "Check that the project dependencies are installed and try again."
+            )
 
-        st.markdown('<div class="sec-head">Similar Historical RFPs</div>', unsafe_allow_html=True)
-        st.markdown(
-            f"<div style='{_ph}'>Retrieved RFP chunks ranked by semantic similarity will appear here<br>"
-            "<span style='font-size:0.72rem'>"
-            "Source: <code>retrieve_relevant_chunks()</code> → <code>retrieved_examples</code></span></div>",
-            unsafe_allow_html=True,
-        )
+        if not context:
+            st.markdown('<div class="sec-head">Estimated Effort</div>', unsafe_allow_html=True)
+            st.markdown(
+                f"<div style='{_ph}'>Effort level and estimated duration will appear here<br>"
+                "<span style='font-size:0.72rem'>"
+                "Source: <code>generate_assignment_context()</code> → <code>effort</code></span></div>",
+                unsafe_allow_html=True,
+            )
 
-        st.markdown('<div class="sec-head">Recommended Directors</div>', unsafe_allow_html=True)
-        st.markdown(
-            f"<div style='{_ph}'>Ranked director recommendations with capacity, experience,<br>"
-            "and assignment scores will appear here<br>"
-            "<span style='font-size:0.72rem'>"
-            "Source: <code>generate_assignment_context()</code> → <code>recommended_directors</code></span></div>",
-            unsafe_allow_html=True,
-        )
+            st.markdown('<div class="sec-head">Similar Historical RFPs</div>', unsafe_allow_html=True)
+            st.markdown(
+                f"<div style='{_ph}'>Retrieved RFP chunks ranked by local fallback similarity will appear here<br>"
+                "<span style='font-size:0.72rem'>"
+                "Source: <code>generate_assignment_context()</code> → <code>retrieved_examples</code></span></div>",
+                unsafe_allow_html=True,
+            )
 
-        st.markdown('<div class="sec-head">Capacity Explanation</div>', unsafe_allow_html=True)
-        st.markdown(
-            f"<div style='{_ph}'>Capacity rationale for each recommended director will appear here<br>"
-            "<span style='font-size:0.72rem'>"
-            "Source: <code>recommended_directors[].capacity_label</code> + score</span></div>",
-            unsafe_allow_html=True,
-        )
+            st.markdown('<div class="sec-head">Recommended Directors</div>', unsafe_allow_html=True)
+            st.markdown(
+                f"<div style='{_ph}'>Ranked director recommendations with capacity, experience,<br>"
+                "and assignment scores will appear here<br>"
+                "<span style='font-size:0.72rem'>"
+                "Source: <code>generate_assignment_context()</code> → <code>recommended_directors</code></span></div>",
+                unsafe_allow_html=True,
+            )
 
-        st.markdown('<div class="sec-head">Experience Match Explanation</div>', unsafe_allow_html=True)
-        st.markdown(
-            f"<div style='{_ph}'>Relevant past work, similarity evidence, and fit rationale will appear here<br>"
-            "<span style='font-size:0.72rem'>"
-            "Source: <code>recommended_directors[].match_reason</code> + supporting chunks</span></div>",
-            unsafe_allow_html=True,
-        )
+            st.markdown('<div class="sec-head">Risk Flags</div>', unsafe_allow_html=True)
+            st.markdown(
+                f"<div style='{_ph}'>Low-confidence matches, capacity conflicts, or data-quality warnings will appear here<br>"
+                "<span style='font-size:0.72rem'>"
+                "Source: <code>generate_assignment_context()</code> → <code>risk_flags</code></span></div>",
+                unsafe_allow_html=True,
+            )
+        else:
+            st.info(
+                "Prototype fallback output: this analysis uses local fallback retrieval "
+                "and heuristic assignment logic while Azure-backed retrieval is pending. "
+                "Do not treat it as final CGI assignment guidance."
+            )
 
-        st.markdown('<div class="sec-head">Risk Flags</div>', unsafe_allow_html=True)
-        st.markdown(
-            f"<div style='{_ph}'>Low-confidence matches, capacity conflicts, or data-quality warnings will appear here<br>"
-            "<span style='font-size:0.72rem'>"
-            "Source: <code>generate_assignment_context()</code> → <code>risk_flags</code></span></div>",
-            unsafe_allow_html=True,
-        )
+            st.markdown('<div class="sec-head">RFP Summary</div>', unsafe_allow_html=True)
+            st.write(context.get("rfp_summary") or "No summary returned.")
+
+            effort = context.get("effort") or {}
+            if not isinstance(effort, dict):
+                effort = {}
+            effort_level = str(effort.get("level") or "Unknown")
+            effort_class = f"effort-{effort_level.lower()}" if effort_level in {"Low", "Medium", "High"} else "badge"
+
+            st.markdown('<div class="sec-head">Estimated Effort</div>', unsafe_allow_html=True)
+            st.markdown(
+                f"<span class='{effort_class}'>{html.escape(effort_level)}</span>",
+                unsafe_allow_html=True,
+            )
+            if effort.get("estimated_duration"):
+                st.caption(f"Estimated duration: {effort.get('estimated_duration')}")
+            st.write(effort.get("rationale") or "No effort rationale returned.")
+
+            retrieved_examples = context.get("retrieved_examples") or []
+            st.markdown('<div class="sec-head">Similar Historical RFPs</div>', unsafe_allow_html=True)
+            if not isinstance(retrieved_examples, list) or not retrieved_examples:
+                st.info("No retrieved examples returned.")
+            else:
+                for index, example in enumerate(retrieved_examples, start=1):
+                    if not isinstance(example, dict):
+                        continue
+                    supporting_text = str(example.get("supporting_text") or "")
+                    preview = supporting_text[:320].rstrip()
+                    if len(supporting_text) > 320:
+                        preview = f"{preview}..."
+                    raw_score = example.get("similarity_score")
+                    try:
+                        score_str = f"{float(raw_score):.2f}"
+                    except (TypeError, ValueError):
+                        score_str = str(raw_score) if raw_score not in (None, "") else "n/a"
+                    st.markdown(
+                        f"**{index}. {example.get('proposal_id', 'Unknown proposal')}**  \n"
+                        f"`chunk_id`: `{example.get('chunk_id', 'unknown')}`  \n"
+                        f"`similarity_score`: `{score_str}`"
+                    )
+                    st.write(preview or "No supporting text returned.")
+
+            recommended_directors = context.get("recommended_directors") or []
+            st.markdown('<div class="sec-head">Recommended Directors</div>', unsafe_allow_html=True)
+            if not isinstance(recommended_directors, list) or not recommended_directors:
+                st.info("No recommended directors returned.")
+            else:
+                for index, director in enumerate(recommended_directors, start=1):
+                    if not isinstance(director, dict):
+                        continue
+                    with st.expander(
+                        f"{index}. {director.get('director_name', 'Unnamed director')}",
+                        expanded=index == 1,
+                    ):
+                        st.markdown(
+                            f"**Capacity:** {director.get('capacity_label', 'Unknown')}  \n"
+                            f"**Capacity score:** {director.get('capacity_score', 'n/a')}  \n"
+                            f"**Relative load:** {director.get('relative_load', 'n/a')}  \n"
+                            f"**Assignment score:** {director.get('assignment_score', 'n/a')}"
+                        )
+                        if director.get("match_reason"):
+                            st.write(director.get("match_reason"))
+                        if director.get("capacity_explanation"):
+                            st.markdown("**Capacity explanation**")
+                            st.write(director.get("capacity_explanation"))
+                        if director.get("experience_match_explanation"):
+                            st.markdown("**Experience match explanation**")
+                            st.write(director.get("experience_match_explanation"))
+                        supporting_chunks = director.get("supporting_chunks") or []
+                        if supporting_chunks:
+                            st.caption(
+                                "Supporting chunks: "
+                                + ", ".join(str(chunk_id) for chunk_id in supporting_chunks)
+                            )
+
+            risk_flags = context.get("risk_flags") or []
+            st.markdown('<div class="sec-head">Risk Flags</div>', unsafe_allow_html=True)
+            if not isinstance(risk_flags, list) or not risk_flags:
+                st.info("No risk flags returned.")
+            else:
+                for flag in risk_flags:
+                    if isinstance(flag, dict):
+                        level = flag.get("level", "Info")
+                        message = flag.get("message", "")
+                        st.warning(f"{level}: {message}" if message else str(level))
+                    else:
+                        st.warning(str(flag))
+
+            if context.get("notes"):
+                st.markdown('<div class="sec-head">Notes</div>', unsafe_allow_html=True)
+                st.caption(str(context.get("notes")))
