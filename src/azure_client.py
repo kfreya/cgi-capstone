@@ -1,35 +1,90 @@
 import os
 from pathlib import Path
+from collections.abc import Sequence
 
 from dotenv import load_dotenv
+from openai import AzureOpenAI
 
 
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
 ENV_PATH = PROJECT_ROOT / "data" / ".env"
 
-load_dotenv(ENV_PATH)
+BASE_CONFIG_KEYS = (
+    "AZURE_OPENAI_ENDPOINT",
+)
+EMBEDDING_CONFIG_KEYS = (
+    "AZURE_OPENAI_API_VERSION",
+    "AZURE_OPENAI_EMBEDDING_DEPLOYMENT",
+)
 
-AZURE_OPENAI_API_KEY = os.getenv("AZURE_OPENAI_API_KEY") or os.getenv("OPENAI_API_KEY")
-AZURE_OPENAI_EMBEDDINGS_ENDPOINT = os.getenv("AZURE_OPENAI_EMBEDDINGS_ENDPOINT")
-AZURE_OPENAI_ENDPOINT = os.getenv("AZURE_OPENAI_ENDPOINT")
-AZURE_OPENAI_REASONING_ENDPOINT = os.getenv("AZURE_OPENAI_REASONING_ENDPOINT")
 
+def validate_azure_config(require_embedding: bool = False) -> dict[str, str]:
+    """Validate Azure OpenAI environment configuration.
 
-def validate_azure_config() -> None:
+    @param require_embedding: When true, require embedding-specific SDK config.
+    @return: Sanitized config dictionary for Azure OpenAI helpers.
+    @raises ValueError: If required configuration is missing.
+    """
+
+    load_dotenv(ENV_PATH)
+
+    api_key = os.getenv("AZURE_OPENAI_API_KEY") or os.getenv("OPENAI_API_KEY")
+    config = {
+        "api_key": api_key or "",
+        "azure_endpoint": os.getenv("AZURE_OPENAI_ENDPOINT", ""),
+        "api_version": os.getenv("AZURE_OPENAI_API_VERSION", ""),
+        "embedding_deployment": os.getenv("AZURE_OPENAI_EMBEDDING_DEPLOYMENT", ""),
+    }
+
     missing_config = []
-
-    if not AZURE_OPENAI_API_KEY:
+    if not api_key:
         missing_config.append("AZURE_OPENAI_API_KEY or OPENAI_API_KEY")
-    if not AZURE_OPENAI_EMBEDDINGS_ENDPOINT:
-        missing_config.append("AZURE_OPENAI_EMBEDDINGS_ENDPOINT")
-    if not AZURE_OPENAI_ENDPOINT:
-        missing_config.append("AZURE_OPENAI_ENDPOINT")
-    if not AZURE_OPENAI_REASONING_ENDPOINT:
-        missing_config.append("AZURE_OPENAI_REASONING_ENDPOINT")
+
+    for key in BASE_CONFIG_KEYS:
+        if not os.getenv(key):
+            missing_config.append(key)
+
+    if require_embedding:
+        for key in EMBEDDING_CONFIG_KEYS:
+            if not os.getenv(key):
+                missing_config.append(key)
 
     if missing_config:
         missing = ", ".join(missing_config)
         raise ValueError(f"Missing Azure OpenAI configuration: {missing}")
+
+    return config
+
+
+def get_azure_openai_client() -> AzureOpenAI:
+    """Create an Azure OpenAI SDK client without making an API call."""
+
+    config = validate_azure_config(require_embedding=True)
+    return AzureOpenAI(
+        api_key=config["api_key"],
+        azure_endpoint=config["azure_endpoint"],
+        api_version=config["api_version"],
+    )
+
+
+def embed_texts(texts: Sequence[str]) -> list[list[float]]:
+    """Embed text with the configured Azure OpenAI embedding deployment.
+
+    @param texts: Non-empty sequence of text strings to embed.
+    @return: Embedding vectors in the same order as the input texts.
+    @raises ValueError: If no texts are provided.
+    """
+
+    if not texts:
+        raise ValueError("texts must contain at least one item")
+
+    config = validate_azure_config(require_embedding=True)
+    client = get_azure_openai_client()
+    response = client.embeddings.create(
+        model=config["embedding_deployment"],
+        input=list(texts),
+    )
+    return [list(item.embedding) for item in response.data]
 
 
 if __name__ == "__main__":
