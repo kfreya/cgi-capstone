@@ -166,6 +166,40 @@ def test_generate_assignment_context_ranks_directors_by_capacity_signal():
     )
 
 
+def test_generate_assignment_context_scores_all_directors_before_top_three():
+    """Check that strong candidates are not skipped by input row order."""
+
+    director_df = pd.DataFrame(
+        {
+            "opportunity_owner": [f"Director {index}" for index in range(9)],
+            "capacity_label": ["High Load"] * 8 + ["Available"],
+            "capacity_score": [0.0] * 8 + [0.99],
+            "relative_load": [1.5] * 8 + [0.1],
+            "service_domain": ["Application Support"] * 8 + ["Cloud Infrastructure"],
+        }
+    )
+    historical_chunks = [
+        {
+            "proposal_id": "historical_cloud",
+            "chunk_id": "historical_cloud_chunk_001",
+            "source_type": "proposal",
+            "text": "Prior Azure cloud migration proposal.",
+            "chunk_index": 0,
+            "opportunity_owner": None,
+            "opportunity_id": None,
+        }
+    ]
+
+    output = generate_assignment_context(
+        "Need Azure cloud migration support.",
+        director_df=director_df,
+        historical_chunks=historical_chunks,
+    )
+
+    assert output["recommended_directors"][0]["director_name"] == "Director 8"
+    assert output["recommended_directors"][0]["capacity_label"] == "Available"
+
+
 def test_generate_assignment_context_uses_service_domain_signal():
     """Check that matching service experience helps the director ranking."""
 
@@ -230,6 +264,50 @@ def test_generate_assignment_context_flags_missing_capacity_fields():
         ],
     )
 
+    assert any(
+        "capacity fields are missing" in flag["message"].lower()
+        for flag in output["risk_flags"]
+    )
+
+
+def test_generate_assignment_context_treats_nan_capacity_fields_as_missing():
+    """Check that No-baseline capacity rows do not produce NaN scores."""
+
+    director_df = pd.DataFrame(
+        {
+            "opportunity_owner": ["Director No Baseline", "Director Ready"],
+            "capacity_label": ["No baseline", "Available"],
+            "capacity_score": [float("nan"), 0.7],
+            "relative_load": [float("nan"), 0.8],
+            "service_domain": ["Cloud Infrastructure", "Cloud Infrastructure"],
+        }
+    )
+
+    output = generate_assignment_context(
+        "Need Azure cloud migration support.",
+        director_df=director_df,
+        historical_chunks=[
+            {
+                "proposal_id": "historical_cloud",
+                "chunk_id": "historical_cloud_chunk_001",
+                "source_type": "proposal",
+                "text": "Prior Azure cloud migration support proposal.",
+                "chunk_index": 0,
+                "opportunity_owner": None,
+                "opportunity_id": None,
+            }
+        ],
+    )
+
+    no_baseline = next(
+        director
+        for director in output["recommended_directors"]
+        if director["director_name"] == "Director No Baseline"
+    )
+    assert no_baseline["capacity_score"] == 0.45
+    assert no_baseline["relative_load"] == 1.0
+    assert no_baseline["assignment_score"] < 1.0
+    assert "nan" not in no_baseline["capacity_explanation"].lower()
     assert any(
         "capacity fields are missing" in flag["message"].lower()
         for flag in output["risk_flags"]

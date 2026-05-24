@@ -11,6 +11,7 @@ For example: `python src/rfp_engine.py`.
 
 from __future__ import annotations
 
+import math
 from typing import Any
 
 try:
@@ -184,7 +185,7 @@ def _director_recommendations(
             rfp_text=rfp_text,
             retrieved_examples=examples,
         )
-        for record in director_records[:8]
+        for record in director_records
     ]
 
     return sorted(
@@ -491,9 +492,25 @@ def _as_float(value: Any, default: float) -> float:
     """
 
     try:
-        return float(value)
+        converted = float(value)
     except (TypeError, ValueError):
         return default
+    if not math.isfinite(converted):
+        return default
+    return converted
+
+
+def _is_missing_value(value: Any) -> bool:
+    """Return True for null-like scalar values from Python, pandas, or NumPy."""
+
+    if value is None:
+        return True
+    if isinstance(value, str):
+        return value.strip() == ""
+    try:
+        return bool(value != value)
+    except (TypeError, ValueError):
+        return False
 
 
 def _service_labels(text: str) -> list[str]:
@@ -677,7 +694,7 @@ def _missing_capacity_fields(record: dict[str, Any]) -> bool:
     """
 
     required_fields = ("capacity_label", "capacity_score", "relative_load")
-    return any(record.get(field) in (None, "") for field in required_fields)
+    return any(_is_missing_value(record.get(field)) for field in required_fields)
 
 
 def _is_overextended(record: dict[str, Any]) -> bool:
