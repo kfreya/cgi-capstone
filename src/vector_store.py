@@ -13,7 +13,7 @@ from __future__ import annotations
 import json
 from collections.abc import Callable, Sequence
 from dataclasses import dataclass
-from math import sqrt
+from math import isfinite, sqrt
 from typing import Any
 
 try:
@@ -377,6 +377,7 @@ def build_dashboard_payload(
         "effort": effort or {
             "level": "Low",
             "estimated_duration": "1-2 weeks",
+            "reason": "Prototype estimate pending final RFP effort model.",
             "rationale": "Prototype estimate pending final RFP effort model.",
         },
         "similar_rfps": [
@@ -407,7 +408,7 @@ def build_vector_store(chunks: list[dict]):
     global _DEFAULT_STORE
 
     store = InMemoryVectorStore(_local_embedding)
-    store.add_chunks([_chunk_from_dict(chunk) for chunk in chunks])
+    store.add_chunks(_valid_chunks_from_dicts(chunks or []))
     _DEFAULT_STORE = store
     return store
 
@@ -457,24 +458,23 @@ def _chroma_metadata(chunk: RFPChunk) -> dict[str, str | int | float | bool]:
     return metadata
 
 
+def _valid_chunks_from_dicts(chunks: Sequence[dict[str, Any]]) -> list[RFPChunk]:
+    """Convert chunk dictionaries and drop entries with no indexable text."""
+
+    return [
+        rfp_chunk
+        for chunk in chunks
+        if (rfp_chunk := _chunk_from_dict(chunk)).text.strip()
+    ]
+
+
 def _chunk_from_dict(chunk: dict[str, Any]) -> RFPChunk:
     """Convert a dashboard chunk dictionary back into an RFPChunk object."""
 
-    if "chunk_id" not in chunk:
-        raise KeyError(
-            "chunk is missing required key 'chunk_id'. "
-            f"Available keys: {sorted(chunk.keys())}"
-        )
-    if "chunk_index" not in chunk:
-        raise KeyError(
-            "chunk is missing required key 'chunk_index'. "
-            f"Available keys: {sorted(chunk.keys())}"
-        )
-    if "text" not in chunk:
-        raise KeyError(
-            "chunk is missing required key 'text'. "
-            f"Available keys: {sorted(chunk.keys())}"
-        )
+    proposal_id = str(chunk.get("proposal_id") or "unknown_proposal")
+    chunk_index = _as_int(chunk.get("chunk_index"), default=0)
+    chunk_id = str(chunk.get("chunk_id") or f"{proposal_id}_chunk_{chunk_index:03d}")
+    text = str(chunk.get("text") or "")
 
     # Normalize multiple supported chunk shapes into a single RFPChunk contract.
     # - Shape A: full `RFPChunk.to_dict()` (document_id + title + section + metadata).
@@ -484,7 +484,7 @@ def _chunk_from_dict(chunk: dict[str, Any]) -> RFPChunk:
         document_id = str(chunk["document_id"])
         title = chunk.get("title")
         if title is None:
-            title = chunk.get("proposal_id", document_id)
+            title = proposal_id if proposal_id != "unknown_proposal" else document_id
         section = chunk.get("section")
         if section is None:
             section = chunk.get("source_type", "proposal")
@@ -492,8 +492,8 @@ def _chunk_from_dict(chunk: dict[str, Any]) -> RFPChunk:
         metadata = dict(chunk.get("metadata", {}))
         metadata.update(
             {
-                "chunk_id": str(chunk["chunk_id"]),
-                "chunk_index": int(chunk["chunk_index"]),
+                "chunk_id": chunk_id,
+                "chunk_index": chunk_index,
                 "proposal_id": chunk.get("proposal_id", document_id),
                 "source_type": chunk.get("source_type", section),
                 "opportunity_owner": chunk.get("opportunity_owner"),
@@ -502,29 +502,28 @@ def _chunk_from_dict(chunk: dict[str, Any]) -> RFPChunk:
         )
 
         return RFPChunk(
-            chunk_id=str(chunk["chunk_id"]),
+            chunk_id=chunk_id,
             document_id=document_id,
             title=str(title),
             section=str(section),
-            chunk_index=int(chunk["chunk_index"]),
-            text=str(chunk["text"]),
+            chunk_index=chunk_index,
+            text=text,
             metadata=metadata,
         )
 
-    proposal_id = str(chunk.get("proposal_id", "proposal_001"))
     source_type = str(chunk.get("source_type", "proposal"))
     return RFPChunk(
-        chunk_id=str(chunk["chunk_id"]),
+        chunk_id=chunk_id,
         document_id=proposal_id,
         title=proposal_id,
         section=source_type,
-        chunk_index=int(chunk["chunk_index"]),
-        text=str(chunk["text"]),
+        chunk_index=chunk_index,
+        text=text,
         metadata={
             "proposal_id": proposal_id,
-            "chunk_id": str(chunk["chunk_id"]),
+            "chunk_id": chunk_id,
             "source_type": source_type,
-            "chunk_index": int(chunk["chunk_index"]),
+            "chunk_index": chunk_index,
             "opportunity_owner": chunk.get("opportunity_owner"),
             "opportunity_id": chunk.get("opportunity_id"),
         },
@@ -599,9 +598,22 @@ def _as_float(value: Any, default: float) -> float:
     """Convert optional numeric fields while keeping the prototype stable."""
 
     try:
-        return float(value)
-    except (TypeError, ValueError):
+        converted = float(value)
+    except (TypeError, ValueError, OverflowError):
         return default
+    if not isfinite(converted):
+        return default
+    return converted
+
+
+def _as_int(value: Any, default: int) -> int:
+    """Convert optional integer fields while keeping fallback chunks stable."""
+
+    try:
+        converted = int(value)
+    except (TypeError, ValueError, OverflowError):
+        return default
+    return converted
 
 # --- Week 3 Add-ons Starts here ---
 def build_chroma_from_chunks(
@@ -622,7 +634,7 @@ def build_chroma_from_chunks(
         except ModuleNotFoundError:
             from azure_client import embed_texts as embedding_function
 
-    rfp_chunks = [_chunk_from_dict(chunk) for chunk in (chunks or [])]
+    rfp_chunks = _valid_chunks_from_dicts(chunks or [])
     texts = [chunk.text for chunk in rfp_chunks]
     embeddings = embedding_function(texts) if texts else []
 
@@ -667,8 +679,9 @@ def query_chroma(
         # Many Chroma setups use distance; convert to a similarity-like score if desired.
         # Here we keep a simple monotonic transform.
         try:
-            similarity = 1.0 / (1.0 + float(dist))
-        except (TypeError, ValueError):
+            distance = float(dist)
+            similarity = 1.0 / (1.0 + distance) if isfinite(distance) else None
+        except (TypeError, ValueError, OverflowError):
             similarity = None
 
         proposal_id = None

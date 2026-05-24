@@ -409,7 +409,7 @@ def _effort_estimate(
 
     @param rfp_text: Input RFP text.
     @param retrieved_examples: Retrieved examples used as supporting signal.
-    @return: Effort object with level, estimated duration, and rationale.
+    @return: Effort object with level, reason, estimated duration, and rationale.
     """
 
     clean_text = " ".join(str(rfp_text).split())
@@ -436,7 +436,7 @@ def _effort_estimate(
         level = "Low"
         duration = "1-2 weeks"
 
-    rationale = (
+    reason = (
         "Heuristic estimate based on RFP length "
         f"({word_count} words), service areas "
         f"({', '.join(services) if services else 'none detected'}), "
@@ -445,8 +445,9 @@ def _effort_estimate(
     )
     return {
         "level": level,
+        "reason": reason,
         "estimated_duration": duration,
-        "rationale": rationale,
+        "rationale": reason,
     }
 
 
@@ -506,11 +507,20 @@ def _is_missing_value(value: Any) -> bool:
     if value is None:
         return True
     if isinstance(value, str):
-        return value.strip() == ""
+        stripped = value.strip().lower()
+        if stripped in {"", "nan", "none", "<na>", "inf", "+inf", "-inf"}:
+            return True
+    try:
+        converted = float(value)
+    except (TypeError, ValueError):
+        pass
+    else:
+        if not math.isfinite(converted):
+            return True
     try:
         return bool(value != value)
     except (TypeError, ValueError):
-        return False
+        return str(value).strip().lower() in {"<na>", "nan"}
 
 
 def _service_labels(text: str) -> list[str]:

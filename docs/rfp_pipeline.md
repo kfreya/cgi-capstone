@@ -201,8 +201,9 @@ It returns:
     "rfp_summary": "Short summary of the input RFP",
     "effort": {
         "level": "Medium",
+        "reason": "Heuristic estimate based on RFP length, service areas, complexity terms, and retrieved examples.",
         "estimated_duration": "3-5 weeks",
-        "rationale": "Heuristic estimate based on RFP length, service areas, complexity terms, and retrieved examples.",
+        "rationale": "Same value as reason; kept as a backward-compatible alias.",
     },
     "similar_rfps": [
         {

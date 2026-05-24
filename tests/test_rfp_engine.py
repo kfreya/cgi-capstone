@@ -54,6 +54,8 @@ def test_generate_assignment_context_matches_dashboard_contract():
     assert output["retrieved_examples"][0]["chunk_id"] == "historical_azure_chunk_001"
     assert output["similar_rfps"][0]["source"] == "historical_azure_chunk_001"
     assert output["effort"]["level"] in {"Low", "Medium", "High"}
+    assert output["effort"]["reason"]
+    assert output["effort"]["rationale"] == output["effort"]["reason"]
     assert "similarity_score" in output["retrieved_examples"][0]
     assert "supporting_text" in output["retrieved_examples"][0]
     assert output["recommended_directors"][0]["director_name"] == "Director A"
@@ -314,6 +316,45 @@ def test_generate_assignment_context_treats_nan_capacity_fields_as_missing():
     )
 
 
+def test_generate_assignment_context_treats_inf_capacity_fields_as_missing():
+    """Check that non-finite capacity values use safe defaults."""
+
+    director_df = pd.DataFrame(
+        {
+            "opportunity_owner": ["Director Infinite"],
+            "capacity_label": ["Available"],
+            "capacity_score": [float("inf")],
+            "relative_load": [float("-inf")],
+            "service_domain": ["Cloud Infrastructure"],
+        }
+    )
+
+    output = generate_assignment_context(
+        "Need Azure cloud migration support.",
+        director_df=director_df,
+        historical_chunks=[
+            {
+                "proposal_id": "historical_cloud",
+                "chunk_id": "historical_cloud_chunk_001",
+                "source_type": "proposal",
+                "text": "Prior Azure cloud migration support proposal.",
+                "chunk_index": 0,
+                "opportunity_owner": None,
+                "opportunity_id": None,
+            }
+        ],
+    )
+
+    director = output["recommended_directors"][0]
+    assert director["capacity_score"] == 0.45
+    assert director["relative_load"] == 1.0
+    assert director["assignment_score"] < 1.0
+    assert any(
+        "capacity fields are missing" in flag["message"].lower()
+        for flag in output["risk_flags"]
+    )
+
+
 def test_generate_assignment_context_flags_low_similarity():
     """Check that weak retrieval evidence is labelled as a risk."""
 
@@ -362,5 +403,5 @@ def test_generate_assignment_context_effort_uses_complexity_signals():
     )
 
     assert output["effort"]["level"] == "High"
-    assert "service areas" in output["effort"]["rationale"]
-    assert "complexity terms" in output["effort"]["rationale"]
+    assert "service areas" in output["effort"]["reason"]
+    assert "complexity terms" in output["effort"]["reason"]
