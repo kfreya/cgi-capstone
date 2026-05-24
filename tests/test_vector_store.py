@@ -173,6 +173,8 @@ def test_build_dashboard_payload_has_stable_output_shape():
     }
     assert payload["rfp_summary"] == "Azure support request"
     assert payload["effort"]["level"] in {"Low", "Medium", "High"}
+    assert payload["effort"]["reason"]
+    assert payload["effort"]["rationale"] == payload["effort"]["reason"]
     assert payload["similar_rfps"][0]["source"] == "chunk_1"
     assert payload["retrieved_examples"][0]["chunk_id"] == "chunk_1"
     assert "similarity_score" in payload["retrieved_examples"][0]
@@ -286,3 +288,73 @@ def test_chunk_from_dict_accepts_week3_flat_contract_shape():
     results = store.query("cloud migration", top_k=1)
     assert isinstance(results, list)
     assert len(results) == 1
+
+
+def test_build_vector_store_defaults_partial_chunk_identifiers():
+    """Partial chunk dictionaries should still be indexable when text exists."""
+
+    store = build_vector_store(
+        [
+            {
+                "proposal_id": "historical_partial",
+                "source_type": "proposal",
+                "text": "Azure migration and dashboard support",
+            }
+        ]
+    )
+
+    results = store.query("Azure dashboard", top_k=1)
+
+    assert len(results) == 1
+    assert results[0].chunk.chunk_id == "historical_partial_chunk_000"
+    assert results[0].chunk.chunk_index == 0
+    assert results[0].chunk.metadata["proposal_id"] == "historical_partial"
+
+
+def test_build_vector_store_skips_empty_text_chunks():
+    """Empty chunk text should not be indexed as supporting evidence."""
+
+    store = build_vector_store(
+        [
+            {
+                "proposal_id": "empty",
+                "chunk_id": "empty_chunk_001",
+                "chunk_index": 0,
+                "text": "",
+            },
+            {
+                "proposal_id": "blank",
+                "chunk_id": "blank_chunk_001",
+                "chunk_index": 1,
+            },
+            make_dashboard_chunk("valid_chunk_001", "Azure migration support"),
+        ]
+    )
+
+    results = store.query("Azure migration", top_k=5)
+
+    assert len(store) == 1
+    assert [result.chunk.chunk_id for result in results] == ["valid_chunk_001"]
+
+
+def test_build_dashboard_payload_defaults_non_finite_numeric_values():
+    """Vector payload normalization should not leak NaN or infinity."""
+
+    payload = build_dashboard_payload(
+        query_text="Need Azure support",
+        results=[],
+        recommended_directors=[
+            {
+                "director_name": "Director Numeric",
+                "capacity_label": "Available",
+                "capacity_score": float("nan"),
+                "relative_load": float("inf"),
+                "assignment_score": float("-inf"),
+            }
+        ],
+    )
+    director = payload["recommended_directors"][0]
+
+    assert director["capacity_score"] == 0.72
+    assert director["relative_load"] == 0.65
+    assert director["assignment_score"] == 0.474

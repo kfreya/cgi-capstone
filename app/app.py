@@ -1200,7 +1200,8 @@ elif page == "RFP Assignment Tool":
             )
             if effort.get("estimated_duration"):
                 st.caption(f"Estimated duration: {effort.get('estimated_duration')}")
-            st.write(effort.get("rationale") or "No effort rationale returned.")
+            effort_reason = effort.get("reason") or effort.get("rationale")
+            st.write(effort_reason or "No effort reason returned.")
 
             retrieved_examples = context.get("retrieved_examples") or []
             st.markdown('<div class="sec-head">Similar Historical RFPs</div>', unsafe_allow_html=True)
