@@ -116,6 +116,10 @@ Expected:
 - `n_results: 1..3`
 - result keys include: `proposal_id`, `chunk_id`, `similarity_score`, `supporting_text`
 
+Note:
+- This is a **mechanical Chroma smoke test** (can embed → write → query).
+- It does **not** validate the full preferred retrieval workflow (persist historical proposal chunks once, then retrieve them for a new RFP query).
+
 ## Current Blockers / Dependencies
 - Azure embeddings cannot be validated end-to-end until CGI provides:
   - `AZURE_OPENAI_API_VERSION`
