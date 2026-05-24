@@ -1,0 +1,89 @@
+{
+  "structure_summary": {
+    "total_records": 19,
+    "valid_mapping_records": 19,
+    "non_mapping_records": 0,
+    "records_with_proposal_key": 19,
+    "records_with_response_key": 19,
+    "response_key_distribution": {
+      "proposal_response": 19
+    },
+    "malformed_record_count": 0,
+    "malformed_record_refs": []
+  },
+  "document_length_summary": {
+    "total_documents": 46,
+    "proposal_documents": 19,
+    "response_documents": 27,
+    "empty_documents": 0,
+    "short_documents": 0,
+    "long_documents": 43,
+    "token_count": {
+      "min": 1106,
+      "max": 29060,
+      "mean": 11688.7,
+      "median": 11777.0,
+      "p25": 6427.25,
+      "p75": 15342.5
+    },
+    "char_count": {
+      "min": 7221,
+      "max": 220940,
+      "mean": 83238.17,
+      "median": 79607.0,
+      "p25": 45633.75,
+      "p75": 104545.75
+    }
+  },
+  "proposal_response_separation": {
+    "total_records": 19,
+    "records_with_proposal_text": 19,
+    "records_with_response_container": 19,
+    "records_with_nonempty_response_text": 19,
+    "records_missing_both": 0
+  },
+  "malformed_records": [],
+  "chunk_metadata_validation": {
+    "total_chunks": 1216,
+    "required_fields": [
+      "proposal_id",
+      "chunk_id",
+      "document_id",
+      "source_type",
+      "chunk_index",
+      "text",
+      "opportunity_owner",
+      "opportunity_id"
+    ],
+    "missing_field_counts": {
+      "proposal_id": 0,
+      "chunk_id": 0,
+      "document_id": 0,
+      "source_type": 0,
+      "chunk_index": 0,
+      "text": 0,
+      "opportunity_owner": 0,
+      "opportunity_id": 0
+    },
+    "null_field_counts": {
+      "proposal_id": 0,
+      "chunk_id": 0,
+      "document_id": 0,
+      "source_type": 0,
+      "chunk_index": 0,
+      "text": 0,
+      "opportunity_owner": 1216,
+      "opportunity_id": 1216
+    },
+    "source_type_counts": {
+      "proposal": 449,
+      "proposal_response": 767
+    },
+    "can_link_to_owner_or_opportunity": false
+  },
+  "linkage_limitations": [
+    "Chunks do not currently carry reliable opportunity_owner/opportunity_id values.",
+    "Proposal-to-director mapping cannot be inferred from chunk metadata alone.",
+    "Director ranking should rely on retrieval evidence + separate capacity tables until linkage is provided."
+  ]
+}
