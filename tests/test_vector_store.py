@@ -262,3 +262,27 @@ def test_optional_chroma_helpers_do_not_require_azure_credentials(tmp_path):
         assert set(results[0]).issuperset(
             {"proposal_id", "chunk_id", "similarity_score", "supporting_text"}
         )
+
+
+def test_chunk_from_dict_accepts_week3_flat_contract_shape():
+    """Week 3 chunk contract should accept Kian's validated sample shape."""
+
+    from src.vector_store import build_vector_store
+
+    flat_chunk = {
+        "chunk_id": "p1__proposal__chunk_0000",
+        "document_id": "p1__proposal",
+        "proposal_id": "p1",
+        "title": "p1",
+        "source_type": "proposal",
+        "section": "proposal",
+        "chunk_index": 0,
+        "text": "Need cloud migration and analytics support.",
+        "opportunity_owner": None,
+        "opportunity_id": None,
+    }
+
+    store = build_vector_store([flat_chunk])
+    results = store.query("cloud migration", top_k=1)
+    assert isinstance(results, list)
+    assert len(results) == 1

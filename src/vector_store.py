@@ -460,15 +460,55 @@ def _chroma_metadata(chunk: RFPChunk) -> dict[str, str | int | float | bool]:
 def _chunk_from_dict(chunk: dict[str, Any]) -> RFPChunk:
     """Convert a dashboard chunk dictionary back into an RFPChunk object."""
 
+    if "chunk_id" not in chunk:
+        raise KeyError(
+            "chunk is missing required key 'chunk_id'. "
+            f"Available keys: {sorted(chunk.keys())}"
+        )
+    if "chunk_index" not in chunk:
+        raise KeyError(
+            "chunk is missing required key 'chunk_index'. "
+            f"Available keys: {sorted(chunk.keys())}"
+        )
+    if "text" not in chunk:
+        raise KeyError(
+            "chunk is missing required key 'text'. "
+            f"Available keys: {sorted(chunk.keys())}"
+        )
+
+    # Normalize multiple supported chunk shapes into a single RFPChunk contract.
+    # - Shape A: full `RFPChunk.to_dict()` (document_id + title + section + metadata).
+    # - Shape B: Week 3 flat metadata contract (document_id present, title/section optional).
+    # - Shape C: Week 2 dashboard chunk contract (no document_id; uses proposal_id/source_type).
     if "document_id" in chunk:
+        document_id = str(chunk["document_id"])
+        title = chunk.get("title")
+        if title is None:
+            title = chunk.get("proposal_id", document_id)
+        section = chunk.get("section")
+        if section is None:
+            section = chunk.get("source_type", "proposal")
+
+        metadata = dict(chunk.get("metadata", {}))
+        metadata.update(
+            {
+                "chunk_id": str(chunk["chunk_id"]),
+                "chunk_index": int(chunk["chunk_index"]),
+                "proposal_id": chunk.get("proposal_id", document_id),
+                "source_type": chunk.get("source_type", section),
+                "opportunity_owner": chunk.get("opportunity_owner"),
+                "opportunity_id": chunk.get("opportunity_id"),
+            }
+        )
+
         return RFPChunk(
             chunk_id=str(chunk["chunk_id"]),
-            document_id=str(chunk["document_id"]),
-            title=str(chunk["title"]),
-            section=str(chunk["section"]),
+            document_id=document_id,
+            title=str(title),
+            section=str(section),
             chunk_index=int(chunk["chunk_index"]),
             text=str(chunk["text"]),
-            metadata=dict(chunk.get("metadata", {})),
+            metadata=metadata,
         )
 
     proposal_id = str(chunk.get("proposal_id", "proposal_001"))
