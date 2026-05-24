@@ -1,9 +1,16 @@
 import os
 from pathlib import Path
 from collections.abc import Sequence
+from typing import TYPE_CHECKING, Any
 
-from dotenv import load_dotenv
-from openai import AzureOpenAI
+try:
+    from dotenv import load_dotenv  # type: ignore
+except ModuleNotFoundError:  # pragma: no cover
+    def load_dotenv(*_args: Any, **_kwargs: Any) -> bool:  # type: ignore
+        return False
+
+if TYPE_CHECKING:  # pragma: no cover
+    from openai import AzureOpenAI
 
 
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
@@ -94,11 +101,25 @@ def validate_azure_config(require_embedding: bool = False) -> dict[str, str]:
     return config
 
 
-def get_azure_openai_client() -> AzureOpenAI:
+def _load_azure_openai_cls():
+    """Import AzureOpenAI lazily so helpers stay importable without the SDK."""
+
+    try:
+        from openai import AzureOpenAI  # type: ignore
+    except ModuleNotFoundError as exc:  # pragma: no cover
+        raise ModuleNotFoundError(
+            "openai SDK is required to create an AzureOpenAI client. "
+            "Install project dependencies before using get_azure_openai_client/embed_texts."
+        ) from exc
+    return AzureOpenAI
+
+
+def get_azure_openai_client(azure_openai_cls=None):
     """Create an Azure OpenAI SDK client without making an API call."""
 
     config = validate_azure_config(require_embedding=True)
-    return AzureOpenAI(
+    azure_openai_cls = azure_openai_cls or _load_azure_openai_cls()
+    return azure_openai_cls(
         api_key=config["api_key"],
         azure_endpoint=config["azure_endpoint"],
         api_version=config["api_version"],

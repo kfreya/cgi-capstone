@@ -8,8 +8,6 @@ from types import SimpleNamespace
 
 import pytest
 
-pytest.importorskip("dotenv")
-
 from src import azure_client
 
 
@@ -88,9 +86,7 @@ def test_get_azure_openai_client_uses_config_without_api_call(monkeypatch):
         def __init__(self, **kwargs):
             captured.update(kwargs)
 
-    monkeypatch.setattr(azure_client, "AzureOpenAI", FakeAzureOpenAI)
-
-    client = azure_client.get_azure_openai_client()
+    client = azure_client.get_azure_openai_client(azure_openai_cls=FakeAzureOpenAI)
 
     assert isinstance(client, FakeAzureOpenAI)
     assert captured == {
@@ -123,7 +119,11 @@ def test_embed_texts_returns_mocked_vectors(monkeypatch):
     class FakeClient:
         embeddings = FakeEmbeddings()
 
-    monkeypatch.setattr(azure_client, "get_azure_openai_client", lambda: FakeClient())
+    monkeypatch.setattr(
+        azure_client,
+        "get_azure_openai_client",
+        lambda *args, **kwargs: FakeClient(),
+    )
 
     embeddings = azure_client.embed_texts(["hello"])
 
