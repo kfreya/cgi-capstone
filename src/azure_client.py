@@ -167,4 +167,28 @@ def get_embedding_function(prefer_azure: bool = True):
         return embed_texts
     return None
 
+
+def get_azure_environment_status(require_embedding: bool = True) -> dict[str, Any]:
+    config, missing = try_validate_azure_config(require_embedding=require_embedding)
+    return {
+        "ready": config is not None,
+        "require_embedding": require_embedding,
+        "missing": missing,
+        "can_create_client": config is not None,
+        "can_embed": config is not None and require_embedding,
+    }
+
+
+def get_azure_environment_summary(require_embedding: bool = True) -> str:
+    status = get_azure_environment_status(require_embedding=require_embedding)
+    if status["ready"]:
+        return "Azure OpenAI configuration is ready."
+    if status["missing"]:
+        return "Azure OpenAI configuration is blocked: " + ", ".join(status["missing"])
+    return "Azure OpenAI configuration is blocked."
+
+
+def can_run_azure_embedding_smoke_test() -> bool:
+    return azure_embedding_available()
+
 # --- Week 3 Add-ons Ends here ---
