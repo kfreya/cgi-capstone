@@ -179,6 +179,36 @@ Validation after the capacity-aware RFP page update:
 | RFP-related tests | `python -m pytest tests/test_rfp_preprocessor.py tests/test_vector_store.py tests/test_rfp_engine.py` | 32 passed in 2.10s |
 | Full test suite | `python -m pytest` | 108 passed, 2 warnings in 1.86s |
 
+### Manual Streamlit Demo Check
+
+Manual demo result:
+
+- The Streamlit app launched successfully.
+- Director Capacity Dashboard loaded with Live CRM data and 24 owners.
+- RFP Assignment Tool loaded with Live CRM data.
+- A sample public-sector digital transformation RFP was pasted and analyzed
+  successfully without traceback.
+- The RFP result showed:
+  - RFP summary
+  - Estimated Effort: Medium
+  - Estimated duration: 3-5 weeks
+  - Similar historical RFPs / retrieved examples
+  - 3 recommended directors
+  - 3 risk flags
+- The Recommended Directors section displayed capacity label, capacity score,
+  relative load, assignment score, match reason, capacity explanation,
+  experience match explanation, and supporting chunks.
+- The UI labelled that director recommendations were using Live CRM capacity
+  data.
+- The risk flags clearly warned that the built-in sample historical corpus was
+  used because real historical proposal data was unavailable in this demo run.
+- Retrieval remains local fallback / heuristic while Azure-backed retrieval is
+  pending.
+
+This manual demo confirms the capacity-aware Streamlit flow, but it does not
+claim Azure-backed retrieval or validated real historical proposal retrieval.
+The demo combines live capacity data with fallback/sample retrieval evidence.
+
 ## 6. Demo Checklist
 
 - [ ] Start Streamlit from the repository root.
