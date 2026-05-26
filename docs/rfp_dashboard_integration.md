@@ -39,7 +39,7 @@ below lists each field and its UI treatment.
 | `rfp_summary` | **RFP Summary** | `st.write()` — plain text |
 | `effort.level` | **Estimated Effort** | Colour-coded badge (`effort-high`, `effort-medium`, `effort-low` CSS classes) |
 | `effort.estimated_duration` | (under Estimated Effort) | `st.caption()` |
-| `effort.rationale` | (under Estimated Effort) | `st.write()` — plain text |
+| `effort.reason` | (under Estimated Effort) | `st.write()` — plain text; falls back to `effort.rationale` |
 | `retrieved_examples` | **Similar Historical RFPs** | One entry per chunk: `proposal_id` bold, `chunk_id` and `similarity_score` in code format, `supporting_text` truncated at 320 chars |
 | `recommended_directors` | **Recommended Directors** | One `st.expander()` per director, first expanded by default |
 | ↳ `director_name` | Expander title | Text |
@@ -56,7 +56,7 @@ below lists each field and its UI treatment.
 
 The backend key is `effort`, not `estimated_effort`. The dashboard
 displays it under the heading **"Estimated Effort"** as agreed with
-Yixiao (see `docs/rfp_integration_qa.md`, naming decision section).
+Yixiao (see `docs/rfp_assignment_integration_qa.md`, naming decision section).
 
 The `similar_rfps` key is returned by the engine but is not separately
 displayed. It duplicates `retrieved_examples` in a different shape and
@@ -131,7 +131,7 @@ crashing.
 | `rfp_summary` | `str` | `"No summary returned."` |
 | `effort` | `dict` | empty dict; badge shows "Unknown" |
 | `effort.level` | `str` — one of Low / Medium / High | badge class defaults to plain `badge` |
-| `effort.rationale` | `str` | `None` is silently skipped |
+| `effort.reason` | `str` | falls back to `effort.rationale`; `None` is silently skipped |
 | `effort.estimated_duration` | `str` | `None` is silently skipped |
 | `retrieved_examples` | `list[dict]` | `st.info("No retrieved examples returned.")` |
 | `recommended_directors` | `list[dict]` | `st.info("No recommended directors returned.")` |
@@ -202,7 +202,7 @@ python -m pytest tests/test_rfp_preprocessor.py tests/test_vector_store.py tests
 ```
 
 Expected: `18 passed` (confirmed in Yixiao's QA notes,
-`docs/rfp_integration_qa.md`).
+`docs/rfp_assignment_integration_qa.md`).
 
 ------------------------------------------------------------------------
 
@@ -210,6 +210,6 @@ Expected: `18 passed` (confirmed in Yixiao's QA notes,
 
 -   [`docs/rfp_pipeline.md`](rfp_pipeline.md) — RFP preprocessing and
     vector store architecture
--   [`docs/rfp_integration_qa.md`](rfp_integration_qa.md) — Yixiao's
+-   [`docs/rfp_assignment_integration_qa.md`](rfp_assignment_integration_qa.md) — Yixiao's
     Week 3 integration QA notes, `assignment_context` contract, and
     smoke test results
