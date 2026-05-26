@@ -42,8 +42,8 @@ or final business decision engine.
 
 - It should not claim production readiness.
 - It should not claim final CGI business validation or adoption.
-- It should not claim fully Azure-backed retrieval until Azure-backed Chroma
-  retrieval is tested and integrated into the RFP flow.
+- It should not claim the Streamlit RFP page is fully Azure-backed until the
+  Azure + Chroma path is integrated into the RFP engine and Streamlit flow.
 - It should not claim calibrated or stakeholder-approved ranking weights.
 - It should not claim final CGI assignment guidance.
 - It should not claim that director recommendations are authoritative staffing
@@ -65,7 +65,7 @@ sample RFP text
 -> Streamlit RFP page display
 ```
 
-Preferred path once Azure-backed Chroma retrieval is fully tested:
+Preferred path once Azure-backed Chroma retrieval is integrated:
 
 ```text
 sample RFP text
@@ -77,10 +77,11 @@ sample RFP text
 ```
 
 The fallback path remains the official Week 4 Streamlit demo path unless Azure
-+ Chroma retrieval is fully tested and integrated. Azure embedding access has
-now passed a minimal smoke test, but Azure-backed Chroma retrieval has not yet
-been validated. In both paths, the RFP Assignment Tool should pass real capacity
-data into `generate_assignment_context()` when available so
++ Chroma retrieval is integrated into the RFP engine and Streamlit flow. Azure
+embedding access and a sample Azure + Chroma retrieval smoke test have passed,
+but the Streamlit RFP page should not yet be described as fully Azure-backed. In
+both paths, the RFP Assignment Tool should pass real capacity data into
+`generate_assignment_context()` when available so
 `recommended_directors` is capacity-aware. Fallback or mock director data should
 only be used when real capacity data cannot be loaded, and the UI/report should
 clearly label which data source is being used.
@@ -110,8 +111,8 @@ clearly label which data source is being used.
   capacity data or fallback/mock director data.
 - [ ] Confirm fallback / heuristic labels are visible in report notes or UI.
 - [ ] Confirm Azure keys, endpoints, and secret values are not printed.
-- [ ] Confirm Azure + Chroma retrieval is not claimed until fully tested and
-  integrated.
+- [ ] Confirm Azure + Chroma smoke-test success is not presented as a fully
+  Azure-backed Streamlit RFP flow.
 
 ### Recorded Local QA Results
 
@@ -123,6 +124,7 @@ Recorded local QA commands and results:
 | RFP-related tests | `python -m pytest tests/test_rfp_preprocessor.py tests/test_vector_store.py tests/test_rfp_engine.py` | 32 passed in 2.67s |
 | Azure client mocked tests | `python -m pytest tests/test_azure_client.py` | 9 passed |
 | Full test suite | `python -m pytest` | 108 passed, 2 warnings in 2.00s |
+| Azure + Chroma smoke test | `python scripts/smoke_azure_chroma.py` | `stored_chunks: 3`; `query_result_count: 2`; top result `smoke-cloud-modernization`; `first_result_mentions_cloud: True` |
 
 Azure environment check:
 
@@ -155,8 +157,23 @@ The two warnings came from `src/capacity_engine.py` around a `FutureWarning` in
 
 Azure is no longer blocked at the environment/configuration level. Minimal real
 Azure embedding smoke testing passed with `embedding_count: 1`,
-`embedding_dimension: 1536`, and `first_vector_is_numeric: True`. Azure-backed
-Chroma retrieval has not yet been validated.
+`embedding_dimension: 1536`, and `first_vector_is_numeric: True`. A sample
+Azure + Chroma smoke test also passed with precomputed Azure embeddings,
+confirming Chroma add/query behavior at smoke-test level.
+
+Azure + Chroma smoke test result:
+
+```text
+stored_chunks: 3
+query_result_count: 2
+top_ids: ['smoke-cloud-modernization', 'smoke-cybersecurity-assessment']
+top_distances: [0.37519320845603943, 1.1962010860443115]
+top_document_preview: Cloud migration support for application modernization, managed services transition, and platform operations.
+first_result_mentions_cloud: True
+```
+
+The top retrieval result matched the cloud migration / managed services query
+direction. This does not mean the Streamlit RFP page is fully Azure-backed.
 
 The successful test results confirm that the fallback RFP path,
 `assignment_context` tests, vector store tests, Azure client mocked tests,
@@ -180,6 +197,7 @@ Validation after the Azure embedding endpoint update:
 | Azure client mocked tests | `python -m pytest tests/test_azure_client.py` | 9 passed |
 | Azure client syntax check | `python -m py_compile src/azure_client.py tests/test_azure_client.py` | Passed |
 | Minimal real Azure embedding smoke test | Embedding-only smoke test | `embedding_count: 1`; `embedding_dimension: 1536`; `first_vector_is_numeric: True` |
+| Azure + Chroma smoke test | `python scripts/smoke_azure_chroma.py` | `stored_chunks: 3`; `query_result_count: 2`; top result matched cloud query direction |
 
 Week 4 capacity-aware RFP integration result:
 
@@ -280,7 +298,8 @@ The demo combines live capacity data with fallback/sample retrieval evidence.
 | Recommended directors | Heuristic / fallback-sensitive | Should not be presented as final CGI assignment guidance. |
 | Risk flags | Heuristic prototype | Helps surface uncertainty and limitations. |
 | Azure OpenAI embeddings | Smoke-test validated | Environment/configuration is available; minimal embedding test returned one numeric 1536-dimension vector. |
-| Azure-backed Chroma retrieval | Not yet validated | Chroma retrieval has not yet been tested end-to-end with Azure embeddings in the Streamlit RFP path. |
+| Azure + Chroma sample retrieval | Smoke-test validated | `scripts/smoke_azure_chroma.py` added/query-tested three chunks with precomputed Azure embeddings; top result matched the cloud query direction. |
+| Streamlit Azure-backed RFP retrieval | Not yet integrated | The RFP page remains fallback/local unless the Azure + Chroma path is connected through the RFP engine and Streamlit flow. |
 | Azure chat deployment | Config available / not part of embedding smoke test | Chat deployment is configured but not required for embedding-only smoke testing. |
 | Sample or placeholder director data | Mock / fallback when used | Only applies when real `capacity_df` is unavailable. |
 
@@ -293,10 +312,14 @@ The demo combines live capacity data with fallback/sample retrieval evidence.
 - Director assignment recommendations are not final CGI staffing guidance.
 - RFP ranking and effort logic are not calibrated against stakeholder-approved
   outcomes.
-- Azure embedding access has passed a minimal smoke test, but Azure-backed
-  Chroma retrieval is not yet validated.
+- Azure embedding access and sample Azure + Chroma add/query retrieval have
+  passed smoke testing.
+- The Streamlit RFP page is not yet fully Azure-backed; the Azure + Chroma path
+  still needs integration into the RFP engine and Streamlit flow.
 - Local fallback retrieval supports demonstration but should be clearly labelled
   as fallback behavior.
+- Smoke-test success should not be presented as production readiness or
+  business-validated retrieval.
 - Business decisions should not be made directly from prototype output without
   stakeholder review, validation, and production hardening.
 
@@ -312,10 +335,13 @@ The demo combines live capacity data with fallback/sample retrieval evidence.
   - `AZURE_OPENAI_API_VERSION`
   - `AZURE_OPENAI_EMBEDDING_DEPLOYMENT`
   - `AZURE_OPENAI_CHAT_DEPLOYMENT`
-- The minimal Azure embedding smoke test has passed, but this does not validate
-  Azure-backed Chroma retrieval.
+- The minimal Azure embedding smoke test has passed.
+- Run the sample Azure + Chroma smoke test with:
+  `python scripts/smoke_azure_chroma.py`
+- The Azure + Chroma smoke test stores three sample chunks, queries top two
+  results, and confirms the first result mentions cloud.
 - Keep the official Streamlit demo on fallback/local retrieval unless Azure +
-  Chroma retrieval is fully tested and integrated.
+  Chroma retrieval is integrated into the RFP engine and Streamlit flow.
 - Record smoke-test results without printing secrets, endpoints, or raw private
   data.
 
@@ -334,12 +360,14 @@ The demo combines live capacity data with fallback/sample retrieval evidence.
 - Fallback or mock director data should be reserved for cases where real
   capacity data is unavailable, and final report language should clearly label
   which recommendation source was used.
-- Azure is no longer blocked at the environment/configuration level, and
-  embedding access has passed a minimal smoke test.
-- Azure-backed Chroma retrieval should still be described as preferred but
-  unvalidated until tested and integrated into the RFP path.
+- Azure is no longer blocked at the environment/configuration level; embedding
+  access and sample Azure + Chroma retrieval have passed smoke tests.
+- Azure-backed Chroma retrieval should still be described as not integrated into
+  the official Streamlit RFP path until connected through the RFP engine and
+  Streamlit flow.
 - Final report language should emphasize stakeholder-facing transparency,
   explainability, and capstone prototype status.
 - Any final demo output should distinguish real data processing from heuristic
-  scoring, fallback/sample retrieval evidence, Azure embedding smoke-test
-  success, mock placeholders, and unvalidated Azure-backed Chroma retrieval.
+  scoring, fallback/sample retrieval evidence, Azure embedding and Chroma
+  smoke-test success, mock placeholders, and unintegrated Azure-backed
+  Streamlit retrieval.
