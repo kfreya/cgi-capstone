@@ -699,3 +699,24 @@ def query_chroma(
 
     return out
 # --- Week 3 Add-ons Ends here ---
+
+
+def get_vector_store_status() -> dict[str, Any]:
+    return {
+        "local_store_ready": _DEFAULT_STORE is not None,
+        "local_store_size": len(_DEFAULT_STORE) if _DEFAULT_STORE is not None else 0,
+        "supports_flat_contract": True,
+        "supports_chroma": True,
+    }
+
+
+def retrieve_examples_from_chunks(
+    chunks: Sequence[dict[str, Any]],
+    query_text: str,
+    top_k: int = 3,
+) -> list[dict[str, Any]]:
+    store = build_vector_store(list(chunks or []))
+    return [
+        result.to_retrieved_example()
+        for result in store.query(query_text, top_k=top_k)
+    ]
