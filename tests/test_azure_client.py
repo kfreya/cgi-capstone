@@ -188,3 +188,35 @@ def test_try_validate_azure_config_reports_missing_keys(monkeypatch):
     # missing_azure_config should be consistent with try_validate
     missing_direct = missing_keys(require_embedding=True)
     assert set(missing).issubset(set(missing_direct))
+
+
+def test_get_azure_environment_status_reports_blocked_state(monkeypatch):
+    _clear_azure_env(monkeypatch)
+    _disable_dotenv(monkeypatch)
+
+    status = azure_client.get_azure_environment_status(require_embedding=True)
+
+    assert status["ready"] is False
+    assert status["can_create_client"] is False
+    assert status["can_embed"] is False
+    assert "AZURE_OPENAI_ENDPOINT" in status["missing"]
+
+
+def test_get_azure_environment_summary_reports_ready_state(monkeypatch):
+    _clear_azure_env(monkeypatch)
+    _disable_dotenv(monkeypatch)
+    monkeypatch.setenv("AZURE_OPENAI_API_KEY", "test-key")
+    monkeypatch.setenv("AZURE_OPENAI_ENDPOINT", "https://example.openai.azure.com")
+    monkeypatch.setenv("AZURE_OPENAI_API_VERSION", "2024-02-01")
+    monkeypatch.setenv("AZURE_OPENAI_EMBEDDING_DEPLOYMENT", "embedding-deployment")
+
+    summary = azure_client.get_azure_environment_summary(require_embedding=True)
+
+    assert "ready" in summary.lower()
+
+
+def test_can_run_azure_embedding_smoke_test_matches_embedding_availability(monkeypatch):
+    _clear_azure_env(monkeypatch)
+    _disable_dotenv(monkeypatch)
+
+    assert azure_client.can_run_azure_embedding_smoke_test() is False

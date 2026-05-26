@@ -337,6 +337,36 @@ def test_build_vector_store_skips_empty_text_chunks():
     assert [result.chunk.chunk_id for result in results] == ["valid_chunk_001"]
 
 
+def test_get_vector_store_status_reflects_local_store_state():
+    from src.vector_store import get_vector_store_status
+
+    status_before = get_vector_store_status()
+    assert "local_store_ready" in status_before
+
+    build_vector_store([make_dashboard_chunk("proposal_001_chunk_001", "Azure support")])
+    status_after = get_vector_store_status()
+
+    assert status_after["local_store_ready"] is True
+    assert status_after["local_store_size"] >= 1
+
+
+def test_retrieve_examples_from_chunks_returns_dashboard_shape():
+    from src.vector_store import retrieve_examples_from_chunks
+
+    chunks = [
+        make_dashboard_chunk("proposal_001_chunk_001", "Azure migration and security"),
+        make_dashboard_chunk("proposal_001_chunk_002", "Executive dashboard reporting"),
+    ]
+
+    results = retrieve_examples_from_chunks(chunks, "Need Azure security", top_k=1)
+
+    assert isinstance(results, list)
+    assert results[0]["proposal_id"] == "proposal_001"
+    assert results[0]["chunk_id"] == "proposal_001_chunk_001"
+    assert "similarity_score" in results[0]
+    assert results[0]["supporting_text"] == "Azure migration and security"
+
+
 def test_build_dashboard_payload_defaults_non_finite_numeric_values():
     """Vector payload normalization should not leak NaN or infinity."""
 
