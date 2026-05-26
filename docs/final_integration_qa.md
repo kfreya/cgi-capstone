@@ -111,6 +111,74 @@ clearly label which data source is being used.
 - [ ] Confirm Azure keys, endpoints, and secret values are not printed.
 - [ ] Confirm missing Azure values do not break the fallback demo path.
 
+### Recorded Local QA Results
+
+Recorded local QA commands and results:
+
+| Area | Command | Result |
+| --- | --- | --- |
+| App syntax check | `python -m py_compile app/app.py` | Passed |
+| RFP-related tests | `python -m pytest tests/test_rfp_preprocessor.py tests/test_vector_store.py tests/test_rfp_engine.py` | 32 passed in 2.67s |
+| Azure client mocked tests | `python -m pytest tests/test_azure_client.py` | 8 passed in 0.02s |
+| Full test suite | `python -m pytest` | 108 passed, 2 warnings in 2.00s |
+
+Azure environment check:
+
+```bash
+python src/check_env.py
+```
+
+Result:
+
+```text
+AZURE_OPENAI_API_KEY: FOUND
+AZURE_OPENAI_EMBEDDINGS_ENDPOINT: FOUND
+AZURE_OPENAI_ENDPOINT: FOUND
+AZURE_OPENAI_REASONING_ENDPOINT: FOUND
+AZURE_OPENAI_API_VERSION: MISSING
+AZURE_OPENAI_EMBEDDING_DEPLOYMENT: MISSING
+AZURE_OPENAI_CHAT_DEPLOYMENT: MISSING
+```
+
+`conda run -n cgi-capstone python -m pytest` was attempted, but that
+environment did not currently have `pytest` installed. The recorded full-suite
+result therefore uses the active local Python environment.
+
+The two warnings came from `src/capacity_engine.py` around a `FutureWarning` in
+`combine_first` behavior. They did not fail the tests.
+
+The missing Azure configuration values are expected and remain the external
+blocker for real Azure embedding smoke testing and Azure-backed Chroma
+retrieval.
+
+The successful test results confirm that the fallback RFP path,
+`assignment_context` tests, vector store tests, Azure client mocked tests,
+capacity engine tests, data validator tests, and opportunity cleaner tests are
+currently passing.
+
+Week 4 capacity-aware RFP integration result:
+
+- `app/app.py` now passes the loaded `capacity_df` into
+  `generate_assignment_context()` using `director_df=capacity_df`.
+- The RFP page stores the recommendation capacity data source in
+  `st.session_state["rfp_capacity_data_source"]`.
+- The RFP results area labels whether director recommendations use Live CRM
+  capacity data, Pre-built `director_capacity_df.csv`, or Synthetic
+  mock/fallback capacity data.
+- If mock capacity data is used, the UI warns that recommendations should not
+  be treated as final CGI assignment guidance.
+- This closes the Week 4 integration gap where the RFP page previously called
+  `generate_assignment_context(rfp_text)` without passing director capacity
+  data.
+
+Validation after the capacity-aware RFP page update:
+
+| Area | Command | Result |
+| --- | --- | --- |
+| App syntax check | `python -m py_compile app/app.py` | Passed |
+| RFP-related tests | `python -m pytest tests/test_rfp_preprocessor.py tests/test_vector_store.py tests/test_rfp_engine.py` | 32 passed in 2.10s |
+| Full test suite | `python -m pytest` | 108 passed, 2 warnings in 1.86s |
+
 ## 6. Demo Checklist
 
 - [ ] Start Streamlit from the repository root.

@@ -1072,13 +1072,19 @@ norm. They should be reviewed and adjusted with CGI judgment.
 #  PAGE 2 – RFP Assignment Tool
 # ==============================================================================
 elif page == "RFP Assignment Tool":
+    rfp_capacity_source_label = {
+        "real": "Live CRM capacity data",
+        "prebuilt": "Pre-built director_capacity_df.csv",
+        "mock": "Synthetic mock capacity data",
+    }.get(_data_source, "Unknown capacity data source")
 
     st.markdown(
         "<div style='background:#F5F2EC;border:1px solid #E7E2D8;border-radius:8px;"
         "padding:0.75rem 1.1rem;margin-bottom:1.2rem;font-size:0.82rem;color:#57534E'>"
         "This page uses the current <b>fallback RFP assignment pipeline</b>. "
-        "Results are generated from local retrieval and heuristic/prototype assignment logic "
-        "while Azure-backed retrieval is pending."
+        "Retrieval is local fallback / heuristic while Azure-backed retrieval is pending. "
+        "Director recommendations use the currently loaded capacity data when available "
+        "and remain prototype guidance, not final business decisions."
         "</div>",
         unsafe_allow_html=True,
     )
@@ -1118,11 +1124,20 @@ elif page == "RFP Assignment Tool":
             if not rfp_text.strip():
                 st.session_state.pop("rfp_assignment_context", None)
                 st.session_state.pop("rfp_assignment_input", None)
+                st.session_state.pop("rfp_capacity_data_source", None)
                 st.warning("Please paste RFP text before running the analysis.")
             else:
                 try:
-                    st.session_state["rfp_assignment_context"] = generate_assignment_context(rfp_text)
+                    st.session_state["rfp_assignment_context"] = generate_assignment_context(
+                        rfp_text,
+                        director_df=capacity_df,
+                    )
                     st.session_state["rfp_assignment_input"] = rfp_text
+                    st.session_state["rfp_capacity_data_source"] = {
+                        "source": _data_source,
+                        "label": rfp_capacity_source_label,
+                        "is_mock": _data_source == "mock",
+                    }
                     st.session_state.pop("rfp_assignment_error", None)
                 except Exception as exc:
                     st.session_state["rfp_assignment_error"] = str(exc)
@@ -1178,10 +1193,27 @@ elif page == "RFP Assignment Tool":
                 unsafe_allow_html=True,
             )
         else:
+            capacity_source = st.session_state.get("rfp_capacity_data_source") or {
+                "source": _data_source,
+                "label": rfp_capacity_source_label,
+                "is_mock": _data_source == "mock",
+            }
+            capacity_source_label = str(capacity_source.get("label") or rfp_capacity_source_label)
+            if capacity_source.get("is_mock"):
+                st.warning(
+                    "Director recommendations are using synthetic mock/fallback capacity data. "
+                    "Do not treat them as final CGI assignment guidance."
+                )
+            else:
+                st.info(
+                    f"Director recommendations are using {capacity_source_label}."
+                )
+
             st.info(
-                "Prototype fallback output: this analysis uses local fallback retrieval "
-                "and heuristic assignment logic while Azure-backed retrieval is pending. "
-                "Do not treat it as final CGI assignment guidance."
+                "Prototype output: retrieval still uses local fallback / heuristic logic "
+                "while Azure-backed retrieval is pending. Director recommendations are "
+                "capacity-aware when capacity data is available, but remain prototype "
+                "guidance rather than final business decisions."
             )
 
             st.markdown('<div class="sec-head">RFP Summary</div>', unsafe_allow_html=True)
