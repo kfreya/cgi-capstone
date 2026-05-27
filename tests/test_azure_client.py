@@ -63,8 +63,22 @@ def test_validate_azure_config_requires_embedding_settings(monkeypatch):
         azure_client.validate_azure_config(require_embedding=True)
 
     message = str(exc_info.value)
+    assert "AZURE_OPENAI_EMBEDDINGS_ENDPOINT" in message
     assert "AZURE_OPENAI_API_VERSION" in message
     assert "AZURE_OPENAI_EMBEDDING_DEPLOYMENT" in message
+
+
+def test_validate_azure_config_accepts_embedding_endpoint_for_embeddings(monkeypatch):
+    _clear_azure_env(monkeypatch)
+    _disable_dotenv(monkeypatch)
+    monkeypatch.setenv("AZURE_OPENAI_API_KEY", "test-key")
+    monkeypatch.setenv("AZURE_OPENAI_EMBEDDINGS_ENDPOINT", "https://embeddings.openai.azure.com")
+    monkeypatch.setenv("AZURE_OPENAI_API_VERSION", "2024-02-01")
+    monkeypatch.setenv("AZURE_OPENAI_EMBEDDING_DEPLOYMENT", "embedding-deployment")
+
+    config = azure_client.validate_azure_config(require_embedding=True)
+
+    assert config["azure_embedding_endpoint"] == "https://embeddings.openai.azure.com"
 
 
 def test_embed_texts_rejects_empty_input():
@@ -76,7 +90,8 @@ def test_get_azure_openai_client_uses_config_without_api_call(monkeypatch):
     _clear_azure_env(monkeypatch)
     _disable_dotenv(monkeypatch)
     monkeypatch.setenv("AZURE_OPENAI_API_KEY", "test-key")
-    monkeypatch.setenv("AZURE_OPENAI_ENDPOINT", "https://example.openai.azure.com")
+    monkeypatch.setenv("AZURE_OPENAI_ENDPOINT", "https://general.openai.azure.com")
+    monkeypatch.setenv("AZURE_OPENAI_EMBEDDINGS_ENDPOINT", "https://embeddings.openai.azure.com")
     monkeypatch.setenv("AZURE_OPENAI_API_VERSION", "2024-02-01")
     monkeypatch.setenv("AZURE_OPENAI_EMBEDDING_DEPLOYMENT", "embedding-deployment")
 
@@ -91,44 +106,53 @@ def test_get_azure_openai_client_uses_config_without_api_call(monkeypatch):
     assert isinstance(client, FakeAzureOpenAI)
     assert captured == {
         "api_key": "test-key",
-        "azure_endpoint": "https://example.openai.azure.com",
+        "azure_endpoint": "https://general.openai.azure.com",
         "api_version": "2024-02-01",
     }
 
 
-def test_embed_texts_returns_mocked_vectors(monkeypatch):
+def test_embed_texts_uses_embedding_endpoint_and_returns_mocked_vectors(monkeypatch):
     _clear_azure_env(monkeypatch)
     _disable_dotenv(monkeypatch)
     monkeypatch.setenv("AZURE_OPENAI_API_KEY", "test-key")
-    monkeypatch.setenv("AZURE_OPENAI_ENDPOINT", "https://example.openai.azure.com")
+    monkeypatch.setenv("AZURE_OPENAI_ENDPOINT", "https://general.openai.azure.com")
+    monkeypatch.setenv("AZURE_OPENAI_EMBEDDINGS_ENDPOINT", "https://embeddings.openai.azure.com")
     monkeypatch.setenv("AZURE_OPENAI_API_VERSION", "2024-02-01")
     monkeypatch.setenv("AZURE_OPENAI_EMBEDDING_DEPLOYMENT", "embedding-deployment")
 
-    captured = {}
+    captured_client = {}
+    captured_embedding_call = {}
 
     class FakeEmbeddings:
         def create(self, model, input):
-            captured["model"] = model
-            captured["input"] = input
+            captured_embedding_call["model"] = model
+            captured_embedding_call["input"] = input
             return SimpleNamespace(
                 data=[
                     SimpleNamespace(embedding=[0.1, 0.2, 0.3]),
                 ]
             )
 
-    class FakeClient:
-        embeddings = FakeEmbeddings()
+    class FakeAzureOpenAI:
+        def __init__(self, **kwargs):
+            captured_client.update(kwargs)
+            self.embeddings = FakeEmbeddings()
 
     monkeypatch.setattr(
         azure_client,
-        "get_azure_openai_client",
-        lambda *args, **kwargs: FakeClient(),
+        "_load_azure_openai_cls",
+        lambda: FakeAzureOpenAI,
     )
 
     embeddings = azure_client.embed_texts(["hello"])
 
     assert embeddings == [[0.1, 0.2, 0.3]]
-    assert captured == {
+    assert captured_client == {
+        "api_key": "test-key",
+        "azure_endpoint": "https://embeddings.openai.azure.com",
+        "api_version": "2024-02-01",
+    }
+    assert captured_embedding_call == {
         "model": "embedding-deployment",
         "input": ["hello"],
     }
@@ -155,7 +179,7 @@ def test_optional_embedding_helpers_when_present(monkeypatch):
 
     # With minimal embedding env, helpers should select an embedding callable.
     monkeypatch.setenv("AZURE_OPENAI_API_KEY", "test-key")
-    monkeypatch.setenv("AZURE_OPENAI_ENDPOINT", "https://example.openai.azure.com")
+    monkeypatch.setenv("AZURE_OPENAI_EMBEDDINGS_ENDPOINT", "https://embeddings.openai.azure.com")
     monkeypatch.setenv("AZURE_OPENAI_API_VERSION", "2024-02-01")
     monkeypatch.setenv("AZURE_OPENAI_EMBEDDING_DEPLOYMENT", "embedding-deployment")
 
@@ -181,7 +205,7 @@ def test_try_validate_azure_config_reports_missing_keys(monkeypatch):
     config, missing = try_validate(require_embedding=True)
     assert config is None
     assert isinstance(missing, list)
-    assert "AZURE_OPENAI_ENDPOINT" in ", ".join(missing)
+    assert "AZURE_OPENAI_EMBEDDINGS_ENDPOINT" in ", ".join(missing)
     assert "AZURE_OPENAI_API_VERSION" in ", ".join(missing)
     assert "AZURE_OPENAI_EMBEDDING_DEPLOYMENT" in ", ".join(missing)
 
