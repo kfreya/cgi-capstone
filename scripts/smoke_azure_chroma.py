@@ -77,17 +77,38 @@ def main() -> None:
     query_embedding = embed_texts([query])[0]
     results = store.query(query_embedding, top_k=2)
 
+    stored_chunks = store.collection.count()
     top_ids = results.get("ids", [[]])[0]
     top_distances = results.get("distances", [[]])[0]
     top_documents = results.get("documents", [[]])[0]
+    query_result_count = len(top_ids)
     top_document = top_documents[0] if top_documents else ""
+    first_result_mentions_cloud = "cloud" in top_document.lower()
 
-    print(f"stored_chunks: {store.collection.count()}")
-    print(f"query_result_count: {len(top_ids)}")
+    print(f"stored_chunks: {stored_chunks}")
+    print(f"query_result_count: {query_result_count}")
     print(f"top_ids: {top_ids}")
     print(f"top_distances: {top_distances}")
     print(f"top_document_preview: {top_document[:160]}")
-    print(f"first_result_mentions_cloud: {'cloud' in top_document.lower()}")
+    print(f"first_result_mentions_cloud: {first_result_mentions_cloud}")
+
+    failures = []
+    if stored_chunks != 3:
+        failures.append(f"stored_chunks expected 3, got {stored_chunks}")
+    if query_result_count < 1:
+        failures.append(f"query_result_count expected at least 1, got {query_result_count}")
+    if not top_ids:
+        failures.append("top_ids expected to be non-empty")
+    elif top_ids[0] != "smoke-cloud-modernization":
+        failures.append(
+            "top_ids[0] expected smoke-cloud-modernization, "
+            f"got {top_ids[0]}"
+        )
+    if first_result_mentions_cloud is not True:
+        failures.append("first_result_mentions_cloud expected True")
+
+    if failures:
+        raise SystemExit("Smoke test failed: " + "; ".join(failures))
 
 
 if __name__ == "__main__":

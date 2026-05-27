@@ -13,11 +13,12 @@ The Director Capacity Dashboard uses cleaned opportunity data, capacity scoring,
 `director_capacity_df`, and Streamlit display components to help stakeholders
 inspect relative director workload and capacity signals.
 
-The RFP Assignment Tool uses pasted RFP text, chunking, retrieved examples,
-`assignment_context`, `recommended_directors`, `risk_flags`, and Streamlit
-display components to show how future RFP assignment support could work. The
-current Streamlit RFP demo path remains a fallback / heuristic prototype unless
-Azure-backed Chroma retrieval is fully tested and integrated.
+The RFP Assignment Tool uses pasted RFP text as the retrieval query against
+chunked historical/sample examples, then builds `assignment_context`,
+`recommended_directors`, `risk_flags`, and Streamlit display components to show
+how future RFP assignment support could work. The current Streamlit RFP demo
+path remains a fallback / heuristic prototype unless Azure-backed Chroma
+retrieval is fully tested and integrated.
 
 The project is scoped as a transparent final prototype, not a production system
 or final business decision engine.
@@ -29,8 +30,9 @@ or final business decision engine.
 - Produces a director-level capacity table through `director_capacity_df`.
 - Shows capacity labels, relative load, and supporting workload indicators.
 - Provides a working Streamlit RFP Assignment Tool page for pasted RFP text.
-- Supports the official fallback RFP demo path using local chunking, fallback
-  retrieval, assignment context generation, and dashboard display.
+- Supports the official fallback RFP demo path using pasted RFP text as the
+  query, fallback retrieval over a chunked historical/sample corpus, assignment
+  context generation, and dashboard display.
 - Preserves a stable dashboard-facing `assignment_context` structure with
   `retrieved_examples`, `recommended_directors`, and `risk_flags`.
 - Documents where the prototype uses real data processing, heuristics,
@@ -58,9 +60,9 @@ or final business decision engine.
 Official Week 4 fallback demo path:
 
 ```text
-sample RFP text
--> chunking
--> local fallback retrieval
+pasted RFP text
+-> used as the local fallback retrieval query
+-> retrieval over chunked historical/sample corpus
 -> assignment_context with real capacity_df / director capacity output when available
 -> Streamlit RFP page display
 ```
@@ -80,7 +82,11 @@ The fallback path remains the official Week 4 Streamlit demo path unless Azure
 + Chroma retrieval is integrated into the RFP engine and Streamlit flow. Azure
 embedding access and a sample Azure + Chroma retrieval smoke test have passed,
 but the Streamlit RFP page should not yet be described as fully Azure-backed. In
-both paths, the RFP Assignment Tool should pass real capacity data into
+the current fallback Streamlit path, new pasted RFP input is not chunked before
+retrieval; the historical/sample retrieval corpus is chunked. The Azure +
+Chroma smoke test validates sample chunk storage and query behavior, but that
+path is not yet integrated into the Streamlit RFP flow. In both paths, the RFP
+Assignment Tool should pass real capacity data into
 `generate_assignment_context()` when available so
 `recommended_directors` is capacity-aware. Fallback or mock director data should
 only be used when real capacity data cannot be loaded, and the UI/report should
@@ -95,7 +101,9 @@ clearly label which data source is being used.
 - [ ] Confirm dashboard labels and explanations do not imply exact utilization.
 - [ ] Confirm the RFP page accepts pasted sample RFP text.
 - [ ] Confirm empty or whitespace-only RFP input is handled with a warning.
-- [ ] Confirm RFP text is chunked before retrieval.
+- [ ] Confirm pasted RFP text is used as the fallback retrieval query.
+- [ ] Confirm the historical/sample retrieval corpus is chunked before
+  retrieval.
 - [ ] Confirm local fallback retrieval returns dashboard-facing examples.
 - [ ] Confirm the RFP Assignment Tool passes real `capacity_df` /
   `director_capacity_df` output into `generate_assignment_context()` when
@@ -123,7 +131,7 @@ Recorded local QA commands and results:
 | App syntax check | `python -m py_compile app/app.py` | Passed |
 | RFP-related tests | `python -m pytest tests/test_rfp_preprocessor.py tests/test_vector_store.py tests/test_rfp_engine.py` | 32 passed in 2.67s |
 | Azure client mocked tests | `python -m pytest tests/test_azure_client.py` | 9 passed |
-| Full test suite | `python -m pytest` | 108 passed, 2 warnings in 2.00s |
+| Full test suite | `python -m pytest` | 109 passed, 2 warnings |
 | Azure + Chroma smoke test | `python scripts/smoke_azure_chroma.py` | `stored_chunks: 3`; `query_result_count: 2`; top result `smoke-cloud-modernization`; `first_result_mentions_cloud: True` |
 
 Azure environment check:
@@ -152,8 +160,7 @@ or secret values are included in this document.
 environment did not currently have `pytest` installed. The recorded full-suite
 result therefore uses the active local Python environment.
 
-The two warnings came from `src/capacity_engine.py` around a `FutureWarning` in
-`combine_first` behavior. They did not fail the tests.
+The remaining warnings do not fail the tests.
 
 Azure is no longer blocked at the environment/configuration level. Minimal real
 Azure embedding smoke testing passed with `embedding_count: 1`,
@@ -220,7 +227,7 @@ Validation after the capacity-aware RFP page update:
 | --- | --- | --- |
 | App syntax check | `python -m py_compile app/app.py` | Passed |
 | RFP-related tests | `python -m pytest tests/test_rfp_preprocessor.py tests/test_vector_store.py tests/test_rfp_engine.py` | 32 passed in 2.10s |
-| Full test suite | `python -m pytest` | 108 passed, 2 warnings in 1.86s |
+| Full test suite | `python -m pytest` | 109 passed, 2 warnings |
 
 ### Manual Streamlit Demo Check
 
@@ -292,8 +299,10 @@ The demo combines live capacity data with fallback/sample retrieval evidence.
 | `director_capacity_df` | Real prototype output | Used by the Streamlit capacity dashboard. |
 | Streamlit capacity display | Real prototype UI | Stakeholder-facing dashboard view. |
 | RFP text input | Real prototype UI | Uses pasted RFP text in Streamlit. |
-| RFP chunking | Real local code | Splits input text into retrievable chunks. |
-| Local RFP retrieval | Fallback | Official Week 4 fallback demo retrieval path. |
+| RFP input query | Real prototype behavior | Uses pasted RFP text as the fallback retrieval query. |
+| Historical/sample corpus chunking | Real local code | Splits the historical/sample retrieval corpus into retrievable chunks. |
+| New input RFP chunking | Not currently implemented in fallback Streamlit path | Pasted RFP text is not chunked before retrieval in the current fallback Streamlit flow. |
+| Local RFP retrieval | Fallback | Official Week 4 fallback demo retrieval path over the chunked historical/sample corpus. |
 | `assignment_context` | Real prototype contract | Contains summary, effort, examples, recommendations, risks, and notes. |
 | Recommended directors | Heuristic / fallback-sensitive | Should not be presented as final CGI assignment guidance. |
 | Risk flags | Heuristic prototype | Helps surface uncertainty and limitations. |
