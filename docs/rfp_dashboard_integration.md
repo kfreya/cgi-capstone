@@ -2,9 +2,9 @@
 
 ## Owner: Freya
 
-## Week 3 status
+## Week 3 Status
 
-This below records Week 3 Streamlit RFP Assignment Tool page integration. It covers the page structure, the `assignment_context` field mapping, empty/error state handling, prototype labelling, and current limitations.
+The following records the Week 3 Streamlit RFP Assignment Tool page integration. It covers the page structure, the `assignment_context` field mapping, empty/error state handling, prototype labelling, and current limitations.
 
 ------------------------------------------------------------------------
 
