@@ -1,12 +1,6 @@
----
-editor_options: 
-  markdown: 
-    wrap: 72
----
-
 # Week 4 Report Notes — Freya
 
-**Role:** LLM Enrichment + Final RFP Output Quality + Dashboard Polish
+**Role:** LLM Enrichment + RFP Output Quality Check + Dashboard Polish
 
 ------------------------------------------------------------------------
 
