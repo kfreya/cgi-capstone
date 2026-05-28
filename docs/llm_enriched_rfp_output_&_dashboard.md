@@ -1,7 +1,6 @@
-# Week 4 Role 4 Report Notes — Freya
+# Week 4 Report Notes — Freya
 
-**Role:** Final RFP Output Quality + Dashboard Polish Owner
-**Week:** May 26–31, 2026
+**Role:** LLM Enrichment + Final RFP Output Quality + Dashboard Polish
 
 ---
 
