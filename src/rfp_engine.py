@@ -11,6 +11,7 @@ For example: `python src/rfp_engine.py`.
 
 from __future__ import annotations
 
+import json
 import math
 from typing import Any
 
@@ -21,6 +22,9 @@ except ModuleNotFoundError:
     from rfp_preprocessor import load_sample_rfp_text, prepare_rfp_chunks
     from vector_store import build_vector_store
 
+
+_AUTO = object()
+_RFP_SNIPPET_CHARS = 4000
 
 SERVICE_KEYWORDS = {
     "cloud": {"cloud", "azure", "infrastructure", "migration"},
@@ -49,6 +53,7 @@ def generate_assignment_context(
     rfp_text: str,
     director_df: Any = None,
     historical_chunks: list[dict[str, Any]] | None = None,
+    _chat_fn: Any = _AUTO,
 ):
     """Generate the RFP assignment context used by the dashboard.
 
@@ -59,7 +64,9 @@ def generate_assignment_context(
     @param rfp_text: New RFP text pasted or uploaded in the dashboard.
     @param director_df: Optional director/capacity dataframe or similar object.
     @param historical_chunks: Optional prebuilt historical/sample chunk corpus.
-    @return: Week 3 dashboard-ready RFP assignment context.
+    @param _chat_fn: Chat function for LLM enrichment. Pass None to disable,
+        or a callable to override. Defaults to auto-detect Azure chat availability.
+    @return: Week 4 dashboard-ready RFP assignment context.
     """
 
     used_sample_corpus = historical_chunks is None
@@ -77,10 +84,21 @@ def generate_assignment_context(
         example["chunk_id"] for example in retrieved_examples
     ]
     director_records = _director_records(director_df)
+
+    chat_fn = _resolve_chat_fn(_chat_fn)
+    llm_data: dict[str, Any] | None = None
+    llm_failed = False
+    if chat_fn is not None and rfp_text.strip():
+        llm_data = _llm_enrich(rfp_text, director_records, chat_fn)
+        if llm_data is None:
+            llm_failed = True
+    llm_used = llm_data is not None
+
     risk_flags = _risk_flags(
         retrieved_examples,
         used_sample_corpus=used_sample_corpus,
         director_records=director_records,
+        llm_failed=llm_failed,
     )
     recommended_directors = _director_recommendations(
         director_records or [_mock_director_record()],
@@ -90,14 +108,26 @@ def generate_assignment_context(
         retrieved_examples,
     )
 
+    if llm_used:
+        rfp_summary = llm_data.get("rfp_summary") or _summarize_rfp_text(rfp_text)
+        effort = llm_data.get("effort") or _effort_estimate(rfp_text, retrieved_examples)
+        if isinstance(effort, dict) and "reason" in effort and "rationale" not in effort:
+            effort["rationale"] = effort["reason"]
+        match_reasons = llm_data.get("director_match_reasons") or {}
+        if match_reasons:
+            _inject_llm_match_reasons(recommended_directors, match_reasons)
+    else:
+        rfp_summary = _summarize_rfp_text(rfp_text)
+        effort = _effort_estimate(rfp_text, retrieved_examples)
+
     return {
-        "rfp_summary": _summarize_rfp_text(rfp_text),
-        "effort": _effort_estimate(rfp_text, retrieved_examples),
+        "rfp_summary": rfp_summary,
+        "effort": effort,
         "similar_rfps": _similar_rfps(retrieved_examples),
         "retrieved_examples": retrieved_examples,
         "recommended_directors": recommended_directors,
         "risk_flags": risk_flags,
-        "notes": _notes(used_sample_corpus=used_sample_corpus),
+        "notes": _notes(used_sample_corpus=used_sample_corpus, llm_used=llm_used),
     }
 
 
@@ -306,12 +336,14 @@ def _risk_flags(
     retrieved_examples: list[dict[str, Any]],
     used_sample_corpus: bool = False,
     director_records: list[dict[str, Any]] | None = None,
+    llm_failed: bool = False,
 ) -> list[dict[str, str]]:
     """Create simple prototype risk flags for the dashboard.
 
     @param retrieved_examples: Retrieved chunks from the local baseline.
     @param used_sample_corpus: Whether built-in fallback historical text was used.
     @param director_records: Director records passed into the assignment logic.
+    @param llm_failed: Whether an LLM enrichment attempt was made but failed.
     @return: Risk flag dictionaries.
     """
 
@@ -383,16 +415,39 @@ def _risk_flags(
                     ),
                 }
             )
+    if llm_failed:
+        flags.append(
+            {
+                "level": "Low",
+                "message": (
+                    "Azure OpenAI chat enrichment was attempted but failed. "
+                    "Heuristic RFP summary, effort estimate, and match reasons "
+                    "are shown instead."
+                ),
+            }
+        )
     return flags
 
 
-def _notes(used_sample_corpus: bool = False) -> str:
+def _notes(used_sample_corpus: bool = False, llm_used: bool = False) -> str:
     """Create a short note describing the current prototype mode.
 
     @param used_sample_corpus: Whether built-in fallback historical text was used.
+    @param llm_used: Whether LLM enrichment succeeded.
     @return: Dashboard note string.
     """
 
+    if llm_used:
+        base = (
+            "Prototype output enriched with Azure OpenAI chat analysis. "
+            "Retrieval remains local fallback."
+        )
+        if used_sample_corpus:
+            return (
+                base + " Built-in sample historical corpus used because real "
+                "historical proposal data was unavailable."
+            )
+        return base
     if used_sample_corpus:
         return (
             "Prototype output for dashboard integration. Built-in sample "
@@ -717,3 +772,121 @@ def _is_overextended(record: dict[str, Any]) -> bool:
     label = str(record.get("capacity_label", "")).strip().lower()
     relative_load = _as_float(record.get("relative_load"), default=0.0)
     return label == "overextended" or relative_load >= 2.0
+
+
+def _resolve_chat_fn(chat_fn_param: Any):
+    """Return a callable chat function or None from the _chat_fn parameter.
+
+    - None  → LLM disabled
+    - _AUTO → auto-detect Azure chat availability
+    - other → use directly as the chat callable
+    """
+
+    if chat_fn_param is None:
+        return None
+    if chat_fn_param is not _AUTO:
+        return chat_fn_param
+    try:
+        from src.azure_client import azure_chat_available, chat_completion
+    except ImportError:
+        try:
+            from azure_client import azure_chat_available, chat_completion  # type: ignore
+        except ImportError:
+            return None
+    if azure_chat_available():
+        return chat_completion
+    return None
+
+
+def _build_llm_messages(
+    rfp_text: str,
+    director_records: list[dict[str, Any]],
+) -> list[dict[str, str]]:
+    """Build the chat messages list for the LLM enrichment call."""
+
+    snippet = rfp_text[:_RFP_SNIPPET_CHARS]
+    director_names = [
+        str(r.get("director_name", r.get("opportunity_owner", r.get("name", "Director A"))))
+        for r in director_records
+    ] or ["Director A"]
+    system_msg = (
+        "You are an RFP analysis assistant for a consulting firm. "
+        "Analyze the RFP text and return a JSON object with exactly these fields:\n"
+        '  "rfp_summary": string (2-3 sentence summary of what the RFP is requesting)\n'
+        '  "effort": object with "level" (one of: Low, Medium, High), '
+        '"reason" (1-2 sentences explaining the estimate), '
+        '"estimated_duration" (e.g. "3-5 weeks")\n'
+        '  "director_match_reasons": object mapping each director name to a '
+        "1-2 sentence explanation of why they may be a good fit\n"
+        "Return ONLY valid JSON. Do not include markdown code fences."
+    )
+    user_msg = (
+        f"RFP TEXT:\n{snippet}\n\n"
+        f"CANDIDATE DIRECTORS: {', '.join(director_names)}\n\n"
+        "Return your analysis as JSON."
+    )
+    return [
+        {"role": "system", "content": system_msg},
+        {"role": "user", "content": user_msg},
+    ]
+
+
+def _llm_enrich(
+    rfp_text: str,
+    director_records: list[dict[str, Any]],
+    chat_fn,
+) -> dict[str, Any] | None:
+    """Call the LLM and return enriched fields, or None on any failure."""
+
+    try:
+        messages = _build_llm_messages(rfp_text, director_records)
+        raw = chat_fn(messages)
+        if not raw or not raw.strip():
+            return None
+        cleaned = raw.strip()
+        if cleaned.startswith("```"):
+            lines = cleaned.split("\n")
+            end = -1 if lines[-1].strip() == "```" else len(lines)
+            cleaned = "\n".join(lines[1:end])
+        data = json.loads(cleaned)
+        if not isinstance(data, dict):
+            return None
+        normalized: dict[str, Any] = {}
+        summary = data.get("rfp_summary")
+        if isinstance(summary, str) and summary.strip():
+            normalized["rfp_summary"] = summary.strip()
+        effort = data.get("effort")
+        if isinstance(effort, dict):
+            normalized_effort = dict(effort)
+            if normalized_effort.get("level") not in {"Low", "Medium", "High"}:
+                normalized_effort["level"] = "Medium"
+            normalized_effort["reason"] = str(normalized_effort.get("reason") or "")
+            normalized_effort["estimated_duration"] = str(
+                normalized_effort.get("estimated_duration") or ""
+            )
+            normalized_effort["rationale"] = normalized_effort["reason"]
+            normalized["effort"] = normalized_effort
+        match_reasons = data.get("director_match_reasons")
+        if isinstance(match_reasons, dict):
+            normalized["director_match_reasons"] = {
+                str(name): str(reason)
+                for name, reason in match_reasons.items()
+                if reason
+            }
+        if not normalized:
+            return None
+        return normalized
+    except Exception:
+        return None
+
+
+def _inject_llm_match_reasons(
+    recommended_directors: list[dict[str, Any]],
+    match_reasons: dict[str, str],
+) -> None:
+    """Overwrite heuristic match_reason values with LLM-generated ones in place."""
+
+    for director in recommended_directors:
+        name = director.get("director_name", "")
+        if name in match_reasons and match_reasons[name]:
+            director["match_reason"] = str(match_reasons[name])

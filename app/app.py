@@ -532,7 +532,7 @@ st.markdown(
       <div class="cgi-vdivider"></div>
       <div class="cgi-title-group">
         <div class="cgi-page-title">{page}</div>
-        <div class="cgi-page-sub">CGI Atlantic · Media Atlantic Business Unit · Week 3 Prototype</div>
+        <div class="cgi-page-sub">CGI Atlantic · Media Atlantic Business Unit · Week 4 Final Prototype</div>
       </div>
     </div>
     """,
@@ -1081,10 +1081,12 @@ elif page == "RFP Assignment Tool":
     st.markdown(
         "<div style='background:#F5F2EC;border:1px solid #E7E2D8;border-radius:8px;"
         "padding:0.75rem 1.1rem;margin-bottom:1.2rem;font-size:0.82rem;color:#57534E'>"
-        "This page uses the current <b>fallback RFP assignment pipeline</b>. "
-        "Retrieval is local fallback / heuristic while Azure-backed retrieval is pending. "
-        "Director recommendations use the currently loaded capacity data when available "
-        "and remain prototype guidance, not final business decisions."
+        "<b>Week 4 Final Prototype — RFP Assignment Tool</b><br>"
+        "<span style='color:#92400E'>Retrieval:</span> local fallback / heuristic "
+        "(Azure-backed retrieval not yet integrated into this Streamlit flow). &nbsp;"
+        "<span style='color:#065F46'>Capacity data:</span> real director capacity scores when available. &nbsp;"
+        "<span style='color:#57534E'>Recommendations:</span> prototype guidance only — "
+        "not final CGI assignment decisions."
         "</div>",
         unsafe_allow_html=True,
     )
@@ -1100,6 +1102,7 @@ elif page == "RFP Assignment Tool":
             disabled=True,
             help="Available once RFP document parsing is connected (Role 5)",
         )
+        st.caption("Upload not yet connected — paste RFP text directly below (paste-only workflow).")
 
         rfp_text = st.text_area(
             "RFP text",
@@ -1199,22 +1202,21 @@ elif page == "RFP Assignment Tool":
                 "is_mock": _data_source == "mock",
             }
             capacity_source_label = str(capacity_source.get("label") or rfp_capacity_source_label)
+
+            _retrieval_note = (
+                "Retrieval: local fallback / heuristic (Azure-backed retrieval not yet integrated "
+                "into this Streamlit flow)."
+            )
             if capacity_source.get("is_mock"):
                 st.warning(
-                    "Director recommendations are using synthetic mock/fallback capacity data. "
-                    "Do not treat them as final CGI assignment guidance."
+                    f"**Prototype output — heuristic recommendations using synthetic mock capacity data.** "
+                    f"Do not treat as final CGI assignment guidance. {_retrieval_note}"
                 )
             else:
                 st.info(
-                    f"Director recommendations are using {capacity_source_label}."
+                    f"**Prototype output** — capacity-aware recommendations using {capacity_source_label}. "
+                    f"{_retrieval_note}"
                 )
-
-            st.info(
-                "Prototype output: retrieval still uses local fallback / heuristic logic "
-                "while Azure-backed retrieval is pending. Director recommendations are "
-                "capacity-aware when capacity data is available, but remain prototype "
-                "guidance rather than final business decisions."
-            )
 
             st.markdown('<div class="sec-head">RFP Summary</div>', unsafe_allow_html=True)
             st.write(context.get("rfp_summary") or "No summary returned.")
@@ -1299,9 +1301,15 @@ elif page == "RFP Assignment Tool":
             else:
                 for flag in risk_flags:
                     if isinstance(flag, dict):
-                        level = flag.get("level", "Info")
+                        level = str(flag.get("level", "Info")).strip()
                         message = flag.get("message", "")
-                        st.warning(f"{level}: {message}" if message else str(level))
+                        display_text = f"**{level}:** {message}" if message else f"**{level}**"
+                        if level == "High":
+                            st.error(display_text)
+                        elif level == "Medium":
+                            st.warning(display_text)
+                        else:
+                            st.info(display_text)
                     else:
                         st.warning(str(flag))
 
