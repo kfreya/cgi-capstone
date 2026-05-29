@@ -8,7 +8,7 @@ from src.azure_client import (
     azure_embedding_available,
     embed_texts,
     get_azure_environment_status,
-    get_azure_embeddings_client,
+    get_azure_embedding_client,
     get_embedding_function,
     missing_azure_config,
     try_validate_azure_config,
@@ -29,7 +29,7 @@ def embedding_missing_keys() -> list[str]:
 
 
 def embedding_client():
-    return get_azure_embeddings_client()
+    return get_azure_embedding_client()
 
 
 def embedding_callable(prefer_azure: bool = True):

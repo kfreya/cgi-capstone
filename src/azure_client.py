@@ -20,8 +20,8 @@ BASE_CONFIG_KEYS = (
     "AZURE_OPENAI_ENDPOINT",
 )
 EMBEDDING_CONFIG_KEYS = (
-    "AZURE_OPENAI_API_VERSION",
     "AZURE_OPENAI_EMBEDDINGS_ENDPOINT",
+    "AZURE_OPENAI_API_VERSION",
 )
 DEFAULT_EMBEDDING_MODEL = "text-embedding-3-large"
 
@@ -51,12 +51,12 @@ def missing_azure_config(require_embedding: bool = False) -> list[str]:
     if not api_key:
         missing.append("AZURE_OPENAI_API_KEY or OPENAI_API_KEY")
 
-    for key in BASE_CONFIG_KEYS:
-        if not os.getenv(key):
-            missing.append(key)
-
     if require_embedding:
         for key in EMBEDDING_CONFIG_KEYS:
+            if not os.getenv(key):
+                missing.append(key)
+    else:
+        for key in BASE_CONFIG_KEYS:
             if not os.getenv(key):
                 missing.append(key)
 
@@ -78,8 +78,8 @@ def try_validate_azure_config(require_embedding: bool = False) -> tuple[dict[str
         {
             "api_key": api_key or "",
             "azure_endpoint": os.getenv("AZURE_OPENAI_ENDPOINT", ""),
+            "azure_embedding_endpoint": os.getenv("AZURE_OPENAI_EMBEDDINGS_ENDPOINT", ""),
             "api_version": os.getenv("AZURE_OPENAI_API_VERSION", ""),
-            "embeddings_endpoint": os.getenv("AZURE_OPENAI_EMBEDDINGS_ENDPOINT", ""),
             "embedding_model": _get_embedding_model(),
         },
         [],
@@ -100,8 +100,8 @@ def validate_azure_config(require_embedding: bool = False) -> dict[str, str]:
     config = {
         "api_key": api_key or "",
         "azure_endpoint": os.getenv("AZURE_OPENAI_ENDPOINT", ""),
+        "azure_embedding_endpoint": os.getenv("AZURE_OPENAI_EMBEDDINGS_ENDPOINT", ""),
         "api_version": os.getenv("AZURE_OPENAI_API_VERSION", ""),
-        "embeddings_endpoint": os.getenv("AZURE_OPENAI_EMBEDDINGS_ENDPOINT", ""),
         "embedding_model": _get_embedding_model(),
     }
 
@@ -139,14 +139,14 @@ def get_azure_openai_client(azure_openai_cls=None):
     )
 
 
-def get_azure_embeddings_client(azure_openai_cls=None):
-    """Create an Azure OpenAI SDK client for embeddings without making an API call."""
+def get_azure_embedding_client(azure_openai_cls=None):
+    """Create an Azure OpenAI SDK client for embedding calls."""
 
     config = validate_azure_config(require_embedding=True)
     azure_openai_cls = azure_openai_cls or _load_azure_openai_cls()
     return azure_openai_cls(
         api_key=config["api_key"],
-        azure_endpoint=config["embeddings_endpoint"],
+        azure_endpoint=config["azure_embedding_endpoint"],
         api_version=config["api_version"],
     )
 
@@ -163,7 +163,7 @@ def embed_texts(texts: Sequence[str]) -> list[list[float]]:
         raise ValueError("texts must contain at least one item")
 
     config = validate_azure_config(require_embedding=True)
-    client = get_azure_embeddings_client()
+    client = get_azure_embedding_client()
     response = client.embeddings.create(
         model=config["embedding_model"],
         input=list(texts),
@@ -217,3 +217,64 @@ def can_run_azure_embedding_smoke_test() -> bool:
     return azure_embedding_available()
 
 # --- Week 3 Add-ons Ends here ---
+
+
+# --- Week 4 Chat Add-ons Starts here ---
+def azure_chat_available() -> bool:
+    """Return True if chat config looks usable (no API call)."""
+    load_dotenv(ENV_PATH)
+    return bool(
+        (os.getenv("AZURE_OPENAI_API_KEY") or os.getenv("OPENAI_API_KEY"))
+        and os.getenv("AZURE_OPENAI_ENDPOINT")
+        and os.getenv("AZURE_OPENAI_API_VERSION")
+        and os.getenv("AZURE_OPENAI_CHAT_DEPLOYMENT")
+    )
+
+
+def chat_completion(
+    messages: list[dict[str, str]],
+    *,
+    temperature: float = 0.2,
+    max_tokens: int = 800,
+    azure_openai_cls=None,
+) -> str:
+    """Call the Azure OpenAI chat deployment and return the response text.
+
+    @param messages: Chat messages as list of role/content dicts.
+    @param temperature: Sampling temperature.
+    @param max_tokens: Maximum response tokens.
+    @return: Response message content as a string.
+    @raises ValueError: If required configuration is missing.
+    """
+    load_dotenv(ENV_PATH)
+    api_key = os.getenv("AZURE_OPENAI_API_KEY") or os.getenv("OPENAI_API_KEY")
+    azure_endpoint = os.getenv("AZURE_OPENAI_ENDPOINT", "")
+    api_version = os.getenv("AZURE_OPENAI_API_VERSION", "")
+    chat_deployment = os.getenv("AZURE_OPENAI_CHAT_DEPLOYMENT", "")
+    missing = [
+        k
+        for k, v in {
+            "AZURE_OPENAI_API_KEY": api_key,
+            "AZURE_OPENAI_ENDPOINT": azure_endpoint,
+            "AZURE_OPENAI_API_VERSION": api_version,
+            "AZURE_OPENAI_CHAT_DEPLOYMENT": chat_deployment,
+        }.items()
+        if not v
+    ]
+    if missing:
+        raise ValueError(f"Missing chat configuration: {', '.join(missing)}")
+    azure_openai_cls = azure_openai_cls or _load_azure_openai_cls()
+    client = azure_openai_cls(
+        api_key=api_key,
+        azure_endpoint=azure_endpoint,
+        api_version=api_version,
+    )
+    response = client.chat.completions.create(
+        model=chat_deployment,
+        messages=messages,
+        temperature=temperature,
+        max_tokens=max_tokens,
+    )
+    return response.choices[0].message.content or ""
+
+# --- Week 4 Chat Add-ons Ends here ---
