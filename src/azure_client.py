@@ -21,8 +21,19 @@ BASE_CONFIG_KEYS = (
 )
 EMBEDDING_CONFIG_KEYS = (
     "AZURE_OPENAI_API_VERSION",
-    "AZURE_OPENAI_EMBEDDING_DEPLOYMENT",
+    "AZURE_OPENAI_EMBEDDINGS_ENDPOINT",
 )
+DEFAULT_EMBEDDING_MODEL = "text-embedding-3-large"
+
+
+def _get_embedding_model() -> str:
+    """Return the embedding model/deployment name for Azure embeddings."""
+
+    return (
+        os.getenv("AZURE_OPENAI_EMBEDDING_DEPLOYMENT")
+        or os.getenv("AZURE_OPENAI_EMBEDDING_MODEL")
+        or DEFAULT_EMBEDDING_MODEL
+    )
 
 def missing_azure_config(require_embedding: bool = False) -> list[str]:
     """Return missing Azure OpenAI configuration keys (does not raise).
@@ -68,7 +79,8 @@ def try_validate_azure_config(require_embedding: bool = False) -> tuple[dict[str
             "api_key": api_key or "",
             "azure_endpoint": os.getenv("AZURE_OPENAI_ENDPOINT", ""),
             "api_version": os.getenv("AZURE_OPENAI_API_VERSION", ""),
-            "embedding_deployment": os.getenv("AZURE_OPENAI_EMBEDDING_DEPLOYMENT", ""),
+            "embeddings_endpoint": os.getenv("AZURE_OPENAI_EMBEDDINGS_ENDPOINT", ""),
+            "embedding_model": _get_embedding_model(),
         },
         [],
     )
@@ -89,7 +101,8 @@ def validate_azure_config(require_embedding: bool = False) -> dict[str, str]:
         "api_key": api_key or "",
         "azure_endpoint": os.getenv("AZURE_OPENAI_ENDPOINT", ""),
         "api_version": os.getenv("AZURE_OPENAI_API_VERSION", ""),
-        "embedding_deployment": os.getenv("AZURE_OPENAI_EMBEDDING_DEPLOYMENT", ""),
+        "embeddings_endpoint": os.getenv("AZURE_OPENAI_EMBEDDINGS_ENDPOINT", ""),
+        "embedding_model": _get_embedding_model(),
     }
 
     missing_config = missing_azure_config(require_embedding=require_embedding)
@@ -117,11 +130,23 @@ def _load_azure_openai_cls():
 def get_azure_openai_client(azure_openai_cls=None):
     """Create an Azure OpenAI SDK client without making an API call."""
 
-    config = validate_azure_config(require_embedding=True)
+    config = validate_azure_config(require_embedding=False)
     azure_openai_cls = azure_openai_cls or _load_azure_openai_cls()
     return azure_openai_cls(
         api_key=config["api_key"],
         azure_endpoint=config["azure_endpoint"],
+        api_version=config["api_version"],
+    )
+
+
+def get_azure_embeddings_client(azure_openai_cls=None):
+    """Create an Azure OpenAI SDK client for embeddings without making an API call."""
+
+    config = validate_azure_config(require_embedding=True)
+    azure_openai_cls = azure_openai_cls or _load_azure_openai_cls()
+    return azure_openai_cls(
+        api_key=config["api_key"],
+        azure_endpoint=config["embeddings_endpoint"],
         api_version=config["api_version"],
     )
 
@@ -138,9 +163,9 @@ def embed_texts(texts: Sequence[str]) -> list[list[float]]:
         raise ValueError("texts must contain at least one item")
 
     config = validate_azure_config(require_embedding=True)
-    client = get_azure_openai_client()
+    client = get_azure_embeddings_client()
     response = client.embeddings.create(
-        model=config["embedding_deployment"],
+        model=config["embedding_model"],
         input=list(texts),
     )
     return [list(item.embedding) for item in response.data]
