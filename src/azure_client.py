@@ -183,3 +183,64 @@ def get_embedding_function(prefer_azure: bool = True):
     return None
 
 # --- Week 3 Add-ons Ends here ---
+
+
+# --- Week 4 Chat Add-ons Starts here ---
+def azure_chat_available() -> bool:
+    """Return True if chat config looks usable (no API call)."""
+    load_dotenv(ENV_PATH)
+    return bool(
+        (os.getenv("AZURE_OPENAI_API_KEY") or os.getenv("OPENAI_API_KEY"))
+        and os.getenv("AZURE_OPENAI_ENDPOINT")
+        and os.getenv("AZURE_OPENAI_API_VERSION")
+        and os.getenv("AZURE_OPENAI_CHAT_DEPLOYMENT")
+    )
+
+
+def chat_completion(
+    messages: list[dict[str, str]],
+    *,
+    temperature: float = 0.2,
+    max_tokens: int = 800,
+    azure_openai_cls=None,
+) -> str:
+    """Call the Azure OpenAI chat deployment and return the response text.
+
+    @param messages: Chat messages as list of role/content dicts.
+    @param temperature: Sampling temperature.
+    @param max_tokens: Maximum response tokens.
+    @return: Response message content as a string.
+    @raises ValueError: If required configuration is missing.
+    """
+    load_dotenv(ENV_PATH)
+    api_key = os.getenv("AZURE_OPENAI_API_KEY") or os.getenv("OPENAI_API_KEY")
+    azure_endpoint = os.getenv("AZURE_OPENAI_ENDPOINT", "")
+    api_version = os.getenv("AZURE_OPENAI_API_VERSION", "")
+    chat_deployment = os.getenv("AZURE_OPENAI_CHAT_DEPLOYMENT", "")
+    missing = [
+        k
+        for k, v in {
+            "AZURE_OPENAI_API_KEY": api_key,
+            "AZURE_OPENAI_ENDPOINT": azure_endpoint,
+            "AZURE_OPENAI_API_VERSION": api_version,
+            "AZURE_OPENAI_CHAT_DEPLOYMENT": chat_deployment,
+        }.items()
+        if not v
+    ]
+    if missing:
+        raise ValueError(f"Missing chat configuration: {', '.join(missing)}")
+    azure_openai_cls = azure_openai_cls or _load_azure_openai_cls()
+    client = azure_openai_cls(
+        api_key=api_key,
+        azure_endpoint=azure_endpoint,
+        api_version=api_version,
+    )
+    response = client.chat.completions.create(
+        model=chat_deployment,
+        messages=messages,
+        temperature=temperature,
+        max_tokens=max_tokens,
+    )
+    return response.choices[0].message.content or ""
+
+# --- Week 4 Chat Add-ons Ends here ---

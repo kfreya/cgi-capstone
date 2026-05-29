@@ -78,14 +78,14 @@ sample RFP text
 -> Streamlit RFP page display
 ```
 
-The fallback path remains the official Week 4 Streamlit demo path unless Azure
-+ Chroma retrieval is integrated into the RFP engine and Streamlit flow. Azure
-embedding access and a sample Azure + Chroma retrieval smoke test have passed,
-but the Streamlit RFP page should not yet be described as fully Azure-backed. In
-the current fallback Streamlit path, new pasted RFP input is not chunked before
-retrieval; the historical/sample retrieval corpus is chunked. The Azure +
-Chroma smoke test validates sample chunk storage and query behavior, but that
-path is not yet integrated into the Streamlit RFP flow. In both paths, the RFP
+The fallback path remains the official Week 4 Streamlit demo path unless
+Azure+Chroma retrieval is integrated into the RFP engine and Streamlit flow.
+Azure embedding access and a sample Azure+Chroma retrieval smoke test have
+passed, but the Streamlit RFP page should not yet be described as fully
+Azure-backed. In the current fallback Streamlit path, new pasted RFP input is
+not chunked before retrieval; the historical/sample retrieval corpus is chunked.
+The Azure+Chroma smoke test validates sample chunk storage and query behavior,
+but that path is not yet integrated into the Streamlit RFP flow. In both paths, the RFP
 Assignment Tool should pass real capacity data into
 `generate_assignment_context()` when available so
 `recommended_directors` is capacity-aware. Fallback or mock director data should
@@ -121,6 +121,13 @@ clearly label which data source is being used.
 - [ ] Confirm Azure keys, endpoints, and secret values are not printed.
 - [ ] Confirm Azure + Chroma smoke-test success is not presented as a fully
   Azure-backed Streamlit RFP flow.
+- [ ] Confirm `azure_chat_available()` returns True when all chat env vars are present.
+- [ ] Confirm `chat_completion()` uses `AZURE_OPENAI_ENDPOINT`, not the embeddings endpoint.
+- [ ] Confirm LLM enrichment replaces `rfp_summary`, `effort`, and `match_reason` when Azure chat is available.
+- [ ] Confirm heuristic output is used transparently when LLM is unavailable or raises.
+- [ ] Confirm a Low risk flag is added when LLM enrichment was attempted but failed.
+- [ ] Confirm the `notes` field indicates LLM enrichment when active.
+- [ ] Confirm empty RFP text skips LLM enrichment.
 
 ### Recorded Local QA Results
 
@@ -129,9 +136,9 @@ Recorded local QA commands and results:
 | Area | Command | Result |
 | --- | --- | --- |
 | App syntax check | `python -m py_compile app/app.py` | Passed |
-| RFP-related tests | `python -m pytest tests/test_rfp_preprocessor.py tests/test_vector_store.py tests/test_rfp_engine.py` | 32 passed in 2.67s |
-| Azure client mocked tests | `python -m pytest tests/test_azure_client.py` | 9 passed |
-| Full test suite | `python -m pytest` | 109 passed, 2 warnings |
+| RFP-related tests | `python -m pytest tests/test_rfp_preprocessor.py tests/test_vector_store.py tests/test_rfp_engine.py` | 39 passed (19 engine + 8 preprocessor + 12 vector store), 1 warning |
+| Azure client mocked tests | `python -m pytest tests/test_azure_client.py` | 13 passed |
+| Full test suite | `python -m pytest` | 120 passed, 1 warning |
 | Azure + Chroma smoke test | `python scripts/smoke_azure_chroma.py` | `stored_chunks: 3`; `query_result_count: 2`; top result `smoke-cloud-modernization`; `first_result_mentions_cloud: True` |
 
 Azure environment check:
@@ -226,8 +233,8 @@ Validation after the capacity-aware RFP page update:
 | Area | Command | Result |
 | --- | --- | --- |
 | App syntax check | `python -m py_compile app/app.py` | Passed |
-| RFP-related tests | `python -m pytest tests/test_rfp_preprocessor.py tests/test_vector_store.py tests/test_rfp_engine.py` | 32 passed in 2.10s |
-| Full test suite | `python -m pytest` | 109 passed, 2 warnings |
+| RFP-related tests | `python -m pytest tests/test_rfp_preprocessor.py tests/test_vector_store.py tests/test_rfp_engine.py` | 39 passed, 1 warning |
+| Full test suite | `python -m pytest` | 120 passed, 1 warning |
 
 ### Manual Streamlit Demo Check
 
@@ -309,7 +316,8 @@ The demo combines live capacity data with fallback/sample retrieval evidence.
 | Azure OpenAI embeddings | Smoke-test validated | Environment/configuration is available; minimal embedding test returned one numeric 1536-dimension vector. |
 | Azure + Chroma sample retrieval | Smoke-test validated | `scripts/smoke_azure_chroma.py` added/query-tested three chunks with precomputed Azure embeddings; top result matched the cloud query direction. |
 | Streamlit Azure-backed RFP retrieval | Not yet integrated | The RFP page remains fallback/local unless the Azure + Chroma path is connected through the RFP engine and Streamlit flow. |
-| Azure chat deployment | Config available / not part of embedding smoke test | Chat deployment is configured but not required for embedding-only smoke testing. |
+| Azure chat deployment — `azure_chat_available()` / `chat_completion()` | Integrated | `src/azure_client.py` now exposes `azure_chat_available()` (config check, no API call) and `chat_completion()` (uses `AZURE_OPENAI_ENDPOINT` + `AZURE_OPENAI_CHAT_DEPLOYMENT`). |
+| LLM enrichment in RFP engine | Integrated — fallback-safe | `generate_assignment_context()` accepts `_chat_fn=_AUTO`. When Azure chat is configured, LLM replaces `rfp_summary`, `effort`, and per-director `match_reason`. Heuristic fallback fires on any failure; a Low risk flag is added. Empty text skips LLM. |
 | Sample or placeholder director data | Mock / fallback when used | Only applies when real `capacity_df` is unavailable. |
 
 ## 9. Final Limitations and Caveats

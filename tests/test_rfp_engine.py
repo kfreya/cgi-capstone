@@ -7,11 +7,26 @@ Run tests from the repository root so imports resolve consistently. For example:
 `python -m pytest tests/test_rfp_engine.py`.
 """
 
+import json as _json
+from unittest.mock import patch
+
 import pandas as pd
+import pytest
 
 from src.rfp_preprocessor import prepare_rfp_chunks
 from src.rfp_engine import generate_assignment_context
 from src.vector_store import build_vector_store
+
+
+@pytest.fixture(autouse=True)
+def _disable_llm():
+    """Prevent LLM auto-detection from making real API calls in all tests.
+
+    Tests that want to exercise the LLM path pass _chat_fn=fake_fn directly,
+    which bypasses this fixture entirely.
+    """
+    with patch("src.azure_client.azure_chat_available", return_value=False):
+        yield
 
 
 def test_generate_assignment_context_matches_dashboard_contract():
@@ -405,3 +420,179 @@ def test_generate_assignment_context_effort_uses_complexity_signals():
     assert output["effort"]["level"] == "High"
     assert "service areas" in output["effort"]["reason"]
     assert "complexity terms" in output["effort"]["reason"]
+
+
+# ---------------------------------------------------------------------------
+# LLM enrichment tests — these pass _chat_fn directly and bypass auto-detect
+# ---------------------------------------------------------------------------
+
+_SAMPLE_CHUNK = {
+    "proposal_id": "llm_test_proposal",
+    "chunk_id": "llm_test_chunk_001",
+    "source_type": "proposal",
+    "text": "Prior Azure cloud migration proposal.",
+    "chunk_index": 0,
+    "opportunity_owner": None,
+    "opportunity_id": None,
+}
+
+
+def test_llm_enrichment_happy_path():
+    """LLM output replaces heuristic summary, effort, and match reasons."""
+
+    fake_response = _json.dumps({
+        "rfp_summary": "LLM-generated summary of this RFP.",
+        "effort": {
+            "level": "High",
+            "reason": "Complex multi-service engagement.",
+            "estimated_duration": "8-12 weeks",
+        },
+        "director_match_reasons": {
+            "Director A": "Strong cloud expertise matches this RFP.",
+        },
+    })
+
+    def fake_chat(messages):
+        return fake_response
+
+    output = generate_assignment_context(
+        "Need Azure cloud migration and security review.",
+        historical_chunks=[_SAMPLE_CHUNK],
+        _chat_fn=fake_chat,
+    )
+
+    assert output["rfp_summary"] == "LLM-generated summary of this RFP."
+    assert output["effort"]["level"] == "High"
+    assert output["effort"]["reason"] == "Complex multi-service engagement."
+    assert output["effort"]["rationale"] == "Complex multi-service engagement."
+    assert output["effort"]["estimated_duration"] == "8-12 weeks"
+    assert "Azure OpenAI chat analysis" in output["notes"]
+    assert output["recommended_directors"][0]["match_reason"] == (
+        "Strong cloud expertise matches this RFP."
+    )
+
+
+def test_llm_enrichment_exception_falls_back_to_heuristic():
+    """When the LLM raises, heuristic output is used and a Low risk flag is added."""
+
+    def failing_chat(messages):
+        raise RuntimeError("API unavailable")
+
+    output = generate_assignment_context(
+        "Need cloud analytics dashboard support.",
+        historical_chunks=[_SAMPLE_CHUNK],
+        _chat_fn=failing_chat,
+    )
+
+    assert isinstance(output["rfp_summary"], str)
+    assert output["effort"]["level"] in {"Low", "Medium", "High"}
+    assert any(
+        "chat enrichment" in flag["message"].lower()
+        for flag in output["risk_flags"]
+    )
+    assert "Azure OpenAI chat analysis" not in output["notes"]
+
+
+def test_llm_enrichment_malformed_json_falls_back_to_heuristic():
+    """When LLM returns non-JSON, heuristic output is used."""
+
+    def bad_json_chat(messages):
+        return "This is not JSON at all."
+
+    output = generate_assignment_context(
+        "Need managed services and change management.",
+        historical_chunks=[_SAMPLE_CHUNK],
+        _chat_fn=bad_json_chat,
+    )
+
+    assert isinstance(output["rfp_summary"], str)
+    assert output["effort"]["level"] in {"Low", "Medium", "High"}
+    assert any(
+        "chat enrichment" in flag["message"].lower()
+        for flag in output["risk_flags"]
+    )
+
+
+def test_llm_enrichment_partial_json_uses_available_fields():
+    """When LLM returns partial JSON, available fields are used and effort falls back."""
+
+    def partial_chat(messages):
+        return _json.dumps({"rfp_summary": "Partial LLM summary."})
+
+    output = generate_assignment_context(
+        "Need Azure cloud migration.",
+        historical_chunks=[_SAMPLE_CHUNK],
+        _chat_fn=partial_chat,
+    )
+
+    assert output["rfp_summary"] == "Partial LLM summary."
+    assert output["effort"]["level"] in {"Low", "Medium", "High"}
+    assert "Azure OpenAI chat analysis" in output["notes"]
+
+
+def test_llm_enrichment_invalid_effort_type_falls_back_to_heuristic_effort():
+    """Invalid LLM effort shapes should not break the backend effort contract."""
+
+    def invalid_effort_chat(messages):
+        return _json.dumps({
+            "rfp_summary": "LLM summary with invalid effort.",
+            "effort": "High",
+        })
+
+    output = generate_assignment_context(
+        "Need Azure cloud migration.",
+        historical_chunks=[_SAMPLE_CHUNK],
+        _chat_fn=invalid_effort_chat,
+    )
+
+    assert output["rfp_summary"] == "LLM summary with invalid effort."
+    assert isinstance(output["effort"], dict)
+    assert output["effort"]["level"] in {"Low", "Medium", "High"}
+    assert output["effort"]["rationale"] == output["effort"]["reason"]
+    assert "Azure OpenAI chat analysis" in output["notes"]
+
+
+def test_llm_enrichment_invalid_match_reasons_type_does_not_crash():
+    """Invalid match-reason shapes should keep heuristic director reasons."""
+
+    def invalid_match_reasons_chat(messages):
+        return _json.dumps({
+            "rfp_summary": "LLM summary with invalid match reasons.",
+            "effort": {
+                "level": "Low",
+                "reason": "Small request.",
+                "estimated_duration": "1-2 weeks",
+            },
+            "director_match_reasons": "Director A",
+        })
+
+    output = generate_assignment_context(
+        "Need Azure cloud migration.",
+        historical_chunks=[_SAMPLE_CHUNK],
+        _chat_fn=invalid_match_reasons_chat,
+    )
+
+    assert output["rfp_summary"] == "LLM summary with invalid match reasons."
+    assert output["effort"]["level"] == "Low"
+    assert output["recommended_directors"][0]["match_reason"]
+    assert output["recommended_directors"][0]["match_reason"] != "Director A"
+    assert "Azure OpenAI chat analysis" in output["notes"]
+
+
+def test_llm_skipped_for_empty_rfp_text():
+    """LLM is not called when RFP text is empty; heuristic output is returned."""
+
+    call_count = {"n": 0}
+
+    def counting_chat(messages):
+        call_count["n"] += 1
+        return _json.dumps({"rfp_summary": "Should not appear."})
+
+    output = generate_assignment_context(
+        "",
+        historical_chunks=[_SAMPLE_CHUNK],
+        _chat_fn=counting_chat,
+    )
+
+    assert call_count["n"] == 0
+    assert isinstance(output["rfp_summary"], str)

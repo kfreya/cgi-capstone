@@ -212,3 +212,69 @@ def test_try_validate_azure_config_reports_missing_keys(monkeypatch):
     # missing_azure_config should be consistent with try_validate
     missing_direct = missing_keys(require_embedding=True)
     assert set(missing).issubset(set(missing_direct))
+
+
+def test_azure_chat_available_returns_true_with_full_chat_env(monkeypatch):
+    _clear_azure_env(monkeypatch)
+    _disable_dotenv(monkeypatch)
+    monkeypatch.setenv("AZURE_OPENAI_API_KEY", "test-key")
+    monkeypatch.setenv("AZURE_OPENAI_ENDPOINT", "https://general.openai.azure.com")
+    monkeypatch.setenv("AZURE_OPENAI_API_VERSION", "2024-02-01")
+    monkeypatch.setenv("AZURE_OPENAI_CHAT_DEPLOYMENT", "gpt-4o")
+
+    assert azure_client.azure_chat_available() is True
+
+
+def test_azure_chat_available_returns_false_when_chat_deployment_missing(monkeypatch):
+    _clear_azure_env(monkeypatch)
+    _disable_dotenv(monkeypatch)
+    monkeypatch.setenv("AZURE_OPENAI_API_KEY", "test-key")
+    monkeypatch.setenv("AZURE_OPENAI_ENDPOINT", "https://general.openai.azure.com")
+    monkeypatch.setenv("AZURE_OPENAI_API_VERSION", "2024-02-01")
+    # AZURE_OPENAI_CHAT_DEPLOYMENT intentionally absent
+
+    assert azure_client.azure_chat_available() is False
+
+
+def test_chat_completion_raises_without_chat_config(monkeypatch):
+    _clear_azure_env(monkeypatch)
+    _disable_dotenv(monkeypatch)
+
+    with pytest.raises(ValueError, match="Missing chat configuration"):
+        azure_client.chat_completion([{"role": "user", "content": "hello"}])
+
+
+def test_chat_completion_uses_general_endpoint_and_returns_content(monkeypatch):
+    _clear_azure_env(monkeypatch)
+    _disable_dotenv(monkeypatch)
+    monkeypatch.setenv("AZURE_OPENAI_API_KEY", "test-key")
+    monkeypatch.setenv("AZURE_OPENAI_ENDPOINT", "https://general.openai.azure.com")
+    monkeypatch.setenv("AZURE_OPENAI_EMBEDDINGS_ENDPOINT", "https://embeddings.openai.azure.com")
+    monkeypatch.setenv("AZURE_OPENAI_API_VERSION", "2024-02-01")
+    monkeypatch.setenv("AZURE_OPENAI_CHAT_DEPLOYMENT", "gpt-4o")
+
+    captured = {}
+
+    class FakeCompletions:
+        def create(self, model, messages, temperature, max_tokens):
+            captured["model"] = model
+            captured["messages"] = messages
+            return SimpleNamespace(
+                choices=[SimpleNamespace(message=SimpleNamespace(content="Test response"))]
+            )
+
+    class FakeAzureOpenAI:
+        def __init__(self, **kwargs):
+            captured.update(kwargs)
+            self.chat = SimpleNamespace(completions=FakeCompletions())
+
+    result = azure_client.chat_completion(
+        [{"role": "user", "content": "hello"}],
+        azure_openai_cls=FakeAzureOpenAI,
+    )
+
+    assert result == "Test response"
+    assert captured["azure_endpoint"] == "https://general.openai.azure.com"
+    assert captured["azure_endpoint"] != "https://embeddings.openai.azure.com"
+    assert captured["model"] == "gpt-4o"
+    assert captured["messages"] == [{"role": "user", "content": "hello"}]
