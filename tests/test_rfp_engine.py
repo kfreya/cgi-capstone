@@ -49,6 +49,8 @@ def test_generate_assignment_context_matches_dashboard_contract():
         "retrieved_examples",
         "recommended_directors",
         "risk_flags",
+        "retrieval_mode",
+        "retrieval_status",
         "notes",
     }
     assert output["retrieved_examples"][0]["chunk_id"] == "historical_azure_chunk_001"
@@ -67,7 +69,9 @@ def test_generate_assignment_context_matches_dashboard_contract():
     assert "capacity_explanation" in output["recommended_directors"][0]
     assert "experience_match_explanation" in output["recommended_directors"][0]
     assert isinstance(output["recommended_directors"][0]["supporting_chunks"], list)
-    assert output["notes"] == "Prototype output for dashboard integration."
+    assert output["notes"].startswith("Prototype output for dashboard integration.")
+    assert output["retrieval_mode"] in {"azure_chroma", "local_fallback"}
+    assert isinstance(output["retrieval_status"], dict)
 
 
 def test_generate_assignment_context_uses_mock_director_when_missing():

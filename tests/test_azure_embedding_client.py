@@ -14,7 +14,7 @@ def test_embedding_status_reports_blocked_when_env_missing(monkeypatch):
             "require_embedding": True,
             "missing": [
                 "AZURE_OPENAI_API_VERSION",
-                "AZURE_OPENAI_EMBEDDING_DEPLOYMENT",
+                "AZURE_OPENAI_EMBEDDINGS_ENDPOINT",
             ],
             "can_create_client": False,
             "can_embed": False,

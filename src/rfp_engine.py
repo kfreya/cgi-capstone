@@ -15,9 +15,11 @@ import math
 from typing import Any
 
 try:
+    from src.azure_rag_client import fallback_retrieval_report, preferred_retrieval_report
     from src.rfp_preprocessor import load_sample_rfp_text, prepare_rfp_chunks
     from src.vector_store import build_vector_store
 except ModuleNotFoundError:
+    from azure_rag_client import fallback_retrieval_report, preferred_retrieval_report
     from rfp_preprocessor import load_sample_rfp_text, prepare_rfp_chunks
     from vector_store import build_vector_store
 
@@ -68,11 +70,14 @@ def generate_assignment_context(
         if historical_chunks is not None
         else _default_historical_chunks()
     )
-    retrieved_examples = _retrieve_from_chunks(
+    retrieval_report = _build_retrieval_report(
         chunks=chunks,
         query=rfp_text,
         top_k=3,
     )
+    retrieval_mode = retrieval_report.get("retrieval_mode", retrieval_report.get("backend", "local_fallback"))
+    retrieval_status = retrieval_report.get("status", {})
+    retrieved_examples = retrieval_report.get("retrieved_examples", [])
     supporting_chunk_ids = [
         example["chunk_id"] for example in retrieved_examples
     ]
@@ -97,6 +102,8 @@ def generate_assignment_context(
         "retrieved_examples": retrieved_examples,
         "recommended_directors": recommended_directors,
         "risk_flags": risk_flags,
+        "retrieval_mode": retrieval_mode,
+        "retrieval_status": retrieval_status,
         "notes": _notes(used_sample_corpus=used_sample_corpus),
     }
 
@@ -127,6 +134,38 @@ def _retrieve_from_chunks(
         result.to_retrieved_example()
         for result in store.query(query, top_k=top_k)
     ]
+
+
+def _build_retrieval_report(
+    chunks: list[dict[str, Any]],
+    query: str,
+    top_k: int,
+) -> dict[str, Any]:
+    """Choose the preferred retrieval path and fall back if anything fails."""
+
+    try:
+        report = preferred_retrieval_report(
+            query_text=query,
+            historical_chunks=chunks,
+            top_k=top_k,
+        )
+        if report.get("retrieved_examples"):
+            return report
+    except Exception as exc:
+        fallback_report = fallback_retrieval_report(
+            query_text=query,
+            historical_chunks=chunks,
+            top_k=top_k,
+        )
+        fallback_report.setdefault("status", {})
+        fallback_report["status"]["preferred_path_error"] = str(exc)
+        return fallback_report
+
+    return fallback_retrieval_report(
+        query_text=query,
+        historical_chunks=chunks,
+        top_k=top_k,
+    )
 
 
 def _summarize_rfp_text(rfp_text: str, max_chars: int = 220) -> str:
@@ -386,18 +425,27 @@ def _risk_flags(
     return flags
 
 
-def _notes(used_sample_corpus: bool = False) -> str:
+def _notes(used_sample_corpus: bool = False, retrieval_mode: str = "local_fallback", retrieval_status: dict[str, Any] | None = None) -> str:
     """Create a short note describing the current prototype mode.
 
     @param used_sample_corpus: Whether built-in fallback historical text was used.
     @return: Dashboard note string.
     """
 
+    status_bits = []
+    if retrieval_mode:
+        status_bits.append(f"retrieval mode: {retrieval_mode}")
+    if retrieval_status and retrieval_status.get("preferred_path_error"):
+        status_bits.append("preferred path fell back after an error")
+
     if used_sample_corpus:
         return (
             "Prototype output for dashboard integration. Built-in sample "
-            "historical corpus used because real historical proposal data was unavailable."
+            "historical corpus used because real historical proposal data was unavailable. "
+            + ("; ".join(status_bits) + "." if status_bits else "")
         )
+    if status_bits:
+        return "Prototype output for dashboard integration. " + "; ".join(status_bits) + "."
     return "Prototype output for dashboard integration."
 
 
