@@ -2,15 +2,17 @@
 
 ## Purpose
 
-This document describes the Week 2 version of the RFP retrieval pipeline. The
-goal is to take proposal/RFP text, break it into searchable chunks, attach
-traceable metadata, and return a stable dashboard ready prototype output.
+This document describes the Week 3 version of the RFP retrieval and assignment
+pipeline. The goal is to take proposal/RFP text, break it into searchable
+chunks, attach traceable metadata, and return a stable dashboard ready
+assignment context.
 
 This supports the larger CGI Capacity Analyzer project by giving the future RFP
 assignment tool relevant historical examples when a new RFP comes in. Those
 retrieved examples can later help explain effort estimates, risk flags, and
-director recommendations. For Week 2, the priority is the interface and basic
-retrieval prototype, not a final recommendation model yet.
+director recommendations. For Week 3, the priority is improving the
+dashboard-facing assignment logic while keeping the fallback retrieval path and
+output schema stable.
 
 ## Data Assumptions
 
@@ -73,14 +75,14 @@ falls back to synthetic RFP text if the private data is not available.
 Running `python src/rfp_preprocessor.py` prints a short readable preview of the
 first generated chunk instead of dumping the full raw dictionary.
 
-The main dashboard-facing functions now match the Week 2 work plan:
+The main dashboard-facing functions now support the Week 3 RFP page contract:
 
 ```python
 def chunk_text(text: str, chunk_size: int = 500, overlap: int = 50) -> list[str]
 def prepare_rfp_chunks(rfp_text: str) -> list[dict]
 def build_vector_store(chunks: list[dict])
 def retrieve_relevant_chunks(query: str, top_k: int = 5)
-def generate_assignment_context(rfp_text: str, director_df=None)
+def generate_assignment_context(rfp_text: str, director_df=None, historical_chunks=None)
 ```
 
 For the dashboard wrapper, each chunk uses this flat metadata shape:
@@ -183,13 +185,13 @@ retrieve_relevant_chunks(query, top_k=5)
 
 ### `src/rfp_engine.py`
 
-This file connects the preprocessing and vector store wrappers into the mock
+This file connects the preprocessing and vector store wrappers into the
 assignment output expected by the Streamlit RFP page.
 
 The dashboard-facing function is:
 
 ```python
-generate_assignment_context(rfp_text, director_df=None)
+generate_assignment_context(rfp_text, director_df=None, historical_chunks=None)
 ```
 
 It returns:
@@ -197,6 +199,20 @@ It returns:
 ```python
 {
     "rfp_summary": "Short summary of the input RFP",
+    "effort": {
+        "level": "Medium",
+        "reason": "Heuristic estimate based on RFP length, service areas, complexity terms, and retrieved examples.",
+        "estimated_duration": "3-5 weeks",
+        "rationale": "Same value as reason; kept as a backward-compatible alias.",
+    },
+    "similar_rfps": [
+        {
+            "title": "proposal_001",
+            "similarity_score": 0.82,
+            "matched_chunk": "Relevant historical RFP or proposal chunk",
+            "source": "proposal_001_chunk_001",
+        }
+    ],
     "retrieved_examples": [
         {
             "proposal_id": "proposal_001",
@@ -211,7 +227,11 @@ It returns:
             "capacity_label": "Available",
             "capacity_score": 0.72,
             "relative_load": 0.65,
+            "assignment_score": 0.78,
             "match_reason": "Relevant historical experience and available capacity",
+            "capacity_explanation": "Capacity explanation shown in the dashboard.",
+            "experience_match_explanation": "Experience match explanation shown in the dashboard.",
+            "risk_flags": [],
             "supporting_chunks": ["proposal_001_chunk_001"],
         }
     ],
@@ -228,6 +248,50 @@ It returns:
 If real director capacity data is not available, the function uses a small mock
 director record so the dashboard can still be connected and tested.
 
+For Week 3, the assignment logic is still heuristic, but it now uses more than
+one signal:
+
+- RFP summary uses detected service areas plus the opening request text
+- effort estimate uses RFP length, service-area breadth, complexity terms, and
+  retrieved-example count
+- director assignment score uses `capacity_score`, `capacity_label`,
+  `relative_load`, retrieved similarity, and simple service-keyword overlap
+- risk flags cover fallback retrieval, limited examples, low similarity, missing
+  director capacity data, missing capacity fields, and overextended directors
+- risk flag messages explain why the result should be treated carefully, so the
+  dashboard can surface prototype limits instead of hiding them
+
+The assignment score is intentionally simple and explainable for this stage of
+the project. It combines capacity signals, retrieval similarity, and basic
+service-keyword overlap so the dashboard can show why a recommendation appeared.
+This is useful for prototype review, but it should not be treated as a final
+staffing decision.
+
+To manually smoke test the dashboard-facing function from the repository root:
+
+```bash
+python
+```
+
+Then run:
+
+```python
+from src.rfp_engine import generate_assignment_context
+
+rfp_text = """
+CGI is responding to an RFP for cloud migration, dashboard reporting,
+data analytics, managed services, and executive risk tracking.
+"""
+
+output = generate_assignment_context(rfp_text)
+
+output.keys()
+output["rfp_summary"]
+output["effort"]
+output["recommended_directors"]
+output["risk_flags"]
+```
+
 ### `tests/test_rfp_preprocessor.py`
 
 This file tests the preprocessing behavior using synthetic RFP records.
@@ -239,7 +303,7 @@ It checks that:
 - chunking uses overlap
 - invalid chunk settings raise clear errors
 - final chunks contain traceable metadata
-- `prepare_rfp_chunks()` returns the flat Week 2 dashboard chunk shape
+- `prepare_rfp_chunks()` returns the flat dashboard chunk shape
 
 ### `tests/test_vector_store.py`
 
@@ -251,7 +315,7 @@ It checks that:
 - invalid vector dimensions are rejected
 - the in-memory store ranks relevant chunks first
 - retrieved chunks can be formatted for RFP context
-- the dashboard payload has the Week 2 output shape
+- the dashboard payload has the current RFP output shape
 
 ### `tests/test_rfp_engine.py`
 
@@ -261,9 +325,13 @@ It checks that:
 
 - `generate_assignment_context()` returns the expected dashboard keys
 - recommended directors include `director_name`, `match_reason`,
-  `capacity_label`, `capacity_score`, `relative_load`, and `supporting_chunks`
+  `capacity_label`, `capacity_score`, `relative_load`, `assignment_score`,
+  explanations, risk flags, and `supporting_chunks`
 - `notes` is returned as a dashboard-friendly string
 - the wrapper still works if real director data is not passed in
+- director ranking, effort estimates, and risk flags behave consistently for
+  important fallback cases
+- empty dashboard input still returns safe output types instead of crashing
 
 ## Current Limitations
 
@@ -275,10 +343,9 @@ It checks that:
   model tokenizer before production use.
 - The Azure OpenAI embedding function is not implemented yet.
 - The Chroma wrapper is ready for precomputed embeddings, but the full
-  end-to-end persistence flow still needs to be connected. This is not required
-  for Week 2.
-- `generate_assignment_context()` is still a mock/basic integration wrapper, not
-  the final director recommendation model.
+  end-to-end Azure embedding and persistence flow still needs to be connected.
+- `generate_assignment_context()` now has heuristic assignment logic, but it is
+  still not the final director recommendation model.
 
 ## Mock vs Real Parts
 
@@ -294,8 +361,9 @@ Mock or temporary parts:
 
 - Azure OpenAI embeddings are not connected yet
 - Chroma persistence is not connected end to end yet
-- director ranking is placeholder logic until capacity scoring output is ready
-- risk flags are simple prototype flags, not final business logic
+- director ranking is heuristic until real capacity and experience signals are
+  fully wired in
+- risk flags are heuristic prototype flags, not final business logic
 
 ## Next Steps
 

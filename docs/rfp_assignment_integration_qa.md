@@ -69,8 +69,9 @@ Nested fields:
 `effort`:
 
 - `level`
+- `reason`
 - `estimated_duration`
-- `rationale`
+- `rationale` (backward-compatible alias for `reason`)
 
 `retrieved_examples`:
 
@@ -96,7 +97,8 @@ Naming decision:
 
 - Backend keeps the key `effort`.
 - Streamlit should display this as "Estimated Effort".
-- `effort.rationale` should be used as the displayed reason/explanation.
+- `effort.reason` should be used as the displayed reason/explanation, with
+  `effort.rationale` as a backward-compatible fallback.
 - Do not rename `effort` to `estimated_effort` before UI integration unless tests and dashboard are updated together.
 
 ## Integration QA Checklist
@@ -120,7 +122,7 @@ Naming decision:
   ```
 
 - [ ] Confirm `generate_assignment_context()` returns all required top-level keys.
-- [ ] Confirm `effort` includes `level` and `rationale`.
+- [ ] Confirm `effort` includes `level` and `reason`.
 - [ ] Confirm `retrieved_examples` is a list, even when empty.
 - [ ] Confirm `recommended_directors` is a list, even when using mock/fallback director data.
 - [ ] Confirm `risk_flags` is a list.
@@ -144,7 +146,7 @@ Naming decision:
   - `notes`
 - Smoke test summary:
   - `missing_required_keys`: `[]`
-  - `effort_keys`: `['estimated_duration', 'level', 'rationale']`
+  - `effort_keys`: `['estimated_duration', 'level', 'rationale', 'reason']`
   - `effort_level`: `Low`
   - `retrieved_examples_count`: `3`
   - `recommended_directors_count`: `1`
@@ -167,7 +169,7 @@ Naming decision:
 - The territory and service domain selectors remain UI context only for now and are not yet passed into backend scoring.
 - The page renders:
   - `rfp_summary`
-  - `effort` as "Estimated Effort", including level, estimated duration, and rationale
+  - `effort` as "Estimated Effort", including level, estimated duration, and reason
   - `retrieved_examples`
   - `recommended_directors`
   - `risk_flags`

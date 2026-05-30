@@ -43,13 +43,16 @@ cgi-capstone/
 │   ├── cleaned_opportunity_column_dictionary.md # cleaned opportunity schema
 │   ├── data_validation.md      # field validation findings and fallback notes
 │   ├── scoring_input_reliability.md # scoring input reliability contract
+│   ├── scoring_input_reliability_findings.md # detailed scoring input findings
 │   ├── capacity_scoring.md     # capacity scoring workflow and assumptions
 │   ├── capacity_engine_integration.md # capacity engine integration contract
 │   ├── director_capacity_dashboard_column_dictionary.md # dashboard output schema
 │   ├── dashboard_requirements.md # dashboard data and UI contracts
 │   ├── rfp_pipeline.md         # RFP preprocessing and retrieval pipeline
+│   ├── rfp_assignment_integration_qa.md # RFP assignment integration QA notes
+│   ├── azure_embedding_vector_store_notes.md # Azure embedding/vector-store notes
 │   ├── team_charter.md         # team working agreement
-│   └── time_management/        # weekly time-stamped report PDFs
+│   └── time_management/        # weekly team report PDFs and time-management artifacts
 ├── notebooks/                  # EDA and validation notebooks
 ├── data/                       # local-only CGI data and generated outputs, ignored by Git
 ├── .streamlit/
@@ -71,11 +74,14 @@ Core technical documentation:
 - [Cleaned opportunity column dictionary](docs/cleaned_opportunity_column_dictionary.md)
 - [Data validation](docs/data_validation.md)
 - [Scoring input reliability](docs/scoring_input_reliability.md)
+- [Scoring input reliability findings](docs/scoring_input_reliability_findings.md)
 - [Capacity scoring](docs/capacity_scoring.md)
 - [Capacity engine integration](docs/capacity_engine_integration.md)
 - [Director capacity dashboard column dictionary](docs/director_capacity_dashboard_column_dictionary.md)
 - [Dashboard requirements](docs/dashboard_requirements.md)
 - [RFP pipeline](docs/rfp_pipeline.md)
+- [RFP assignment integration QA](docs/rfp_assignment_integration_qa.md)
+- [Azure embedding and vector store notes](docs/azure_embedding_vector_store_notes.md)
 
 Project process documentation:
 
@@ -169,18 +175,18 @@ python -m pytest tests/test_capacity_engine.py
 python -m pytest tests/test_rfp_engine.py tests/test_vector_store.py
 ```
 
-## Week 2 Prototype Status
+## Week 3 Prototype Status
 
-This repository is a Week 2 integrated capstone prototype. It is not a
+This repository is a Week 3 integrated capstone prototype. It is not a
 production system.
 
 Week 1 established the project foundations:
 
 - Opportunity merge pipeline for the two anonymized opportunity Excel workbooks.
-- Data validation notes and reusable validation helpers for field quality checks and owner-level aggregates.
-- Base capacity scoring, dashboard, RFP preprocessing, and vector retrieval modules.
+- Validation notes and reusable helpers for field quality checks and owner-level aggregates.
+- Initial capacity scoring, dashboard, RFP preprocessing, and vector retrieval module skeletons.
 
-Week 2 moved the project toward a first integrated prototype:
+Week 2 moved the project toward an integrated capacity prototype:
 
 - Opportunity cleaning now produces `cleaned_opportunity_df.csv` and
   `owner_base_summary.csv` as local prepared artifacts.
@@ -188,13 +194,26 @@ Week 2 moved the project toward a first integrated prototype:
   current load to open sales pipeline plus active won delivery commitments.
 - The dashboard uses cleaned opportunity data when available, or raw
   `opportunity_df.csv` plus cleaning as a fallback.
-- The RFP pipeline provides preprocessing, chunking, sample historical
+- The initial RFP prototype provides preprocessing, chunking, sample historical
   retrieval, and a dashboard-compatible `generate_assignment_context()` output.
-- Documentation has been organized around functional areas: merge, cleaning,
-  validation, scoring, dashboard, and RFP pipeline.
 
-Full Azure/Chroma end-to-end integration, production retrieval quality, and
-final recommendation logic remain future work.
+Week 3 moved the RFP Assignment Tool and documentation closer to an integrated demo:
+
+- RFP data validation now documents proposal/response structure, text quality,
+  chunk metadata, representative sample chunk exports, and proposal-to-director
+  linkage limitations.
+- Azure embedding and vector-store helper work is in place while local fallback
+  retrieval remains available for demos and tests.
+- `generate_assignment_context()` is more stable for Streamlit integration, with
+  improved assignment logic, risk flags, and schema-oriented tests.
+- RFP dashboard integration notes and QA documentation capture fallback,
+  heuristic, mock, and real component boundaries.
+- Documentation filenames and README links have been cleaned up around canonical,
+  content-based documentation sources.
+
+Full Azure-backed Chroma retrieval, production retrieval quality,
+stakeholder-calibrated recommendation weights, and final demo polish remain
+ongoing work.
 
 ## Data Security
 
