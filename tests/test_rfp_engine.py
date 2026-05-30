@@ -131,7 +131,9 @@ def test_generate_assignment_context_does_not_retrieve_new_rfp_from_stale_store(
         for example in retrieved_examples
     )
     assert all(
-        example["chunk_id"].startswith("historical_sample_chunk_")
+        example["chunk_id"].startswith(
+            ("historical_sample_chunk_", "local_proposal_sample_chunk_")
+        )
         for example in retrieved_examples
     )
     assert all(
@@ -139,7 +141,10 @@ def test_generate_assignment_context_does_not_retrieve_new_rfp_from_stale_store(
         for example in retrieved_examples
     )
     assert any(
-        "sample historical corpus" in flag["message"].lower()
+        (
+            "sample historical corpus" in flag["message"].lower()
+            or "proposals_responses.json" in flag["message"].lower()
+        )
         for flag in output["risk_flags"]
     )
 

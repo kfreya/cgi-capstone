@@ -1131,6 +1131,8 @@ elif page == "RFP Assignment Tool":
                 st.warning("Please paste RFP text before running the analysis.")
             else:
                 try:
+                    # Pass the same capacity table used by the dashboard so
+                    # RFP recommendations use real/local capacity signals when available.
                     st.session_state["rfp_assignment_context"] = generate_assignment_context(
                         rfp_text,
                         director_df=capacity_df,

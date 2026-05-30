@@ -16,10 +16,18 @@ import math
 from typing import Any
 
 try:
-    from src.rfp_preprocessor import load_sample_rfp_text, prepare_rfp_chunks
+    from src.rfp_preprocessor import (
+        DEFAULT_PROPOSAL_JSON_PATH,
+        load_sample_rfp_text,
+        prepare_rfp_chunks,
+    )
     from src.vector_store import build_vector_store
 except ModuleNotFoundError:
-    from rfp_preprocessor import load_sample_rfp_text, prepare_rfp_chunks
+    from rfp_preprocessor import (
+        DEFAULT_PROPOSAL_JSON_PATH,
+        load_sample_rfp_text,
+        prepare_rfp_chunks,
+    )
     from vector_store import build_vector_store
 
 
@@ -69,7 +77,10 @@ def generate_assignment_context(
     @return: Week 4 dashboard-ready RFP assignment context.
     """
 
-    used_sample_corpus = historical_chunks is None
+    used_default_corpus = historical_chunks is None
+    used_local_proposal_json = (
+        used_default_corpus and DEFAULT_PROPOSAL_JSON_PATH.exists()
+    )
     chunks = (
         historical_chunks
         if historical_chunks is not None
@@ -96,7 +107,8 @@ def generate_assignment_context(
 
     risk_flags = _risk_flags(
         retrieved_examples,
-        used_sample_corpus=used_sample_corpus,
+        used_default_corpus=used_default_corpus,
+        used_local_proposal_json=used_local_proposal_json,
         director_records=director_records,
         llm_failed=llm_failed,
     )
@@ -127,7 +139,11 @@ def generate_assignment_context(
         "retrieved_examples": retrieved_examples,
         "recommended_directors": recommended_directors,
         "risk_flags": risk_flags,
-        "notes": _notes(used_sample_corpus=used_sample_corpus, llm_used=llm_used),
+        "notes": _notes(
+            used_default_corpus=used_default_corpus,
+            used_local_proposal_json=used_local_proposal_json,
+            llm_used=llm_used,
+        ),
     }
 
 
@@ -136,12 +152,17 @@ def _default_historical_chunks() -> list[dict[str, Any]]:
 
     sample_text = load_sample_rfp_text()
     chunks = prepare_rfp_chunks(sample_text)
+    source_label = (
+        "local_proposal_sample"
+        if DEFAULT_PROPOSAL_JSON_PATH.exists()
+        else "historical_sample"
+    )
     for chunk in chunks:
-        chunk["proposal_id"] = "historical_sample"
+        chunk["proposal_id"] = source_label
         chunk["chunk_id"] = (
-            f"historical_sample_chunk_{int(chunk['chunk_index']) + 1:03d}"
+            f"{source_label}_chunk_{int(chunk['chunk_index']) + 1:03d}"
         )
-        chunk["source_type"] = "historical_sample"
+        chunk["source_type"] = source_label
     return chunks
 
 
@@ -334,21 +355,35 @@ def _director_records(director_df: Any) -> list[dict[str, Any]]:
 
 def _risk_flags(
     retrieved_examples: list[dict[str, Any]],
-    used_sample_corpus: bool = False,
+    used_default_corpus: bool = False,
+    used_local_proposal_json: bool = False,
     director_records: list[dict[str, Any]] | None = None,
     llm_failed: bool = False,
 ) -> list[dict[str, str]]:
     """Create simple prototype risk flags for the dashboard.
 
     @param retrieved_examples: Retrieved chunks from the local baseline.
-    @param used_sample_corpus: Whether built-in fallback historical text was used.
+    @param used_default_corpus: Whether the default local corpus path was used.
+    @param used_local_proposal_json: Whether local proposal JSON was found.
     @param director_records: Director records passed into the assignment logic.
     @param llm_failed: Whether an LLM enrichment attempt was made but failed.
     @return: Risk flag dictionaries.
     """
 
     flags = []
-    if used_sample_corpus:
+    if used_default_corpus and used_local_proposal_json:
+        flags.append(
+            {
+                "level": "Medium",
+                "message": (
+                    "Local proposals_responses.json was used as the retrieval "
+                    "source, but only the current sample-corpus path is active. "
+                    "Treat retrieval evidence as a prototype signal until the "
+                    "full indexed corpus is connected."
+                ),
+            }
+        )
+    elif used_default_corpus:
         flags.append(
             {
                 "level": "Medium",
@@ -429,11 +464,16 @@ def _risk_flags(
     return flags
 
 
-def _notes(used_sample_corpus: bool = False, llm_used: bool = False) -> str:
+def _notes(
+    used_default_corpus: bool = False,
+    used_local_proposal_json: bool = False,
+    llm_used: bool = False,
+) -> str:
     """Create a short note describing the current prototype mode.
 
-    @param used_sample_corpus: Whether built-in fallback historical text was used.
-    @param llm_used: Whether LLM enrichment succeeded.
+    @param used_default_corpus: Whether the default local corpus path was used.
+    @param used_local_proposal_json: Whether local proposal JSON was found.
+    @param llm_used: Whether Azure OpenAI chat enrichment succeeded.
     @return: Dashboard note string.
     """
 
@@ -442,13 +482,25 @@ def _notes(used_sample_corpus: bool = False, llm_used: bool = False) -> str:
             "Prototype output enriched with Azure OpenAI chat analysis. "
             "Retrieval remains local fallback."
         )
-        if used_sample_corpus:
+        if used_default_corpus and used_local_proposal_json:
+            return (
+                base + " Local proposals_responses.json is available, but "
+                "retrieval still uses the current sample-corpus path."
+            )
+        if used_default_corpus:
             return (
                 base + " Built-in sample historical corpus used because real "
                 "historical proposal data was unavailable."
             )
         return base
-    if used_sample_corpus:
+
+    if used_default_corpus and used_local_proposal_json:
+        return (
+            "Prototype output for dashboard integration. Local "
+            "proposals_responses.json is available, but retrieval still uses "
+            "the current sample-corpus path."
+        )
+    if used_default_corpus:
         return (
             "Prototype output for dashboard integration. Built-in sample "
             "historical corpus used because real historical proposal data was unavailable."
