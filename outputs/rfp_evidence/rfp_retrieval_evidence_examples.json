@@ -1,0 +1,549 @@
+[
+  {
+    "azure_chroma_status": "available",
+    "evaluated_results": [
+      {
+        "chunk_id": "proposal_004__document_015__chunk_003",
+        "looks_relevant": false,
+        "matched_expected_terms": [],
+        "proposal_id": "proposal_004",
+        "query_theme": "cloud migration",
+        "similarity_score": 0.4892,
+        "supporting_text_preview": "[redacted: 2012 chars, 0 matched expected terms]",
+        "supports_summary_or_match_reason": false,
+        "weak_or_misleading_note": "No expected theme terms found in supporting text."
+      },
+      {
+        "chunk_id": "proposal_004__document_015__chunk_002",
+        "looks_relevant": true,
+        "matched_expected_terms": [
+          "azure",
+          "cloud"
+        ],
+        "proposal_id": "proposal_004",
+        "query_theme": "cloud migration",
+        "similarity_score": 0.4881,
+        "supporting_text_preview": "[redacted: 4038 chars, 2 matched expected terms]",
+        "supports_summary_or_match_reason": true,
+        "weak_or_misleading_note": ""
+      },
+      {
+        "chunk_id": "proposal_017__document_041__chunk_002",
+        "looks_relevant": true,
+        "matched_expected_terms": [
+          "cloud"
+        ],
+        "proposal_id": "proposal_017",
+        "query_theme": "cloud migration",
+        "similarity_score": 0.4745,
+        "supporting_text_preview": "[redacted: 3205 chars, 1 matched expected terms]",
+        "supports_summary_or_match_reason": true,
+        "weak_or_misleading_note": "Only one expected theme term matched; review manually."
+      }
+    ],
+    "input_query_text": "RFP theme: cloud migration, Azure infrastructure modernization, managed transition planning, and platform operations support.",
+    "input_query_theme": "cloud migration",
+    "looks_relevant": true,
+    "retrieval_mode": "azure_chroma",
+    "supports_displayed_summary_or_match_reason": true,
+    "top_retrieved_chunk_ids": [
+      "proposal_004__document_015__chunk_003",
+      "proposal_004__document_015__chunk_002",
+      "proposal_017__document_041__chunk_002"
+    ],
+    "weak_or_misleading_results": [
+      {
+        "chunk_id": "proposal_004__document_015__chunk_003",
+        "looks_relevant": false,
+        "matched_expected_terms": [],
+        "proposal_id": "proposal_004",
+        "query_theme": "cloud migration",
+        "similarity_score": 0.4892,
+        "supporting_text_preview": "[redacted: 2012 chars, 0 matched expected terms]",
+        "supports_summary_or_match_reason": false,
+        "weak_or_misleading_note": "No expected theme terms found in supporting text."
+      },
+      {
+        "chunk_id": "proposal_017__document_041__chunk_002",
+        "looks_relevant": true,
+        "matched_expected_terms": [
+          "cloud"
+        ],
+        "proposal_id": "proposal_017",
+        "query_theme": "cloud migration",
+        "similarity_score": 0.4745,
+        "supporting_text_preview": "[redacted: 3205 chars, 1 matched expected terms]",
+        "supports_summary_or_match_reason": true,
+        "weak_or_misleading_note": "Only one expected theme term matched; review manually."
+      }
+    ]
+  },
+  {
+    "azure_chroma_status": "available",
+    "evaluated_results": [
+      {
+        "chunk_id": "proposal_017__document_041__chunk_001",
+        "looks_relevant": true,
+        "matched_expected_terms": [
+          "services",
+          "support"
+        ],
+        "proposal_id": "proposal_017",
+        "query_theme": "managed services",
+        "similarity_score": 0.4945,
+        "supporting_text_preview": "[redacted: 3465 chars, 2 matched expected terms]",
+        "supports_summary_or_match_reason": true,
+        "weak_or_misleading_note": ""
+      },
+      {
+        "chunk_id": "proposal_016__document_039__chunk_001",
+        "looks_relevant": true,
+        "matched_expected_terms": [
+          "managed",
+          "services"
+        ],
+        "proposal_id": "proposal_016",
+        "query_theme": "managed services",
+        "similarity_score": 0.4931,
+        "supporting_text_preview": "[redacted: 6099 chars, 2 matched expected terms]",
+        "supports_summary_or_match_reason": true,
+        "weak_or_misleading_note": ""
+      },
+      {
+        "chunk_id": "proposal_004__document_015__chunk_003",
+        "looks_relevant": true,
+        "matched_expected_terms": [
+          "services",
+          "support"
+        ],
+        "proposal_id": "proposal_004",
+        "query_theme": "managed services",
+        "similarity_score": 0.4917,
+        "supporting_text_preview": "[redacted: 2012 chars, 2 matched expected terms]",
+        "supports_summary_or_match_reason": true,
+        "weak_or_misleading_note": ""
+      }
+    ],
+    "input_query_text": "RFP theme: managed services support model, service desk operations, transition planning, and ongoing application support.",
+    "input_query_theme": "managed services",
+    "looks_relevant": true,
+    "retrieval_mode": "azure_chroma",
+    "supports_displayed_summary_or_match_reason": true,
+    "top_retrieved_chunk_ids": [
+      "proposal_017__document_041__chunk_001",
+      "proposal_016__document_039__chunk_001",
+      "proposal_004__document_015__chunk_003"
+    ],
+    "weak_or_misleading_results": []
+  },
+  {
+    "azure_chroma_status": "available",
+    "evaluated_results": [
+      {
+        "chunk_id": "proposal_009__document_025__chunk_002",
+        "looks_relevant": true,
+        "matched_expected_terms": [
+          "analytics",
+          "data",
+          "reporting"
+        ],
+        "proposal_id": "proposal_009",
+        "query_theme": "data analytics dashboard",
+        "similarity_score": 0.5161,
+        "supporting_text_preview": "[redacted: 3570 chars, 3 matched expected terms]",
+        "supports_summary_or_match_reason": true,
+        "weak_or_misleading_note": ""
+      },
+      {
+        "chunk_id": "proposal_009__document_025__chunk_001",
+        "looks_relevant": true,
+        "matched_expected_terms": [
+          "analytics",
+          "data",
+          "reporting"
+        ],
+        "proposal_id": "proposal_009",
+        "query_theme": "data analytics dashboard",
+        "similarity_score": 0.5119,
+        "supporting_text_preview": "[redacted: 5751 chars, 3 matched expected terms]",
+        "supports_summary_or_match_reason": true,
+        "weak_or_misleading_note": ""
+      },
+      {
+        "chunk_id": "proposal_013__document_033__chunk_001",
+        "looks_relevant": true,
+        "matched_expected_terms": [
+          "analytics",
+          "data"
+        ],
+        "proposal_id": "proposal_013",
+        "query_theme": "data analytics dashboard",
+        "similarity_score": 0.4913,
+        "supporting_text_preview": "[redacted: 3361 chars, 2 matched expected terms]",
+        "supports_summary_or_match_reason": true,
+        "weak_or_misleading_note": ""
+      }
+    ],
+    "input_query_text": "RFP theme: data analytics, dashboard reporting, KPI visualization, and executive performance insights.",
+    "input_query_theme": "data analytics dashboard",
+    "looks_relevant": true,
+    "retrieval_mode": "azure_chroma",
+    "supports_displayed_summary_or_match_reason": true,
+    "top_retrieved_chunk_ids": [
+      "proposal_009__document_025__chunk_002",
+      "proposal_009__document_025__chunk_001",
+      "proposal_013__document_033__chunk_001"
+    ],
+    "weak_or_misleading_results": []
+  },
+  {
+    "azure_chroma_status": "available",
+    "evaluated_results": [
+      {
+        "chunk_id": "proposal_005__document_017__chunk_002",
+        "looks_relevant": true,
+        "matched_expected_terms": [
+          "compliance",
+          "cybersecurity",
+          "security"
+        ],
+        "proposal_id": "proposal_005",
+        "query_theme": "cybersecurity compliance",
+        "similarity_score": 0.5181,
+        "supporting_text_preview": "[redacted: 3206 chars, 3 matched expected terms]",
+        "supports_summary_or_match_reason": true,
+        "weak_or_misleading_note": ""
+      },
+      {
+        "chunk_id": "proposal_007__document_021__chunk_004",
+        "looks_relevant": true,
+        "matched_expected_terms": [
+          "compliance",
+          "privacy",
+          "risk",
+          "security"
+        ],
+        "proposal_id": "proposal_007",
+        "query_theme": "cybersecurity compliance",
+        "similarity_score": 0.5108,
+        "supporting_text_preview": "[redacted: 3274 chars, 4 matched expected terms]",
+        "supports_summary_or_match_reason": true,
+        "weak_or_misleading_note": ""
+      },
+      {
+        "chunk_id": "proposal_016__document_039__chunk_001",
+        "looks_relevant": true,
+        "matched_expected_terms": [
+          "privacy",
+          "security"
+        ],
+        "proposal_id": "proposal_016",
+        "query_theme": "cybersecurity compliance",
+        "similarity_score": 0.509,
+        "supporting_text_preview": "[redacted: 6099 chars, 2 matched expected terms]",
+        "supports_summary_or_match_reason": true,
+        "weak_or_misleading_note": ""
+      }
+    ],
+    "input_query_text": "RFP theme: cybersecurity assessment, privacy compliance, risk controls, and remediation planning.",
+    "input_query_theme": "cybersecurity compliance",
+    "looks_relevant": true,
+    "retrieval_mode": "azure_chroma",
+    "supports_displayed_summary_or_match_reason": true,
+    "top_retrieved_chunk_ids": [
+      "proposal_005__document_017__chunk_002",
+      "proposal_007__document_021__chunk_004",
+      "proposal_016__document_039__chunk_001"
+    ],
+    "weak_or_misleading_results": []
+  },
+  {
+    "azure_chroma_status": "available",
+    "evaluated_results": [
+      {
+        "chunk_id": "proposal_004__document_015__chunk_003",
+        "looks_relevant": false,
+        "matched_expected_terms": [],
+        "proposal_id": "proposal_004",
+        "query_theme": "application modernization",
+        "similarity_score": 0.489,
+        "supporting_text_preview": "[redacted: 2012 chars, 0 matched expected terms]",
+        "supports_summary_or_match_reason": false,
+        "weak_or_misleading_note": "No expected theme terms found in supporting text."
+      },
+      {
+        "chunk_id": "proposal_014__document_035__chunk_002",
+        "looks_relevant": true,
+        "matched_expected_terms": [
+          "integration"
+        ],
+        "proposal_id": "proposal_014",
+        "query_theme": "application modernization",
+        "similarity_score": 0.4832,
+        "supporting_text_preview": "[redacted: 3322 chars, 1 matched expected terms]",
+        "supports_summary_or_match_reason": true,
+        "weak_or_misleading_note": "Only one expected theme term matched; review manually."
+      },
+      {
+        "chunk_id": "proposal_004__document_015__chunk_002",
+        "looks_relevant": true,
+        "matched_expected_terms": [
+          "integration"
+        ],
+        "proposal_id": "proposal_004",
+        "query_theme": "application modernization",
+        "similarity_score": 0.4823,
+        "supporting_text_preview": "[redacted: 4038 chars, 1 matched expected terms]",
+        "supports_summary_or_match_reason": true,
+        "weak_or_misleading_note": "Only one expected theme term matched; review manually."
+      }
+    ],
+    "input_query_text": "RFP theme: application modernization, systems integration, architecture review, and legacy platform migration.",
+    "input_query_theme": "application modernization",
+    "looks_relevant": true,
+    "retrieval_mode": "azure_chroma",
+    "supports_displayed_summary_or_match_reason": true,
+    "top_retrieved_chunk_ids": [
+      "proposal_004__document_015__chunk_003",
+      "proposal_014__document_035__chunk_002",
+      "proposal_004__document_015__chunk_002"
+    ],
+    "weak_or_misleading_results": [
+      {
+        "chunk_id": "proposal_004__document_015__chunk_003",
+        "looks_relevant": false,
+        "matched_expected_terms": [],
+        "proposal_id": "proposal_004",
+        "query_theme": "application modernization",
+        "similarity_score": 0.489,
+        "supporting_text_preview": "[redacted: 2012 chars, 0 matched expected terms]",
+        "supports_summary_or_match_reason": false,
+        "weak_or_misleading_note": "No expected theme terms found in supporting text."
+      },
+      {
+        "chunk_id": "proposal_014__document_035__chunk_002",
+        "looks_relevant": true,
+        "matched_expected_terms": [
+          "integration"
+        ],
+        "proposal_id": "proposal_014",
+        "query_theme": "application modernization",
+        "similarity_score": 0.4832,
+        "supporting_text_preview": "[redacted: 3322 chars, 1 matched expected terms]",
+        "supports_summary_or_match_reason": true,
+        "weak_or_misleading_note": "Only one expected theme term matched; review manually."
+      },
+      {
+        "chunk_id": "proposal_004__document_015__chunk_002",
+        "looks_relevant": true,
+        "matched_expected_terms": [
+          "integration"
+        ],
+        "proposal_id": "proposal_004",
+        "query_theme": "application modernization",
+        "similarity_score": 0.4823,
+        "supporting_text_preview": "[redacted: 4038 chars, 1 matched expected terms]",
+        "supports_summary_or_match_reason": true,
+        "weak_or_misleading_note": "Only one expected theme term matched; review manually."
+      }
+    ]
+  },
+  {
+    "azure_chroma_status": "available",
+    "evaluated_results": [
+      {
+        "chunk_id": "proposal_016__document_039__chunk_001",
+        "looks_relevant": true,
+        "matched_expected_terms": [
+          "incident",
+          "service"
+        ],
+        "proposal_id": "proposal_016",
+        "query_theme": "service desk support",
+        "similarity_score": 0.4738,
+        "supporting_text_preview": "[redacted: 6099 chars, 2 matched expected terms]",
+        "supports_summary_or_match_reason": true,
+        "weak_or_misleading_note": ""
+      },
+      {
+        "chunk_id": "proposal_017__document_041__chunk_001",
+        "looks_relevant": true,
+        "matched_expected_terms": [
+          "service",
+          "support"
+        ],
+        "proposal_id": "proposal_017",
+        "query_theme": "service desk support",
+        "similarity_score": 0.4719,
+        "supporting_text_preview": "[redacted: 3465 chars, 2 matched expected terms]",
+        "supports_summary_or_match_reason": true,
+        "weak_or_misleading_note": ""
+      },
+      {
+        "chunk_id": "proposal_014__document_035__chunk_003",
+        "looks_relevant": true,
+        "matched_expected_terms": [
+          "operational",
+          "support"
+        ],
+        "proposal_id": "proposal_014",
+        "query_theme": "service desk support",
+        "similarity_score": 0.4674,
+        "supporting_text_preview": "[redacted: 3396 chars, 2 matched expected terms]",
+        "supports_summary_or_match_reason": true,
+        "weak_or_misleading_note": ""
+      }
+    ],
+    "input_query_text": "RFP theme: service desk support, incident management, operational handover, and user support model.",
+    "input_query_theme": "service desk support",
+    "looks_relevant": true,
+    "retrieval_mode": "azure_chroma",
+    "supports_displayed_summary_or_match_reason": true,
+    "top_retrieved_chunk_ids": [
+      "proposal_016__document_039__chunk_001",
+      "proposal_017__document_041__chunk_001",
+      "proposal_014__document_035__chunk_003"
+    ],
+    "weak_or_misleading_results": []
+  },
+  {
+    "azure_chroma_status": "available",
+    "evaluated_results": [
+      {
+        "chunk_id": "proposal_004__document_015__chunk_003",
+        "looks_relevant": true,
+        "matched_expected_terms": [
+          "stakeholder",
+          "training"
+        ],
+        "proposal_id": "proposal_004",
+        "query_theme": "change management training",
+        "similarity_score": 0.4887,
+        "supporting_text_preview": "[redacted: 2012 chars, 2 matched expected terms]",
+        "supports_summary_or_match_reason": true,
+        "weak_or_misleading_note": ""
+      },
+      {
+        "chunk_id": "proposal_005__document_017__chunk_002",
+        "looks_relevant": false,
+        "matched_expected_terms": [],
+        "proposal_id": "proposal_005",
+        "query_theme": "change management training",
+        "similarity_score": 0.4851,
+        "supporting_text_preview": "[redacted: 3206 chars, 0 matched expected terms]",
+        "supports_summary_or_match_reason": false,
+        "weak_or_misleading_note": "No expected theme terms found in supporting text."
+      },
+      {
+        "chunk_id": "proposal_003__document_005__chunk_003",
+        "looks_relevant": true,
+        "matched_expected_terms": [
+          "change"
+        ],
+        "proposal_id": "proposal_003",
+        "query_theme": "change management training",
+        "similarity_score": 0.4788,
+        "supporting_text_preview": "[redacted: 3382 chars, 1 matched expected terms]",
+        "supports_summary_or_match_reason": true,
+        "weak_or_misleading_note": "Only one expected theme term matched; review manually."
+      }
+    ],
+    "input_query_text": "RFP theme: change management, stakeholder engagement, training, adoption planning, and communications.",
+    "input_query_theme": "change management training",
+    "looks_relevant": true,
+    "retrieval_mode": "azure_chroma",
+    "supports_displayed_summary_or_match_reason": true,
+    "top_retrieved_chunk_ids": [
+      "proposal_004__document_015__chunk_003",
+      "proposal_005__document_017__chunk_002",
+      "proposal_003__document_005__chunk_003"
+    ],
+    "weak_or_misleading_results": [
+      {
+        "chunk_id": "proposal_005__document_017__chunk_002",
+        "looks_relevant": false,
+        "matched_expected_terms": [],
+        "proposal_id": "proposal_005",
+        "query_theme": "change management training",
+        "similarity_score": 0.4851,
+        "supporting_text_preview": "[redacted: 3206 chars, 0 matched expected terms]",
+        "supports_summary_or_match_reason": false,
+        "weak_or_misleading_note": "No expected theme terms found in supporting text."
+      },
+      {
+        "chunk_id": "proposal_003__document_005__chunk_003",
+        "looks_relevant": true,
+        "matched_expected_terms": [
+          "change"
+        ],
+        "proposal_id": "proposal_003",
+        "query_theme": "change management training",
+        "similarity_score": 0.4788,
+        "supporting_text_preview": "[redacted: 3382 chars, 1 matched expected terms]",
+        "supports_summary_or_match_reason": true,
+        "weak_or_misleading_note": "Only one expected theme term matched; review manually."
+      }
+    ]
+  },
+  {
+    "azure_chroma_status": "available",
+    "evaluated_results": [
+      {
+        "chunk_id": "proposal_014__document_035__chunk_003",
+        "looks_relevant": true,
+        "matched_expected_terms": [
+          "implementation",
+          "public",
+          "technology"
+        ],
+        "proposal_id": "proposal_014",
+        "query_theme": "short vague request",
+        "similarity_score": 0.4929,
+        "supporting_text_preview": "[redacted: 3396 chars, 3 matched expected terms]",
+        "supports_summary_or_match_reason": true,
+        "weak_or_misleading_note": ""
+      },
+      {
+        "chunk_id": "proposal_001__document_001__chunk_001",
+        "looks_relevant": true,
+        "matched_expected_terms": [
+          "public",
+          "technology"
+        ],
+        "proposal_id": "proposal_001",
+        "query_theme": "short vague request",
+        "similarity_score": 0.4831,
+        "supporting_text_preview": "[redacted: 6754 chars, 2 matched expected terms]",
+        "supports_summary_or_match_reason": true,
+        "weak_or_misleading_note": ""
+      },
+      {
+        "chunk_id": "proposal_007__document_021__chunk_003",
+        "looks_relevant": true,
+        "matched_expected_terms": [
+          "implementation",
+          "public",
+          "sector",
+          "technology"
+        ],
+        "proposal_id": "proposal_007",
+        "query_theme": "short vague request",
+        "similarity_score": 0.4801,
+        "supporting_text_preview": "[redacted: 3328 chars, 4 matched expected terms]",
+        "supports_summary_or_match_reason": true,
+        "weak_or_misleading_note": ""
+      }
+    ],
+    "input_query_text": "Need implementation help for a public-sector technology project.",
+    "input_query_theme": "short vague request",
+    "looks_relevant": true,
+    "retrieval_mode": "azure_chroma",
+    "supports_displayed_summary_or_match_reason": true,
+    "top_retrieved_chunk_ids": [
+      "proposal_014__document_035__chunk_003",
+      "proposal_001__document_001__chunk_001",
+      "proposal_007__document_021__chunk_003"
+    ],
+    "weak_or_misleading_results": []
+  }
+]
