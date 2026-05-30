@@ -13,7 +13,7 @@ from __future__ import annotations
 import json
 from collections.abc import Callable, Sequence
 from dataclasses import dataclass
-from math import sqrt
+from math import isfinite, sqrt
 from typing import Any
 
 try:
@@ -377,6 +377,7 @@ def build_dashboard_payload(
         "effort": effort or {
             "level": "Low",
             "estimated_duration": "1-2 weeks",
+            "reason": "Prototype estimate pending final RFP effort model.",
             "rationale": "Prototype estimate pending final RFP effort model.",
         },
         "similar_rfps": [
@@ -407,7 +408,7 @@ def build_vector_store(chunks: list[dict]):
     global _DEFAULT_STORE
 
     store = InMemoryVectorStore(_local_embedding)
-    store.add_chunks([_chunk_from_dict(chunk) for chunk in chunks])
+    store.add_chunks(_valid_chunks_from_dicts(chunks or []))
     _DEFAULT_STORE = store
     return store
 
@@ -457,34 +458,72 @@ def _chroma_metadata(chunk: RFPChunk) -> dict[str, str | int | float | bool]:
     return metadata
 
 
+def _valid_chunks_from_dicts(chunks: Sequence[dict[str, Any]]) -> list[RFPChunk]:
+    """Convert chunk dictionaries and drop entries with no indexable text."""
+
+    return [
+        rfp_chunk
+        for chunk in chunks
+        if (rfp_chunk := _chunk_from_dict(chunk)).text.strip()
+    ]
+
+
 def _chunk_from_dict(chunk: dict[str, Any]) -> RFPChunk:
     """Convert a dashboard chunk dictionary back into an RFPChunk object."""
 
+    proposal_id = str(chunk.get("proposal_id") or "unknown_proposal")
+    chunk_index = _as_int(chunk.get("chunk_index"), default=0)
+    chunk_id = str(chunk.get("chunk_id") or f"{proposal_id}_chunk_{chunk_index:03d}")
+    text = str(chunk.get("text") or "")
+
+    # Normalize multiple supported chunk shapes into a single RFPChunk contract.
+    # - Shape A: full `RFPChunk.to_dict()` (document_id + title + section + metadata).
+    # - Shape B: Week 3 flat metadata contract (document_id present, title/section optional).
+    # - Shape C: Week 2 dashboard chunk contract (no document_id; uses proposal_id/source_type).
     if "document_id" in chunk:
-        return RFPChunk(
-            chunk_id=str(chunk["chunk_id"]),
-            document_id=str(chunk["document_id"]),
-            title=str(chunk["title"]),
-            section=str(chunk["section"]),
-            chunk_index=int(chunk["chunk_index"]),
-            text=str(chunk["text"]),
-            metadata=dict(chunk.get("metadata", {})),
+        document_id = str(chunk["document_id"])
+        title = chunk.get("title")
+        if title is None:
+            title = proposal_id if proposal_id != "unknown_proposal" else document_id
+        section = chunk.get("section")
+        if section is None:
+            section = chunk.get("source_type", "proposal")
+
+        metadata = dict(chunk.get("metadata", {}))
+        metadata.update(
+            {
+                "chunk_id": chunk_id,
+                "chunk_index": chunk_index,
+                "proposal_id": chunk.get("proposal_id", document_id),
+                "source_type": chunk.get("source_type", section),
+                "opportunity_owner": chunk.get("opportunity_owner"),
+                "opportunity_id": chunk.get("opportunity_id"),
+            }
         )
 
-    proposal_id = str(chunk.get("proposal_id", "proposal_001"))
+        return RFPChunk(
+            chunk_id=chunk_id,
+            document_id=document_id,
+            title=str(title),
+            section=str(section),
+            chunk_index=chunk_index,
+            text=text,
+            metadata=metadata,
+        )
+
     source_type = str(chunk.get("source_type", "proposal"))
     return RFPChunk(
-        chunk_id=str(chunk["chunk_id"]),
+        chunk_id=chunk_id,
         document_id=proposal_id,
         title=proposal_id,
         section=source_type,
-        chunk_index=int(chunk["chunk_index"]),
-        text=str(chunk["text"]),
+        chunk_index=chunk_index,
+        text=text,
         metadata={
             "proposal_id": proposal_id,
-            "chunk_id": str(chunk["chunk_id"]),
+            "chunk_id": chunk_id,
             "source_type": source_type,
-            "chunk_index": int(chunk["chunk_index"]),
+            "chunk_index": chunk_index,
             "opportunity_owner": chunk.get("opportunity_owner"),
             "opportunity_id": chunk.get("opportunity_id"),
         },
@@ -559,6 +598,104 @@ def _as_float(value: Any, default: float) -> float:
     """Convert optional numeric fields while keeping the prototype stable."""
 
     try:
-        return float(value)
-    except (TypeError, ValueError):
+        converted = float(value)
+    except (TypeError, ValueError, OverflowError):
         return default
+    if not isfinite(converted):
+        return default
+    return converted
+
+
+def _as_int(value: Any, default: int) -> int:
+    """Convert optional integer fields while keeping fallback chunks stable."""
+
+    try:
+        converted = int(value)
+    except (TypeError, ValueError, OverflowError):
+        return default
+    return converted
+
+# --- Week 3 Add-ons Starts here ---
+def build_chroma_from_chunks(
+    chunks: list[dict],
+    *,
+    persist_directory: str = "data/vector_store",
+    collection_name: str = "rfp_chunks",
+    embedding_function=None,
+) -> "ChromaVectorStore":
+    """Embed chunks and persist them into Chroma.
+
+    chunks: dashboard-style chunk dicts (same shape accepted by build_vector_store()).
+    embedding_function: callable(texts)->list[list[float]]; if None, uses Azure embed_texts().
+    """
+    if embedding_function is None:
+        try:
+            from src.azure_client import embed_texts as embedding_function
+        except ModuleNotFoundError:
+            from azure_client import embed_texts as embedding_function
+
+    rfp_chunks = _valid_chunks_from_dicts(chunks or [])
+    texts = [chunk.text for chunk in rfp_chunks]
+    embeddings = embedding_function(texts) if texts else []
+
+    store = ChromaVectorStore(
+        persist_directory=persist_directory,
+        collection_name=collection_name,
+    )
+    store.add_chunks(rfp_chunks, embeddings)
+    return store
+
+
+def query_chroma(
+    query_text: str,
+    *,
+    persist_directory: str = "data/vector_store",
+    collection_name: str = "rfp_chunks",
+    top_k: int = 5,
+    embedding_function=None,
+) -> list[dict[str, Any]]:
+    """Query Chroma using Azure embeddings and return dashboard-style retrieved_examples."""
+    if embedding_function is None:
+        try:
+            from src.azure_client import embed_texts as embedding_function
+        except ModuleNotFoundError:
+            from azure_client import embed_texts as embedding_function
+
+    query_embedding = embedding_function([query_text])[0]
+    store = ChromaVectorStore(
+        persist_directory=persist_directory,
+        collection_name=collection_name,
+    )
+    raw = store.query(query_embedding, top_k=top_k)
+
+    # Chroma returns dict with lists; normalize to retrieved_examples shape.
+    ids = (raw.get("ids") or [[]])[0]
+    docs = (raw.get("documents") or [[]])[0]
+    dists = (raw.get("distances") or [[]])[0]
+    metas = (raw.get("metadatas") or [[]])[0]
+
+    out: list[dict[str, Any]] = []
+    for chunk_id, doc, dist, meta in zip(ids, docs, dists, metas):
+        # Many Chroma setups use distance; convert to a similarity-like score if desired.
+        # Here we keep a simple monotonic transform.
+        try:
+            distance = float(dist)
+            similarity = 1.0 / (1.0 + distance) if isfinite(distance) else None
+        except (TypeError, ValueError, OverflowError):
+            similarity = None
+
+        proposal_id = None
+        if isinstance(meta, dict):
+            proposal_id = meta.get("proposal_id") or meta.get("document_id")
+
+        out.append(
+            {
+                "proposal_id": proposal_id or "unknown",
+                "chunk_id": chunk_id,
+                "similarity_score": round(similarity, 4) if similarity is not None else None,
+                "supporting_text": doc,
+            }
+        )
+
+    return out
+# --- Week 3 Add-ons Ends here ---

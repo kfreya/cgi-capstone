@@ -7,6 +7,7 @@ data/.env
 data/csv_files/
 data/processed/
 data/vector_store/
+data/vector_store_smoke_test/
 data/**/*.xlsx
 data/**/*.xls
 data/**/*.csv

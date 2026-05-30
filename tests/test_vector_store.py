@@ -173,6 +173,8 @@ def test_build_dashboard_payload_has_stable_output_shape():
     }
     assert payload["rfp_summary"] == "Azure support request"
     assert payload["effort"]["level"] in {"Low", "Medium", "High"}
+    assert payload["effort"]["reason"]
+    assert payload["effort"]["rationale"] == payload["effort"]["reason"]
     assert payload["similar_rfps"][0]["source"] == "chunk_1"
     assert payload["retrieved_examples"][0]["chunk_id"] == "chunk_1"
     assert "similarity_score" in payload["retrieved_examples"][0]
@@ -207,3 +209,152 @@ def test_build_and_retrieve_vector_store_match_dashboard_interface():
     assert results[0]["chunk_id"] == "proposal_001_chunk_001"
     assert "similarity_score" in results[0]
     assert results[0]["supporting_text"] == "Azure migration and security"
+
+
+def test_optional_chroma_helpers_do_not_require_azure_credentials(tmp_path):
+    """If Chroma helper APIs exist, they should be testable with a fake embedder."""
+
+    build_chroma_from_chunks = getattr(
+        __import__("src.vector_store", fromlist=["build_chroma_from_chunks"]),
+        "build_chroma_from_chunks",
+        None,
+    )
+    query_chroma = getattr(
+        __import__("src.vector_store", fromlist=["query_chroma"]),
+        "query_chroma",
+        None,
+    )
+    if build_chroma_from_chunks is None or query_chroma is None:
+        pytest.skip("Chroma helper APIs not present in src.vector_store")
+
+    # If chromadb is not installed in this environment, the helpers should raise ImportError.
+    try:
+        import chromadb  # noqa: F401
+    except ImportError:
+        with pytest.raises(ImportError):
+            build_chroma_from_chunks(
+                [make_dashboard_chunk("proposal_001_chunk_001", "Azure migration and security")],
+                persist_directory=str(tmp_path),
+                collection_name="rfp_chunks_test",
+                embedding_function=lambda texts: [[0.0, 1.0, 2.0] for _ in texts],
+            )
+        return
+
+    # When chromadb is available, helpers should work with a fake embedder (no Azure calls).
+    chunks = [
+        make_dashboard_chunk("proposal_001_chunk_001", "Azure migration and security"),
+        make_dashboard_chunk("proposal_001_chunk_002", "Executive dashboard reporting"),
+    ]
+
+    build_chroma_from_chunks(
+        chunks,
+        persist_directory=str(tmp_path),
+        collection_name="rfp_chunks_test",
+        embedding_function=lambda texts: [[0.0, 1.0, 2.0] for _ in texts],
+    )
+    results = query_chroma(
+        "Need Azure security",
+        persist_directory=str(tmp_path),
+        collection_name="rfp_chunks_test",
+        top_k=1,
+        embedding_function=lambda texts: [[0.0, 1.0, 2.0]],
+    )
+    assert isinstance(results, list)
+    if results:
+        assert set(results[0]).issuperset(
+            {"proposal_id", "chunk_id", "similarity_score", "supporting_text"}
+        )
+
+
+def test_chunk_from_dict_accepts_week3_flat_contract_shape():
+    """Week 3 chunk contract should accept Kian's validated sample shape."""
+
+    from src.vector_store import build_vector_store
+
+    flat_chunk = {
+        "chunk_id": "p1__proposal__chunk_0000",
+        "document_id": "p1__proposal",
+        "proposal_id": "p1",
+        "title": "p1",
+        "source_type": "proposal",
+        "section": "proposal",
+        "chunk_index": 0,
+        "text": "Need cloud migration and analytics support.",
+        "opportunity_owner": None,
+        "opportunity_id": None,
+    }
+
+    store = build_vector_store([flat_chunk])
+    results = store.query("cloud migration", top_k=1)
+    assert isinstance(results, list)
+    assert len(results) == 1
+
+
+def test_build_vector_store_defaults_partial_chunk_identifiers():
+    """Partial chunk dictionaries should still be indexable when text exists."""
+
+    store = build_vector_store(
+        [
+            {
+                "proposal_id": "historical_partial",
+                "source_type": "proposal",
+                "text": "Azure migration and dashboard support",
+            }
+        ]
+    )
+
+    results = store.query("Azure dashboard", top_k=1)
+
+    assert len(results) == 1
+    assert results[0].chunk.chunk_id == "historical_partial_chunk_000"
+    assert results[0].chunk.chunk_index == 0
+    assert results[0].chunk.metadata["proposal_id"] == "historical_partial"
+
+
+def test_build_vector_store_skips_empty_text_chunks():
+    """Empty chunk text should not be indexed as supporting evidence."""
+
+    store = build_vector_store(
+        [
+            {
+                "proposal_id": "empty",
+                "chunk_id": "empty_chunk_001",
+                "chunk_index": 0,
+                "text": "",
+            },
+            {
+                "proposal_id": "blank",
+                "chunk_id": "blank_chunk_001",
+                "chunk_index": 1,
+            },
+            make_dashboard_chunk("valid_chunk_001", "Azure migration support"),
+        ]
+    )
+
+    results = store.query("Azure migration", top_k=5)
+
+    assert len(store) == 1
+    assert [result.chunk.chunk_id for result in results] == ["valid_chunk_001"]
+
+
+def test_build_dashboard_payload_defaults_non_finite_numeric_values():
+    """Vector payload normalization should not leak NaN or infinity."""
+
+    payload = build_dashboard_payload(
+        query_text="Need Azure support",
+        results=[],
+        recommended_directors=[
+            {
+                "director_name": "Director Numeric",
+                "capacity_label": "Available",
+                "capacity_score": float("nan"),
+                "relative_load": float("inf"),
+                "assignment_score": float("-inf"),
+            }
+        ],
+    )
+    director = payload["recommended_directors"][0]
+
+    assert director["capacity_score"] == 0.72
+    assert director["relative_load"] == 0.65
+    assert director["assignment_score"] == 0.474
