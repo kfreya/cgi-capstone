@@ -27,6 +27,8 @@ The main Azure blocker from Week 3 is gone because CGI provided the missing conf
 
 The remaining risk is integration stability, not environment availability. If the preferred path breaks at any step, the fallback retrieval path still needs to work and still needs to return dashboard-style examples.
 
+The Streamlit RFP page also needs to stay in sync with the backend now, so the retrieval mode shown to users matches the actual path that produced the result.
+
 ## Code Updates
 
 The retrieval backend was updated to make the fallback and preferred paths more explicit and easier to test.
@@ -70,6 +72,23 @@ These files make the Azure-related path easier to reason about without forcing t
 
 In other words, these two files separate Azure readiness checks from the actual retrieval flow. That makes the code easier to test, and it also keeps the fallback path clean when Azure is unavailable.
 
+### `src/rfp_engine.py`
+
+- Wired the preferred Azure/Chroma retrieval path into `generate_assignment_context()`
+- Added `retrieval_mode` and `retrieval_status` to the dashboard payload
+- Kept the fallback path available when Azure or Chroma fails
+- Updated the note text so it no longer describes Azure/Chroma results as local fallback
+
+This is the file that connects the retrieval backend to the dashboard-facing assignment output.
+
+### `app/app.py`
+
+- Updated the RFP Assignment Tool banner and result area so the retrieval mode is shown explicitly
+- Displayed `Azure/Chroma retrieval active` when the preferred path succeeds
+- Displayed `Local fallback retrieval active` when the fallback path is used
+
+This keeps the UI message aligned with the backend result instead of hard-coding the old fallback-only message.
+
 ## Test Coverage
 
 The test updates were added to match the files above one by one.
@@ -101,6 +120,13 @@ The test updates were added to match the files above one by one.
 - Confirms the fallback path still returns dashboard-style output
 - Confirms the preferred path falls back cleanly when Azure is unavailable
 
+### `tests/test_rfp_engine.py`
+
+- Covers the dashboard-facing `assignment_context`
+- Confirms the preferred Azure/Chroma path flows into `generate_assignment_context()`
+- Confirms `retrieval_mode` and `retrieval_status` are returned in the output
+- Confirms the notes text stays consistent with the backend path that was actually used
+
 ## How To Run Tests
 
 Run the focused retrieval and Azure helper tests from the repository root:
@@ -114,6 +140,10 @@ conda run -n cgi-capstone python -m pytest tests/test_azure_client.py tests/test
 Focused retrieval and Azure helper tests passed:
 
 - `29 passed`
+
+Preferred-path regression tests also passed:
+
+- `39 passed`
 
 ## Latest Smoke Test
 
