@@ -738,3 +738,60 @@ def retrieve_examples_from_chunks(
         result.to_retrieved_example()
         for result in store.query(query_text, top_k=top_k)
     ]
+
+
+def retrieve_examples_from_query_chunks(
+    chunks: Sequence[dict[str, Any]],
+    query_text: str,
+    query_chunks: Sequence[dict[str, Any]] | None = None,
+    top_k: int = 3,
+) -> list[dict[str, Any]]:
+    """Retrieve examples by searching each pasted-RFP query chunk.
+
+    The dashboard still accepts one pasted RFP text field, but long RFPs should
+    not be represented by only one embedding. This helper chunks the query text
+    upstream, searches each query chunk, deduplicates retrieved corpus chunks,
+    and keeps the best similarity score per retrieved chunk.
+    """
+
+    store = build_vector_store(list(chunks or []))
+    query_texts = _query_texts(query_text, query_chunks)
+    best_by_chunk_id: dict[str, dict[str, Any]] = {}
+
+    for query in query_texts:
+        for result in store.query(query, top_k=top_k):
+            example = result.to_retrieved_example()
+            chunk_id = str(example.get("chunk_id") or "")
+            if not chunk_id:
+                continue
+            previous = best_by_chunk_id.get(chunk_id)
+            if previous is None or _similarity_value(example) > _similarity_value(previous):
+                best_by_chunk_id[chunk_id] = example
+
+    return sorted(
+        best_by_chunk_id.values(),
+        key=lambda example: (_similarity_value(example), str(example.get("chunk_id") or "")),
+        reverse=True,
+    )[:top_k]
+
+
+def _query_texts(
+    query_text: str,
+    query_chunks: Sequence[dict[str, Any]] | None = None,
+) -> list[str]:
+    texts = [
+        str(chunk.get("text") or "").strip()
+        for chunk in query_chunks or []
+        if isinstance(chunk, dict) and str(chunk.get("text") or "").strip()
+    ]
+    if texts:
+        return texts
+    return [str(query_text or "").strip()] if str(query_text or "").strip() else []
+
+
+def _similarity_value(example: dict[str, Any]) -> float:
+    try:
+        value = float(example.get("similarity_score"))
+    except (TypeError, ValueError, OverflowError):
+        return float("-inf")
+    return value if isfinite(value) else float("-inf")

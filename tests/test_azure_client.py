@@ -277,9 +277,10 @@ def test_chat_completion_uses_general_endpoint_and_returns_content(monkeypatch):
     captured = {}
 
     class FakeCompletions:
-        def create(self, model, messages, temperature, max_tokens):
+        def create(self, model, messages, temperature, max_tokens, response_format=None):
             captured["model"] = model
             captured["messages"] = messages
+            captured["response_format"] = response_format
             return SimpleNamespace(
                 choices=[SimpleNamespace(message=SimpleNamespace(content="Test response"))]
             )
@@ -298,3 +299,38 @@ def test_chat_completion_uses_general_endpoint_and_returns_content(monkeypatch):
     assert captured["azure_endpoint"] == "https://general.openai.azure.com"
     assert captured["model"] == "gpt-4o"
     assert captured["messages"] == [{"role": "user", "content": "hello"}]
+    assert captured["response_format"] == {"type": "json_object"}
+
+
+def test_chat_completion_falls_back_when_json_response_format_unsupported(monkeypatch):
+    _clear_azure_env(monkeypatch)
+    _disable_dotenv(monkeypatch)
+    monkeypatch.setenv("AZURE_OPENAI_API_KEY", "test-key")
+    monkeypatch.setenv("AZURE_OPENAI_ENDPOINT", "https://general.openai.azure.com")
+    monkeypatch.setenv("AZURE_OPENAI_API_VERSION", "2024-02-01")
+    monkeypatch.setenv("AZURE_OPENAI_CHAT_DEPLOYMENT", "gpt-4o")
+
+    captured = {"calls": 0}
+
+    class FakeCompletions:
+        def create(self, **kwargs):
+            captured["calls"] += 1
+            if "response_format" in kwargs:
+                raise TypeError("response_format unsupported")
+            captured["kwargs"] = kwargs
+            return SimpleNamespace(
+                choices=[SimpleNamespace(message=SimpleNamespace(content="{}"))]
+            )
+
+    class FakeAzureOpenAI:
+        def __init__(self, **_kwargs):
+            self.chat = SimpleNamespace(completions=FakeCompletions())
+
+    result = azure_client.chat_completion(
+        [{"role": "user", "content": "hello"}],
+        azure_openai_cls=FakeAzureOpenAI,
+    )
+
+    assert result == "{}"
+    assert captured["calls"] == 2
+    assert "response_format" not in captured["kwargs"]

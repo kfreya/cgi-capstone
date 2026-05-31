@@ -281,7 +281,56 @@ def compute_current_load_by_owner(
         .reset_index()
     )
 
+    service_profile = _service_solution_profile_by_owner(working_df)
+    if not service_profile.empty:
+        grouped = grouped.merge(
+            service_profile,
+            on="opportunity_owner",
+            how="left",
+        )
+    elif "service_solution" not in grouped.columns:
+        grouped["service_solution"] = pd.NA
+
     return grouped
+
+
+def _service_solution_profile_by_owner(df: pd.DataFrame) -> pd.DataFrame:
+    """Aggregate opportunity-level service solutions into an owner profile."""
+
+    if "service_solution" not in df.columns:
+        return pd.DataFrame(columns=["opportunity_owner", "service_solution"])
+
+    work = df.copy()
+    if {"status", "status_reason"}.issubset(work.columns):
+        work["_outcome"] = _outcome_series(work)
+        work = work[work["_outcome"].isin(["open", "won"])]
+
+    rows = []
+    for owner, owner_df in work.groupby("opportunity_owner", dropna=False):
+        values = (
+            owner_df["service_solution"]
+            .dropna()
+            .astype(str)
+            .map(str.strip)
+        )
+        values = values[values != ""]
+        if values.empty:
+            profile = pd.NA
+        else:
+            counts = values.value_counts()
+            ordered = sorted(
+                counts.index,
+                key=lambda value: (-int(counts[value]), value.lower()),
+            )
+            profile = "; ".join(ordered[:8])
+        rows.append(
+            {
+                "opportunity_owner": owner,
+                "service_solution": profile,
+            }
+        )
+
+    return pd.DataFrame(rows)
 
 
 def compute_historical_baseline(
@@ -669,6 +718,7 @@ def assign_capacity_label(
 DIRECTOR_CAPACITY_DASHBOARD_COLUMNS = [
     "opportunity_owner",
     "territory",
+    "service_solution",
     "historical_avg_load",
     "relative_load",
     "current_load",

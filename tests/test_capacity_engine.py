@@ -236,6 +236,10 @@ def test_compute_current_load_by_owner_aggregates_owner_loads():
                 "Atlantic",
                 "Atlantic",
             ],
+            "service_solution": [
+                "Cloud Infrastructure",
+                "Data Analytics",
+            ],
         }
     )
 
@@ -245,8 +249,37 @@ def test_compute_current_load_by_owner_aggregates_owner_loads():
     assert list(result["opportunity_owner"]) == ["Owner 1"]
     assert result.loc[0, "current_load"] > 0
     assert result.loc[0, "opportunity_count"] == 2
+    assert result.loc[0, "service_solution"] == "Cloud Infrastructure; Data Analytics"
     # Late stage counts open opportunities only (Won row is not open).
     assert result.loc[0, "late_stage_deal_count"] == 1
+
+
+def test_compute_current_load_by_owner_orders_service_solution_profile_by_frequency():
+    df = pd.DataFrame(
+        {
+            "opportunity_id": ["A", "B", "C", "D"],
+            "opportunity_owner": ["Owner 1", "Owner 1", "Owner 1", "Owner 1"],
+            "status": ["open", "open", "open", "closed"],
+            "status_reason": ["Open", "Open", "Open", "Lost"],
+            "sales_stage": ["4-Proposal", "4-Proposal", "4-Proposal", "4-Proposal"],
+            "probability": [50, 50, 50, 100],
+            "authoritative_revenue": [100, 100, 100, 100],
+            "project_duration_number_of_months": [12, 12, 12, 12],
+            "revenue_start_date": ["2026-01-01", "2026-01-01", "2026-01-01", "2026-01-01"],
+            "close_date": ["2025-12-01", "2025-12-01", "2025-12-01", "2025-12-01"],
+            "delivery_territory_center": ["Atlantic", "Atlantic", "Atlantic", "Atlantic"],
+            "service_solution": [
+                "Data Analytics",
+                "Cloud Infrastructure",
+                "Data Analytics",
+                "Lost Only Service",
+            ],
+        }
+    )
+
+    result = compute_current_load_by_owner(df)
+
+    assert result.loc[0, "service_solution"] == "Data Analytics; Cloud Infrastructure"
 
 
 def test_compute_historical_baseline_returns_owner_level_statistics():
