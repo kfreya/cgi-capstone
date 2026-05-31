@@ -13,6 +13,7 @@ from __future__ import annotations
 
 import json
 import math
+import time
 from typing import Any
 
 try:
@@ -102,6 +103,7 @@ def generate_assignment_context(
     risk_flags = _risk_flags(
         retrieved_examples,
         used_sample_corpus=used_sample_corpus,
+        retrieval_mode=retrieval_mode,
         director_records=director_records,
         llm_failed=llm_failed,
     )
@@ -379,6 +381,7 @@ def _director_records(director_df: Any) -> list[dict[str, Any]]:
 def _risk_flags(
     retrieved_examples: list[dict[str, Any]],
     used_sample_corpus: bool = False,
+    retrieval_mode: str = "local_fallback",
     director_records: list[dict[str, Any]] | None = None,
     llm_failed: bool = False,
 ) -> list[dict[str, str]]:
@@ -393,14 +396,18 @@ def _risk_flags(
 
     flags = []
     if used_sample_corpus:
+        retrieval_label = (
+            "Azure/Chroma"
+            if retrieval_mode == "azure_chroma"
+            else "local fallback"
+        )
         flags.append(
             {
                 "level": "Medium",
                 "message": (
-                    "Built-in sample historical corpus was used because real "
-                    "historical proposal data was unavailable. Treat retrieval "
-                    "evidence as a prototype signal until the approved proposal "
-                    "data is connected."
+                    f"{retrieval_label} retrieval searched the default sample "
+                    "historical corpus. Treat retrieval evidence as a prototype "
+                    "signal until the full approved proposal corpus is indexed."
                 ),
             }
         )
@@ -493,21 +500,28 @@ def _notes(
         status_bits.append(f"retrieval mode: {retrieval_mode}")
     if retrieval_status and retrieval_status.get("preferred_path_error"):
         status_bits.append("preferred path fell back after an error")
+    if retrieval_mode == "azure_chroma":
+        retrieval_note = "Retrieval used Azure/Chroma."
+    elif retrieval_mode == "local_fallback":
+        retrieval_note = "Retrieval used local fallback."
+    else:
+        retrieval_note = f"Retrieval mode: {retrieval_mode}."
     if llm_used:
         base = (
             "Prototype output enriched with Azure OpenAI chat analysis. "
-            "Retrieval remains local fallback."
+            f"{retrieval_note}"
         )
         if used_sample_corpus:
             return (
-                base + " Built-in sample historical corpus used because real "
-                "historical proposal data was unavailable."
+                base + " The retrieved evidence comes from the default sample "
+                "historical corpus until the full approved proposal corpus is indexed."
             )
         return base
     if used_sample_corpus:
         return (
-            "Prototype output for dashboard integration. Built-in sample "
-            "historical corpus used because real historical proposal data was unavailable. "
+            f"Prototype output for dashboard integration. {retrieval_note} "
+            "Retrieved evidence comes from the default sample historical corpus until "
+            "the full approved proposal corpus is indexed. "
             + ("; ".join(status_bits) + "." if status_bits else "")
         )
     if status_bits:
@@ -897,46 +911,61 @@ def _llm_enrich(
 ) -> dict[str, Any] | None:
     """Call the LLM and return enriched fields, or None on any failure."""
 
-    try:
-        messages = _build_llm_messages(rfp_text, director_records)
-        raw = chat_fn(messages)
-        if not raw or not raw.strip():
+    messages = _build_llm_messages(rfp_text, director_records)
+    for attempt in range(2):
+        try:
+            raw = chat_fn(messages)
+            return _parse_llm_response(raw)
+        except Exception:
+            if attempt == 0:
+                time.sleep(0.5)
+                continue
             return None
-        cleaned = raw.strip()
-        if cleaned.startswith("```"):
-            lines = cleaned.split("\n")
-            end = -1 if lines[-1].strip() == "```" else len(lines)
-            cleaned = "\n".join(lines[1:end])
-        data = json.loads(cleaned)
-        if not isinstance(data, dict):
-            return None
-        normalized: dict[str, Any] = {}
-        summary = data.get("rfp_summary")
-        if isinstance(summary, str) and summary.strip():
-            normalized["rfp_summary"] = summary.strip()
-        effort = data.get("effort")
-        if isinstance(effort, dict):
-            normalized_effort = dict(effort)
-            if normalized_effort.get("level") not in {"Low", "Medium", "High"}:
-                normalized_effort["level"] = "Medium"
-            normalized_effort["reason"] = str(normalized_effort.get("reason") or "")
-            normalized_effort["estimated_duration"] = str(
-                normalized_effort.get("estimated_duration") or ""
-            )
-            normalized_effort["rationale"] = normalized_effort["reason"]
-            normalized["effort"] = normalized_effort
-        match_reasons = data.get("director_match_reasons")
-        if isinstance(match_reasons, dict):
-            normalized["director_match_reasons"] = {
-                str(name): str(reason)
-                for name, reason in match_reasons.items()
-                if reason
-            }
-        if not normalized:
-            return None
-        return normalized
-    except Exception:
+    return None
+
+
+def _parse_llm_response(raw: str) -> dict[str, Any] | None:
+    """Normalize the LLM JSON response into dashboard fields."""
+
+    if not raw or not raw.strip():
         return None
+    cleaned = raw.strip()
+    if cleaned.startswith("```"):
+        lines = cleaned.split("\n")
+        if lines and lines[0].strip().startswith("```"):
+            lines = lines[1:]
+        if lines and lines[-1].strip() == "```":
+            lines = lines[:-1]
+        cleaned = "\n".join(lines).strip()
+
+    data = json.loads(cleaned)
+    if not isinstance(data, dict):
+        return None
+    normalized: dict[str, Any] = {}
+    summary = data.get("rfp_summary")
+    if isinstance(summary, str) and summary.strip():
+        normalized["rfp_summary"] = summary.strip()
+    effort = data.get("effort")
+    if isinstance(effort, dict):
+        normalized_effort = dict(effort)
+        if normalized_effort.get("level") not in {"Low", "Medium", "High"}:
+            normalized_effort["level"] = "Medium"
+        normalized_effort["reason"] = str(normalized_effort.get("reason") or "")
+        normalized_effort["estimated_duration"] = str(
+            normalized_effort.get("estimated_duration") or ""
+        )
+        normalized_effort["rationale"] = normalized_effort["reason"]
+        normalized["effort"] = normalized_effort
+    match_reasons = data.get("director_match_reasons")
+    if isinstance(match_reasons, dict):
+        normalized["director_match_reasons"] = {
+            str(name): str(reason)
+            for name, reason in match_reasons.items()
+            if reason
+        }
+    if not normalized:
+        return None
+    return normalized
 
 
 def _inject_llm_match_reasons(

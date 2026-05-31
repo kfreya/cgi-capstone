@@ -257,6 +257,37 @@ st.markdown(f"""
     color: #92400E;
   }}
 
+  .table-wrap {{
+    max-height: 600px;
+    overflow: auto;
+    border: 1px solid #E2E8F0;
+    border-radius: 8px;
+    background: #FFFFFF;
+  }}
+  .table-wrap table {{
+    width: 100%;
+    border-collapse: collapse;
+    font-size: 0.76rem;
+  }}
+  .table-wrap th {{
+    position: sticky;
+    top: 0;
+    z-index: 1;
+    background: #F8FAFC;
+    color: #334155;
+    font-weight: 700;
+    text-align: left;
+    padding: 0.55rem 0.65rem;
+    border-bottom: 1px solid #E2E8F0;
+  }}
+  .table-wrap td {{
+    padding: 0.5rem 0.65rem;
+    border-bottom: 1px solid #EEF2F7;
+    color: #334155;
+    vertical-align: top;
+  }}
+  .table-wrap tr:last-child td {{ border-bottom: 0; }}
+
   [data-testid="stExpander"] {{
     background: #fff !important;
     border: 1px solid #EDE9E3 !important;
@@ -489,6 +520,10 @@ if capacity_df["baseline_reliability"].dtype == bool or capacity_df["baseline_re
     ).fillna("Limited")
 
 # ── Sidebar ───────────────────────────────────────────────────────────────────
+PAGE_OPTIONS = ["Director Capacity Dashboard", "RFP Assignment Tool"]
+if "page_nav" not in st.session_state:
+    st.session_state["page_nav"] = PAGE_OPTIONS[0]
+
 with st.sidebar:
     st.markdown(
         "<div style='padding:0.6rem 0 2rem'>"
@@ -502,7 +537,8 @@ with st.sidebar:
 
     page = st.radio(
         "nav",
-        ["Director Capacity Dashboard", "RFP Assignment Tool"],
+        PAGE_OPTIONS,
+        key="page_nav",
         label_visibility="collapsed",
     )
 
@@ -839,7 +875,7 @@ norm. They should be reviewed and adjusted with CGI judgment.
             hoverlabel=_HOVER,
             showlegend=False,
         )
-        st.plotly_chart(fig_bar, width="stretch", config={"displayModeBar": False})
+        st.plotly_chart(fig_bar, use_container_width=True, config={"displayModeBar": False})
 
     with col_donut:
         st.markdown('<div class="sec-head">Label Mix</div>', unsafe_allow_html=True)
@@ -882,7 +918,7 @@ norm. They should be reviewed and adjusted with CGI judgment.
             hoverlabel=_HOVER,
             uniformtext=dict(minsize=12, mode="show"),
         )
-        st.plotly_chart(fig_donut, width="stretch", config={"displayModeBar": False})
+        st.plotly_chart(fig_donut, use_container_width=True, config={"displayModeBar": False})
 
     # ── Row 2: Current load vs historical average ─────────────────────────────
     st.markdown('<div class="sec-head">Current Load vs Historical Average</div>', unsafe_allow_html=True)
@@ -970,7 +1006,7 @@ norm. They should be reviewed and adjusted with CGI judgment.
         bargap=0.42,
         hoverlabel=_HOVER,
     )
-    st.plotly_chart(fig_load, width="stretch", config={"displayModeBar": False})
+    st.plotly_chart(fig_load, use_container_width=True, config={"displayModeBar": False})
 
     # ── Row 3: Trend  |  Director table ──────────────────────────────────────
     col_trend, col_table = st.columns([1.6, 2.4])
@@ -1039,7 +1075,7 @@ norm. They should be reviewed and adjusted with CGI judgment.
             font=_CHART_FONT,
             hoverlabel=_HOVER,
         )
-        st.plotly_chart(fig_trend, width="stretch", config={"displayModeBar": False})
+        st.plotly_chart(fig_trend, use_container_width=True, config={"displayModeBar": False})
 
     with col_table:
         st.markdown('<div class="sec-head">Director Summary</div>', unsafe_allow_html=True)
@@ -1064,8 +1100,10 @@ norm. They should be reviewed and adjusted with CGI judgment.
             "Open Deals", "Late-Stage", "Pipeline (CAD)",
             "Active Deliveries", "Baseline",
         ]
-        tbl_height = max(290, min(len(display) * 35 + 40, 600))
-        st.dataframe(display, width="stretch", hide_index=True, height=tbl_height)
+        st.markdown(
+            f"<div class='table-wrap'>{display.to_html(index=False, escape=True)}</div>",
+            unsafe_allow_html=True,
+        )
 
 
 # ==============================================================================
@@ -1082,8 +1120,8 @@ elif page == "RFP Assignment Tool":
         "<div style='background:#F5F2EC;border:1px solid #E7E2D8;border-radius:8px;"
         "padding:0.75rem 1.1rem;margin-bottom:1.2rem;font-size:0.82rem;color:#57534E'>"
         "<b>Week 4 Final Prototype — RFP Assignment Tool</b><br>"
-        "<span style='color:#92400E'>Retrieval:</span> local fallback / heuristic "
-        "(Azure-backed retrieval not yet integrated into this Streamlit flow). &nbsp;"
+        "<span style='color:#92400E'>Retrieval:</span> shown after analysis "
+        "(Azure/Chroma when available, local fallback otherwise). &nbsp;"
         "<span style='color:#065F46'>Capacity data:</span> real director capacity scores when available. &nbsp;"
         "<span style='color:#57534E'>Recommendations:</span> prototype guidance only — "
         "not final CGI assignment decisions."
@@ -1109,6 +1147,7 @@ elif page == "RFP Assignment Tool":
             height=220,
             label_visibility="collapsed",
             placeholder="Paste the full RFP text here…",
+            key="rfp_input_text",
         )
 
         fc1, fc2 = st.columns(2)
@@ -1122,8 +1161,9 @@ elif page == "RFP Assignment Tool":
 
         st.caption("Territory and service domain are UI context only for now; backend scoring does not use them yet.")
 
-        analyze_clicked = st.button("Analyze RFP", type="primary", width="stretch")
+        analyze_clicked = st.button("Analyze RFP", type="primary", use_container_width=True)
         if analyze_clicked:
+            rfp_text = st.session_state.get("rfp_input_text", "")
             if not rfp_text.strip():
                 st.session_state.pop("rfp_assignment_context", None)
                 st.session_state.pop("rfp_assignment_input", None)
@@ -1203,10 +1243,13 @@ elif page == "RFP Assignment Tool":
             }
             capacity_source_label = str(capacity_source.get("label") or rfp_capacity_source_label)
 
-            _retrieval_note = (
-                "Retrieval: local fallback / heuristic (Azure-backed retrieval not yet integrated "
-                "into this Streamlit flow)."
+            retrieval_mode = str(context.get("retrieval_mode") or "local_fallback")
+            retrieval_label = (
+                "Azure/Chroma"
+                if retrieval_mode == "azure_chroma"
+                else "local fallback"
             )
+            _retrieval_note = f"Retrieval: {retrieval_label}."
             if capacity_source.get("is_mock"):
                 st.warning(
                     f"**Prototype output — heuristic recommendations using synthetic mock capacity data.** "
@@ -1217,6 +1260,15 @@ elif page == "RFP Assignment Tool":
                     f"**Prototype output** — capacity-aware recommendations using {capacity_source_label}. "
                     f"{_retrieval_note}"
                 )
+            retrieval_status = context.get("retrieval_status") or {}
+            if isinstance(retrieval_status, dict):
+                if retrieval_status.get("preferred_path_error"):
+                    st.caption(
+                        "Preferred retrieval path fell back after an error: "
+                        f"{retrieval_status.get('preferred_path_error')}"
+                    )
+                elif retrieval_mode == "azure_chroma":
+                    st.caption("Azure/Chroma retrieval is active for this result.")
 
             st.markdown('<div class="sec-head">RFP Summary</div>', unsafe_allow_html=True)
             st.write(context.get("rfp_summary") or "No summary returned.")

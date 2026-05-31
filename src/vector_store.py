@@ -11,6 +11,7 @@ For example: `python src/vector_store.py`.
 from __future__ import annotations
 
 import json
+import logging
 from collections.abc import Callable, Sequence
 from dataclasses import dataclass
 from math import isfinite, sqrt
@@ -39,6 +40,8 @@ _LOCAL_EMBEDDING_TERMS = [
     "delivery",
     "support",
 ]
+
+logging.getLogger("chromadb.telemetry.product.posthog").disabled = True
 
 
 @dataclass(frozen=True)
@@ -245,23 +248,36 @@ class ChromaVectorStore:
         self,
         persist_directory: str = "data/vector_store",
         collection_name: str = "rfp_chunks",
+        reset_collection: bool = False,
     ) -> None:
         """Connect to a persistent Chroma collection.
 
         @param persist_directory: Local directory for Chroma vector-store files.
         @param collection_name: Chroma collection name for RFP chunks.
+        @param reset_collection: When true, rebuild the collection from scratch.
         @raises ImportError: If `chromadb` is not installed.
         """
 
         try:
             import chromadb
+            from chromadb.config import Settings
         except ImportError as exc:
             raise ImportError(
                 "chromadb is required for ChromaVectorStore. "
                 "Install the project environment before using it."
             ) from exc
 
-        self.client = chromadb.PersistentClient(path=persist_directory)
+        self.client = chromadb.PersistentClient(
+            path=persist_directory,
+            settings=Settings(anonymized_telemetry=False),
+        )
+        if reset_collection:
+            try:
+                self.client.delete_collection(name=collection_name)
+            except Exception:
+                # Chroma raises when the collection does not exist; that is fine
+                # because get_or_create_collection below will create a fresh one.
+                pass
         self.collection = self.client.get_or_create_collection(name=collection_name)
 
     def add_chunks(
@@ -622,6 +638,7 @@ def build_chroma_from_chunks(
     persist_directory: str = "data/vector_store",
     collection_name: str = "rfp_chunks",
     embedding_function=None,
+    reset_collection: bool = False,
 ) -> "ChromaVectorStore":
     """Embed chunks and persist them into Chroma.
 
@@ -641,6 +658,7 @@ def build_chroma_from_chunks(
     store = ChromaVectorStore(
         persist_directory=persist_directory,
         collection_name=collection_name,
+        reset_collection=reset_collection,
     )
     store.add_chunks(rfp_chunks, embeddings)
     return store

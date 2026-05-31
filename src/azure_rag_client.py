@@ -55,6 +55,7 @@ def preferred_retrieval_report(
             chunks,
             persist_directory=persist_directory,
             collection_name=collection_name,
+            reset_collection=True,
         )
         retrieved_examples = query_chroma(
             query_text,

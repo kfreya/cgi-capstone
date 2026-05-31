@@ -20,12 +20,15 @@ from src.vector_store import build_vector_store
 
 @pytest.fixture(autouse=True)
 def _disable_llm():
-    """Prevent LLM auto-detection from making real API calls in all tests.
+    """Prevent auto paths from making real API calls in unit tests.
 
     Tests that want to exercise the LLM path pass _chat_fn=fake_fn directly,
     which bypasses this fixture entirely.
     """
-    with patch("src.azure_client.azure_chat_available", return_value=False):
+    with (
+        patch("src.azure_client.azure_chat_available", return_value=False),
+        patch("src.rfp_engine.preferred_retrieval_report", side_effect=RuntimeError("Azure retrieval disabled in unit tests")),
+    ):
         yield
 
 
