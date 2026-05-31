@@ -1434,12 +1434,17 @@ elif page == "RFP Assignment Tool":
                         score_str = f"{float(raw_score):.2f}"
                     except (TypeError, ValueError):
                         score_str = str(raw_score) if raw_score not in (None, "") else "n/a"
-                    st.markdown(
-                        f"**{index}. {example.get('proposal_id', 'Unknown proposal')}**  \n"
-                        f"`chunk_id`: `{example.get('chunk_id', 'unknown')}`  \n"
-                        f"`similarity_score`: `{score_str}`"
-                    )
-                    st.write(preview or "No supporting text returned.")
+                    proposal_id = example.get("proposal_id", "Unknown proposal")
+                    with st.expander(
+                        f"{index}. {proposal_id} — similarity {score_str}",
+                        expanded=index == 1,
+                    ):
+                        st.markdown(
+                            f"**Proposal:** {proposal_id}  \n"
+                            f"**Chunk ID:** `{example.get('chunk_id', 'unknown')}`  \n"
+                            f"**Similarity score:** `{score_str}`"
+                        )
+                        st.write(preview or "No supporting text returned.")
 
             recommended_directors = context.get("recommended_directors") or []
             st.markdown('<div class="sec-head">Recommended Directors</div>', unsafe_allow_html=True)
