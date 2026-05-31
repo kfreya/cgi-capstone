@@ -12,6 +12,7 @@ For example: `python src/rfp_engine.py`.
 from __future__ import annotations
 
 import json
+import logging
 import math
 import time
 from typing import Any
@@ -28,6 +29,7 @@ except ModuleNotFoundError:
 
 _AUTO = object()
 _RFP_SNIPPET_CHARS = 4000
+LOGGER = logging.getLogger(__name__)
 
 SERVICE_KEYWORDS = {
     "cloud": {"cloud", "azure", "infrastructure", "migration"},
@@ -102,6 +104,7 @@ def generate_assignment_context(
 
     risk_flags = _risk_flags(
         retrieved_examples,
+        rfp_text=rfp_text,
         used_sample_corpus=used_sample_corpus,
         retrieval_mode=retrieval_mode,
         director_records=director_records,
@@ -122,7 +125,11 @@ def generate_assignment_context(
             effort["rationale"] = effort["reason"]
         match_reasons = llm_data.get("director_match_reasons") or {}
         if match_reasons:
-            _inject_llm_match_reasons(recommended_directors, match_reasons)
+            _inject_llm_match_reasons(
+                recommended_directors,
+                match_reasons,
+                require_evidence_caveat=bool(director_records),
+            )
     else:
         rfp_summary = _summarize_rfp_text(rfp_text)
         effort = _effort_estimate(rfp_text, retrieved_examples)
@@ -380,6 +387,7 @@ def _director_records(director_df: Any) -> list[dict[str, Any]]:
 
 def _risk_flags(
     retrieved_examples: list[dict[str, Any]],
+    rfp_text: str = "",
     used_sample_corpus: bool = False,
     retrieval_mode: str = "local_fallback",
     director_records: list[dict[str, Any]] | None = None,
@@ -395,6 +403,7 @@ def _risk_flags(
     """
 
     flags = []
+    flags.extend(_input_quality_flags(rfp_text))
     if used_sample_corpus:
         retrieval_label = (
             "Azure/Chroma"
@@ -408,6 +417,22 @@ def _risk_flags(
                     f"{retrieval_label} retrieval searched the default sample "
                     "historical corpus. Treat retrieval evidence as a prototype "
                     "signal until the full approved proposal corpus is indexed."
+                ),
+            }
+        )
+    service_labels = _service_labels(rfp_text)
+    if (
+        service_labels
+        and director_records
+        and all(_director_keyword_overlap(record, rfp_text) == 0.0 for record in director_records)
+    ):
+        flags.append(
+            {
+                "level": "Medium",
+                "message": (
+                    "Director experience match is weak because no service-domain "
+                    "overlap was detected between the RFP text and the current "
+                    "director capacity records. Treat ranking as capacity-led."
                 ),
             }
         )
@@ -478,6 +503,35 @@ def _risk_flags(
             }
         )
     return flags
+
+
+def _input_quality_flags(rfp_text: str) -> list[dict[str, str]]:
+    """Return risk flags for very short or vague input text."""
+
+    words = [word for word in str(rfp_text or "").split() if word.strip()]
+    if not words:
+        return []
+    if len(words) < 20:
+        return [
+            {
+                "level": "Low",
+                "message": (
+                    "Input RFP text is very short, so summary, retrieval, and "
+                    "director recommendations should be treated as low confidence."
+                ),
+            }
+        ]
+    if len(words) < 80 and not _service_labels(rfp_text):
+        return [
+            {
+                "level": "Low",
+                "message": (
+                    "Input RFP text has limited service-scope detail. Confirm "
+                    "the full scope before relying on the recommendation."
+                ),
+            }
+        ]
+    return []
 
 
 def _notes(
@@ -916,7 +970,13 @@ def _llm_enrich(
         try:
             raw = chat_fn(messages)
             return _parse_llm_response(raw)
-        except Exception:
+        except Exception as exc:
+            LOGGER.warning(
+                "Azure OpenAI chat enrichment failed on attempt %s: %s",
+                attempt + 1,
+                exc,
+                exc_info=True,
+            )
             if attempt == 0:
                 time.sleep(0.5)
                 continue
@@ -971,10 +1031,22 @@ def _parse_llm_response(raw: str) -> dict[str, Any] | None:
 def _inject_llm_match_reasons(
     recommended_directors: list[dict[str, Any]],
     match_reasons: dict[str, str],
+    require_evidence_caveat: bool = False,
 ) -> None:
     """Overwrite heuristic match_reason values with LLM-generated ones in place."""
 
     for director in recommended_directors:
         name = director.get("director_name", "")
         if name in match_reasons and match_reasons[name]:
-            director["match_reason"] = str(match_reasons[name])
+            reason = str(match_reasons[name])
+            if (
+                require_evidence_caveat
+                and "overlap (0.00)" in str(
+                    director.get("experience_match_explanation", "")
+                )
+            ):
+                reason = (
+                    "Capacity signal is available, but director-domain fit is "
+                    f"not validated by current data. LLM note: {reason}"
+                )
+            director["match_reason"] = reason

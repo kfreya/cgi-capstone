@@ -223,7 +223,9 @@ def test_generate_assignment_context_does_not_retrieve_new_rfp_from_stale_store(
         for example in retrieved_examples
     )
     assert all(
-        example["chunk_id"].startswith("historical_sample_chunk_")
+        example["chunk_id"].startswith(
+            ("historical_sample_chunk_", "local_proposal_sample_chunk_")
+        )
         for example in retrieved_examples
     )
     assert all(
@@ -231,7 +233,10 @@ def test_generate_assignment_context_does_not_retrieve_new_rfp_from_stale_store(
         for example in retrieved_examples
     )
     assert any(
-        "sample historical corpus" in flag["message"].lower()
+        (
+            "sample historical corpus" in flag["message"].lower()
+            or "proposals_responses.json" in flag["message"].lower()
+        )
         for flag in output["risk_flags"]
     )
 
@@ -583,6 +588,75 @@ def test_llm_enrichment_exception_falls_back_to_heuristic():
         for flag in output["risk_flags"]
     )
     assert "Azure OpenAI chat analysis" not in output["notes"]
+
+
+def test_short_input_adds_low_confidence_risk_flag():
+    """Very short inputs should be labelled low confidence instead of over-trusted."""
+
+    output = generate_assignment_context(
+        "Need IT help.",
+        historical_chunks=[_SAMPLE_CHUNK],
+        _chat_fn=None,
+    )
+
+    assert any(
+        "very short" in flag["message"].lower()
+        for flag in output["risk_flags"]
+    )
+
+
+def test_zero_service_overlap_adds_capacity_led_risk_flag():
+    """Director rankings should disclose when no service-domain overlap exists."""
+
+    output = generate_assignment_context(
+        "Need Azure cloud migration and security review.",
+        director_df=[
+            {
+                "director_name": "Director One",
+                "capacity_label": "Available",
+                "capacity_score": 0.9,
+                "relative_load": 0.1,
+            }
+        ],
+        historical_chunks=[_SAMPLE_CHUNK],
+        _chat_fn=None,
+    )
+
+    assert any(
+        "capacity-led" in flag["message"].lower()
+        for flag in output["risk_flags"]
+    )
+
+
+def test_llm_match_reason_gets_caveat_when_domain_fit_is_unvalidated():
+    """LLM director wording should be softened when service evidence is weak."""
+
+    fake_response = _json.dumps({
+        "director_match_reasons": {
+            "Director One": "Director One has strong cloud delivery experience.",
+        },
+    })
+
+    def fake_chat(messages):
+        return fake_response
+
+    output = generate_assignment_context(
+        "Need Azure cloud migration and security review.",
+        director_df=[
+            {
+                "director_name": "Director One",
+                "capacity_label": "Available",
+                "capacity_score": 0.9,
+                "relative_load": 0.1,
+            }
+        ],
+        historical_chunks=[_SAMPLE_CHUNK],
+        _chat_fn=fake_chat,
+    )
+
+    assert output["recommended_directors"][0]["match_reason"].startswith(
+        "Capacity signal is available"
+    )
 
 
 def test_llm_enrichment_malformed_json_falls_back_to_heuristic():
