@@ -11,10 +11,13 @@ REQUIRED_VARIABLES = [
     "AZURE_OPENAI_API_KEY",
     "AZURE_OPENAI_EMBEDDINGS_ENDPOINT",
     "AZURE_OPENAI_ENDPOINT",
-    "AZURE_OPENAI_REASONING_ENDPOINT",
     "AZURE_OPENAI_API_VERSION",
-    "AZURE_OPENAI_EMBEDDING_DEPLOYMENT",
+]
+
+OPTIONAL_VARIABLES = [
+    "AZURE_OPENAI_REASONING_ENDPOINT",
     "AZURE_OPENAI_CHAT_DEPLOYMENT",
+    "AZURE_OPENAI_EMBEDDING_DEPLOYMENT",
 ]
 
 
@@ -22,6 +25,10 @@ def main() -> None:
     load_dotenv(ENV_PATH)
 
     for variable_name in REQUIRED_VARIABLES:
+        value = "FOUND" if variable_name in os.environ else "MISSING"
+        print(f"{variable_name}: {value}")
+
+    for variable_name in OPTIONAL_VARIABLES:
         value = "FOUND" if variable_name in os.environ else "MISSING"
         print(f"{variable_name}: {value}")
 

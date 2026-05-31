@@ -22,8 +22,18 @@ BASE_CONFIG_KEYS = (
 EMBEDDING_CONFIG_KEYS = (
     "AZURE_OPENAI_EMBEDDINGS_ENDPOINT",
     "AZURE_OPENAI_API_VERSION",
-    "AZURE_OPENAI_EMBEDDING_DEPLOYMENT",
 )
+DEFAULT_EMBEDDING_MODEL = "text-embedding-3-large"
+
+
+def _get_embedding_model() -> str:
+    """Return the embedding model/deployment name for Azure embeddings."""
+
+    return (
+        os.getenv("AZURE_OPENAI_EMBEDDING_DEPLOYMENT")
+        or os.getenv("AZURE_OPENAI_EMBEDDING_MODEL")
+        or DEFAULT_EMBEDDING_MODEL
+    )
 
 def missing_azure_config(require_embedding: bool = False) -> list[str]:
     """Return missing Azure OpenAI configuration keys (does not raise).
@@ -70,7 +80,7 @@ def try_validate_azure_config(require_embedding: bool = False) -> tuple[dict[str
             "azure_endpoint": os.getenv("AZURE_OPENAI_ENDPOINT", ""),
             "azure_embedding_endpoint": os.getenv("AZURE_OPENAI_EMBEDDINGS_ENDPOINT", ""),
             "api_version": os.getenv("AZURE_OPENAI_API_VERSION", ""),
-            "embedding_deployment": os.getenv("AZURE_OPENAI_EMBEDDING_DEPLOYMENT", ""),
+            "embedding_model": _get_embedding_model(),
         },
         [],
     )
@@ -92,7 +102,7 @@ def validate_azure_config(require_embedding: bool = False) -> dict[str, str]:
         "azure_endpoint": os.getenv("AZURE_OPENAI_ENDPOINT", ""),
         "azure_embedding_endpoint": os.getenv("AZURE_OPENAI_EMBEDDINGS_ENDPOINT", ""),
         "api_version": os.getenv("AZURE_OPENAI_API_VERSION", ""),
-        "embedding_deployment": os.getenv("AZURE_OPENAI_EMBEDDING_DEPLOYMENT", ""),
+        "embedding_model": _get_embedding_model(),
     }
 
     missing_config = missing_azure_config(require_embedding=require_embedding)
@@ -155,7 +165,7 @@ def embed_texts(texts: Sequence[str]) -> list[list[float]]:
     config = validate_azure_config(require_embedding=True)
     client = get_azure_embedding_client()
     response = client.embeddings.create(
-        model=config["embedding_deployment"],
+        model=config["embedding_model"],
         input=list(texts),
     )
     return [list(item.embedding) for item in response.data]
@@ -181,6 +191,30 @@ def get_embedding_function(prefer_azure: bool = True):
     if prefer_azure and azure_embedding_available():
         return embed_texts
     return None
+
+
+def get_azure_environment_status(require_embedding: bool = True) -> dict[str, Any]:
+    config, missing = try_validate_azure_config(require_embedding=require_embedding)
+    return {
+        "ready": config is not None,
+        "require_embedding": require_embedding,
+        "missing": missing,
+        "can_create_client": config is not None,
+        "can_embed": config is not None and require_embedding,
+    }
+
+
+def get_azure_environment_summary(require_embedding: bool = True) -> str:
+    status = get_azure_environment_status(require_embedding=require_embedding)
+    if status["ready"]:
+        return "Azure OpenAI configuration is ready."
+    if status["missing"]:
+        return "Azure OpenAI configuration is blocked: " + ", ".join(status["missing"])
+    return "Azure OpenAI configuration is blocked."
+
+
+def can_run_azure_embedding_smoke_test() -> bool:
+    return azure_embedding_available()
 
 # --- Week 3 Add-ons Ends here ---
 

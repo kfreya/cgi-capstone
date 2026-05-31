@@ -13,21 +13,16 @@ from __future__ import annotations
 
 import json
 import math
+import time
 from typing import Any
 
 try:
-    from src.rfp_preprocessor import (
-        DEFAULT_PROPOSAL_JSON_PATH,
-        load_sample_rfp_text,
-        prepare_rfp_chunks,
-    )
+    from src.azure_rag_client import fallback_retrieval_report, preferred_retrieval_report
+    from src.rfp_preprocessor import load_sample_rfp_text, prepare_rfp_chunks
     from src.vector_store import build_vector_store
 except ModuleNotFoundError:
-    from rfp_preprocessor import (
-        DEFAULT_PROPOSAL_JSON_PATH,
-        load_sample_rfp_text,
-        prepare_rfp_chunks,
-    )
+    from azure_rag_client import fallback_retrieval_report, preferred_retrieval_report
+    from rfp_preprocessor import load_sample_rfp_text, prepare_rfp_chunks
     from vector_store import build_vector_store
 
 
@@ -77,20 +72,20 @@ def generate_assignment_context(
     @return: Week 4 dashboard-ready RFP assignment context.
     """
 
-    used_default_corpus = historical_chunks is None
-    used_local_proposal_json = (
-        used_default_corpus and DEFAULT_PROPOSAL_JSON_PATH.exists()
-    )
+    used_sample_corpus = historical_chunks is None
     chunks = (
         historical_chunks
         if historical_chunks is not None
         else _default_historical_chunks()
     )
-    retrieved_examples = _retrieve_from_chunks(
+    retrieval_report = _build_retrieval_report(
         chunks=chunks,
         query=rfp_text,
         top_k=3,
     )
+    retrieval_mode = retrieval_report.get("retrieval_mode", retrieval_report.get("backend", "local_fallback"))
+    retrieval_status = retrieval_report.get("status", {})
+    retrieved_examples = retrieval_report.get("retrieved_examples", [])
     supporting_chunk_ids = [
         example["chunk_id"] for example in retrieved_examples
     ]
@@ -107,8 +102,8 @@ def generate_assignment_context(
 
     risk_flags = _risk_flags(
         retrieved_examples,
-        used_default_corpus=used_default_corpus,
-        used_local_proposal_json=used_local_proposal_json,
+        used_sample_corpus=used_sample_corpus,
+        retrieval_mode=retrieval_mode,
         director_records=director_records,
         llm_failed=llm_failed,
     )
@@ -139,9 +134,12 @@ def generate_assignment_context(
         "retrieved_examples": retrieved_examples,
         "recommended_directors": recommended_directors,
         "risk_flags": risk_flags,
+        "retrieval_mode": retrieval_mode,
+        "retrieval_status": retrieval_status,
         "notes": _notes(
-            used_default_corpus=used_default_corpus,
-            used_local_proposal_json=used_local_proposal_json,
+            used_sample_corpus=used_sample_corpus,
+            retrieval_mode=retrieval_mode,
+            retrieval_status=retrieval_status,
             llm_used=llm_used,
         ),
     }
@@ -152,17 +150,12 @@ def _default_historical_chunks() -> list[dict[str, Any]]:
 
     sample_text = load_sample_rfp_text()
     chunks = prepare_rfp_chunks(sample_text)
-    source_label = (
-        "local_proposal_sample"
-        if DEFAULT_PROPOSAL_JSON_PATH.exists()
-        else "historical_sample"
-    )
     for chunk in chunks:
-        chunk["proposal_id"] = source_label
+        chunk["proposal_id"] = "historical_sample"
         chunk["chunk_id"] = (
-            f"{source_label}_chunk_{int(chunk['chunk_index']) + 1:03d}"
+            f"historical_sample_chunk_{int(chunk['chunk_index']) + 1:03d}"
         )
-        chunk["source_type"] = source_label
+        chunk["source_type"] = "historical_sample"
     return chunks
 
 
@@ -178,6 +171,38 @@ def _retrieve_from_chunks(
         result.to_retrieved_example()
         for result in store.query(query, top_k=top_k)
     ]
+
+
+def _build_retrieval_report(
+    chunks: list[dict[str, Any]],
+    query: str,
+    top_k: int,
+) -> dict[str, Any]:
+    """Choose the preferred retrieval path and fall back if anything fails."""
+
+    try:
+        report = preferred_retrieval_report(
+            query_text=query,
+            historical_chunks=chunks,
+            top_k=top_k,
+        )
+        if report.get("retrieved_examples"):
+            return report
+    except Exception as exc:
+        fallback_report = fallback_retrieval_report(
+            query_text=query,
+            historical_chunks=chunks,
+            top_k=top_k,
+        )
+        fallback_report.setdefault("status", {})
+        fallback_report["status"]["preferred_path_error"] = str(exc)
+        return fallback_report
+
+    return fallback_retrieval_report(
+        query_text=query,
+        historical_chunks=chunks,
+        top_k=top_k,
+    )
 
 
 def _summarize_rfp_text(rfp_text: str, max_chars: int = 220) -> str:
@@ -355,43 +380,34 @@ def _director_records(director_df: Any) -> list[dict[str, Any]]:
 
 def _risk_flags(
     retrieved_examples: list[dict[str, Any]],
-    used_default_corpus: bool = False,
-    used_local_proposal_json: bool = False,
+    used_sample_corpus: bool = False,
+    retrieval_mode: str = "local_fallback",
     director_records: list[dict[str, Any]] | None = None,
     llm_failed: bool = False,
 ) -> list[dict[str, str]]:
     """Create simple prototype risk flags for the dashboard.
 
     @param retrieved_examples: Retrieved chunks from the local baseline.
-    @param used_default_corpus: Whether the default local corpus path was used.
-    @param used_local_proposal_json: Whether local proposal JSON was found.
+    @param used_sample_corpus: Whether built-in fallback historical text was used.
     @param director_records: Director records passed into the assignment logic.
     @param llm_failed: Whether an LLM enrichment attempt was made but failed.
     @return: Risk flag dictionaries.
     """
 
     flags = []
-    if used_default_corpus and used_local_proposal_json:
-        flags.append(
-            {
-                "level": "Medium",
-                "message": (
-                    "Local proposals_responses.json was used as the retrieval "
-                    "source, but only the current sample-corpus path is active. "
-                    "Treat retrieval evidence as a prototype signal until the "
-                    "full indexed corpus is connected."
-                ),
-            }
+    if used_sample_corpus:
+        retrieval_label = (
+            "Azure/Chroma"
+            if retrieval_mode == "azure_chroma"
+            else "local fallback"
         )
-    elif used_default_corpus:
         flags.append(
             {
                 "level": "Medium",
                 "message": (
-                    "Built-in sample historical corpus was used because real "
-                    "historical proposal data was unavailable. Treat retrieval "
-                    "evidence as a prototype signal until the approved proposal "
-                    "data is connected."
+                    f"{retrieval_label} retrieval searched the default sample "
+                    "historical corpus. Treat retrieval evidence as a prototype "
+                    "signal until the full approved proposal corpus is indexed."
                 ),
             }
         )
@@ -465,46 +481,51 @@ def _risk_flags(
 
 
 def _notes(
-    used_default_corpus: bool = False,
-    used_local_proposal_json: bool = False,
+    used_sample_corpus: bool = False,
+    retrieval_mode: str = "local_fallback",
+    retrieval_status: dict[str, Any] | None = None,
     llm_used: bool = False,
 ) -> str:
     """Create a short note describing the current prototype mode.
 
-    @param used_default_corpus: Whether the default local corpus path was used.
-    @param used_local_proposal_json: Whether local proposal JSON was found.
-    @param llm_used: Whether Azure OpenAI chat enrichment succeeded.
+    @param used_sample_corpus: Whether built-in fallback historical text was used.
+    @param retrieval_mode: Which retrieval path was used.
+    @param retrieval_status: Status details from the retrieval backend.
+    @param llm_used: Whether LLM enrichment succeeded.
     @return: Dashboard note string.
     """
 
+    status_bits = []
+    if retrieval_mode:
+        status_bits.append(f"retrieval mode: {retrieval_mode}")
+    if retrieval_status and retrieval_status.get("preferred_path_error"):
+        status_bits.append("preferred path fell back after an error")
+    if retrieval_mode == "azure_chroma":
+        retrieval_note = "Retrieval used Azure/Chroma."
+    elif retrieval_mode == "local_fallback":
+        retrieval_note = "Retrieval used local fallback."
+    else:
+        retrieval_note = f"Retrieval mode: {retrieval_mode}."
     if llm_used:
         base = (
             "Prototype output enriched with Azure OpenAI chat analysis. "
-            "Retrieval remains local fallback."
+            f"{retrieval_note}"
         )
-        if used_default_corpus and used_local_proposal_json:
+        if used_sample_corpus:
             return (
-                base + " Local proposals_responses.json is available, but "
-                "retrieval still uses the current sample-corpus path."
-            )
-        if used_default_corpus:
-            return (
-                base + " Built-in sample historical corpus used because real "
-                "historical proposal data was unavailable."
+                base + " The retrieved evidence comes from the default sample "
+                "historical corpus until the full approved proposal corpus is indexed."
             )
         return base
-
-    if used_default_corpus and used_local_proposal_json:
+    if used_sample_corpus:
         return (
-            "Prototype output for dashboard integration. Local "
-            "proposals_responses.json is available, but retrieval still uses "
-            "the current sample-corpus path."
+            f"Prototype output for dashboard integration. {retrieval_note} "
+            "Retrieved evidence comes from the default sample historical corpus until "
+            "the full approved proposal corpus is indexed. "
+            + ("; ".join(status_bits) + "." if status_bits else "")
         )
-    if used_default_corpus:
-        return (
-            "Prototype output for dashboard integration. Built-in sample "
-            "historical corpus used because real historical proposal data was unavailable."
-        )
+    if status_bits:
+        return "Prototype output for dashboard integration. " + "; ".join(status_bits) + "."
     return "Prototype output for dashboard integration."
 
 
@@ -890,46 +911,61 @@ def _llm_enrich(
 ) -> dict[str, Any] | None:
     """Call the LLM and return enriched fields, or None on any failure."""
 
-    try:
-        messages = _build_llm_messages(rfp_text, director_records)
-        raw = chat_fn(messages)
-        if not raw or not raw.strip():
+    messages = _build_llm_messages(rfp_text, director_records)
+    for attempt in range(2):
+        try:
+            raw = chat_fn(messages)
+            return _parse_llm_response(raw)
+        except Exception:
+            if attempt == 0:
+                time.sleep(0.5)
+                continue
             return None
-        cleaned = raw.strip()
-        if cleaned.startswith("```"):
-            lines = cleaned.split("\n")
-            end = -1 if lines[-1].strip() == "```" else len(lines)
-            cleaned = "\n".join(lines[1:end])
-        data = json.loads(cleaned)
-        if not isinstance(data, dict):
-            return None
-        normalized: dict[str, Any] = {}
-        summary = data.get("rfp_summary")
-        if isinstance(summary, str) and summary.strip():
-            normalized["rfp_summary"] = summary.strip()
-        effort = data.get("effort")
-        if isinstance(effort, dict):
-            normalized_effort = dict(effort)
-            if normalized_effort.get("level") not in {"Low", "Medium", "High"}:
-                normalized_effort["level"] = "Medium"
-            normalized_effort["reason"] = str(normalized_effort.get("reason") or "")
-            normalized_effort["estimated_duration"] = str(
-                normalized_effort.get("estimated_duration") or ""
-            )
-            normalized_effort["rationale"] = normalized_effort["reason"]
-            normalized["effort"] = normalized_effort
-        match_reasons = data.get("director_match_reasons")
-        if isinstance(match_reasons, dict):
-            normalized["director_match_reasons"] = {
-                str(name): str(reason)
-                for name, reason in match_reasons.items()
-                if reason
-            }
-        if not normalized:
-            return None
-        return normalized
-    except Exception:
+    return None
+
+
+def _parse_llm_response(raw: str) -> dict[str, Any] | None:
+    """Normalize the LLM JSON response into dashboard fields."""
+
+    if not raw or not raw.strip():
         return None
+    cleaned = raw.strip()
+    if cleaned.startswith("```"):
+        lines = cleaned.split("\n")
+        if lines and lines[0].strip().startswith("```"):
+            lines = lines[1:]
+        if lines and lines[-1].strip() == "```":
+            lines = lines[:-1]
+        cleaned = "\n".join(lines).strip()
+
+    data = json.loads(cleaned)
+    if not isinstance(data, dict):
+        return None
+    normalized: dict[str, Any] = {}
+    summary = data.get("rfp_summary")
+    if isinstance(summary, str) and summary.strip():
+        normalized["rfp_summary"] = summary.strip()
+    effort = data.get("effort")
+    if isinstance(effort, dict):
+        normalized_effort = dict(effort)
+        if normalized_effort.get("level") not in {"Low", "Medium", "High"}:
+            normalized_effort["level"] = "Medium"
+        normalized_effort["reason"] = str(normalized_effort.get("reason") or "")
+        normalized_effort["estimated_duration"] = str(
+            normalized_effort.get("estimated_duration") or ""
+        )
+        normalized_effort["rationale"] = normalized_effort["reason"]
+        normalized["effort"] = normalized_effort
+    match_reasons = data.get("director_match_reasons")
+    if isinstance(match_reasons, dict):
+        normalized["director_match_reasons"] = {
+            str(name): str(reason)
+            for name, reason in match_reasons.items()
+            if reason
+        }
+    if not normalized:
+        return None
+    return normalized
 
 
 def _inject_llm_match_reasons(
