@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from typing import Any
 
-from src.azure_embedding_client import embedding_ready, smoke_test_embedding
+from src.azure_embedding_client import embedding_ready
 from src.rfp_preprocessor import load_sample_rfp_text, prepare_rfp_chunks
 from src.vector_store import (
     build_chroma_from_chunks,
@@ -65,10 +65,12 @@ def preferred_retrieval_report(
         )
         store = build_vector_store(chunks)
         retrieval_context = build_retrieval_context(store.query(query_text, top_k=top_k))
+        status = get_vector_store_status()
+        status["preferred_path_ready"] = True
         return {
             "backend": "azure_chroma",
             "retrieval_mode": "azure_chroma",
-            "status": smoke_test_embedding(),
+            "status": status,
             "retrieved_examples": retrieved_examples,
             "retrieval_context": retrieval_context,
         }

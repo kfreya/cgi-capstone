@@ -44,3 +44,64 @@ def test_preferred_retrieval_report_falls_back_when_azure_unavailable(monkeypatc
     assert result["backend"] == "fallback"
     assert result["retrieval_context"] == "fallback-context"
 
+
+def test_preferred_retrieval_report_uses_azure_chroma_path(monkeypatch):
+    monkeypatch.setattr(azure_rag_client, "embedding_ready", lambda: True)
+    monkeypatch.setattr(
+        azure_rag_client,
+        "build_chroma_from_chunks",
+        lambda *args, **kwargs: object(),
+    )
+    monkeypatch.setattr(
+        azure_rag_client,
+        "query_chroma",
+        lambda *args, **kwargs: [
+            {
+                "proposal_id": "historical_sample",
+                "chunk_id": "historical_sample_chunk_001",
+                "source_type": "proposal",
+                "supporting_text": "Prior Azure migration and dashboard reporting proposal.",
+                "similarity_score": 0.91,
+            }
+        ],
+    )
+
+    class FakeResult:
+        def to_retrieved_example(self):
+            return {
+                "proposal_id": "historical_sample",
+                "chunk_id": "historical_sample_chunk_001",
+                "source_type": "proposal",
+                "supporting_text": "Prior Azure migration and dashboard reporting proposal.",
+                "similarity_score": 0.91,
+            }
+
+    class FakeStore:
+        def query(self, *_args, **_kwargs):
+            return [FakeResult()]
+
+    monkeypatch.setattr(azure_rag_client, "build_vector_store", lambda chunks: FakeStore())
+    monkeypatch.setattr(azure_rag_client, "build_retrieval_context", lambda results: "azure-context")
+    monkeypatch.setattr(azure_rag_client, "get_vector_store_status", lambda: {"local_store_ready": True})
+
+    result = azure_rag_client.preferred_retrieval_report(
+        "Need Azure migration and dashboard support.",
+        historical_chunks=[
+            {
+                "proposal_id": "historical_sample",
+                "chunk_id": "historical_sample_chunk_001",
+                "source_type": "proposal",
+                "text": "Prior Azure migration and dashboard reporting proposal.",
+                "chunk_index": 0,
+                "opportunity_owner": None,
+                "opportunity_id": None,
+            }
+        ],
+        top_k=1,
+    )
+
+    assert result["backend"] == "azure_chroma"
+    assert result["retrieval_mode"] == "azure_chroma"
+    assert result["status"]["preferred_path_ready"] is True
+    assert result["retrieved_examples"][0]["chunk_id"] == "historical_sample_chunk_001"
+    assert result["retrieval_context"] == "azure-context"

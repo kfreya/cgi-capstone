@@ -92,6 +92,58 @@ def test_generate_assignment_context_matches_dashboard_contract():
     assert isinstance(output["retrieval_status"], dict)
 
 
+def test_generate_assignment_context_prefers_azure_chroma_path(monkeypatch):
+    """Check that the preferred retrieval path flows into assignment_context."""
+
+    def fake_preferred_retrieval_report(query_text, historical_chunks=None, top_k=3):
+        return {
+            "backend": "azure_chroma",
+            "retrieval_mode": "azure_chroma",
+            "status": {"preferred_path_ready": True},
+            "retrieved_examples": [
+                {
+                    "proposal_id": "historical_azure",
+                    "chunk_id": "historical_azure_chunk_001",
+                    "source_type": "proposal",
+                    "supporting_text": "Prior Azure migration and dashboard reporting proposal.",
+                    "similarity_score": 0.91,
+                }
+            ],
+            "retrieval_context": "azure-context",
+        }
+
+    def fake_fallback_retrieval_report(*_args, **_kwargs):
+        raise AssertionError("fallback path should not be used when Azure path succeeds")
+
+    monkeypatch.setattr(
+        "src.rfp_engine.preferred_retrieval_report",
+        fake_preferred_retrieval_report,
+    )
+    monkeypatch.setattr(
+        "src.rfp_engine.fallback_retrieval_report",
+        fake_fallback_retrieval_report,
+    )
+
+    output = generate_assignment_context(
+        "Need Azure migration support and dashboard reporting.",
+        pd.DataFrame(
+            {
+                "opportunity_owner": ["Director A"],
+                "capacity_label": ["Available"],
+                "capacity_score": [0.72],
+                "relative_load": [0.65],
+            }
+        ),
+    )
+
+    assert output["retrieval_mode"] == "azure_chroma"
+    assert output["retrieval_status"]["preferred_path_ready"] is True
+    assert output["retrieved_examples"][0]["chunk_id"] == "historical_azure_chunk_001"
+    assert output["similar_rfps"][0]["source"] == "historical_azure_chunk_001"
+    assert "local fallback" not in output["notes"].lower()
+    assert "azure_chroma" in output["notes"].lower()
+
+
 def test_generate_assignment_context_uses_mock_director_when_missing():
     """Check that the prototype still runs without real director data."""
 
