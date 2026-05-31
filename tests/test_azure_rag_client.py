@@ -47,10 +47,11 @@ def test_preferred_retrieval_report_falls_back_when_azure_unavailable(monkeypatc
 
 def test_preferred_retrieval_report_uses_azure_chroma_path(monkeypatch):
     monkeypatch.setattr(azure_rag_client, "embedding_ready", lambda: True)
+    build_call = {}
     monkeypatch.setattr(
         azure_rag_client,
         "build_chroma_from_chunks",
-        lambda *args, **kwargs: object(),
+        lambda *args, **kwargs: build_call.update(kwargs) or object(),
     )
     monkeypatch.setattr(
         azure_rag_client,
@@ -105,3 +106,4 @@ def test_preferred_retrieval_report_uses_azure_chroma_path(monkeypatch):
     assert result["status"]["preferred_path_ready"] is True
     assert result["retrieved_examples"][0]["chunk_id"] == "historical_sample_chunk_001"
     assert result["retrieval_context"] == "azure-context"
+    assert build_call["reset_collection"] is True

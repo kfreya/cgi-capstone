@@ -25,10 +25,43 @@ def _disable_llm():
     Tests that want to exercise the LLM path pass _chat_fn=fake_fn directly,
     which bypasses this fixture entirely.
     """
-    with (
-        patch("src.azure_client.azure_chat_available", return_value=False),
-        patch("src.rfp_engine.preferred_retrieval_report", side_effect=RuntimeError("Azure retrieval disabled in unit tests")),
+    with patch("src.azure_client.azure_chat_available", return_value=False):
+        yield
+
+
+@pytest.fixture(autouse=True)
+def _disable_azure_retrieval():
+    """Keep ordinary unit tests on the local retrieval path."""
+
+    def fake_preferred_retrieval_report(
+        query_text,
+        historical_chunks=None,
+        top_k=3,
+        persist_directory="data/vector_store",
+        collection_name="rfp_chunks",
     ):
+        chunks = historical_chunks or [
+            {
+                "proposal_id": "historical_sample",
+                "chunk_id": "historical_sample_chunk_001",
+                "source_type": "proposal",
+                "text": "Prior Azure migration and dashboard reporting proposal.",
+                "chunk_index": 0,
+                "opportunity_owner": None,
+                "opportunity_id": None,
+            }
+        ]
+        store = build_vector_store(chunks)
+        results = [result.to_retrieved_example() for result in store.query(query_text, top_k=top_k)]
+        return {
+            "backend": "fallback",
+            "retrieval_mode": "local_fallback",
+            "status": {"local_store_ready": True},
+            "retrieved_examples": results,
+            "retrieval_context": "fallback-context",
+        }
+
+    with patch("src.rfp_engine.preferred_retrieval_report", side_effect=fake_preferred_retrieval_report):
         yield
 
 
