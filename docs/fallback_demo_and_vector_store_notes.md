@@ -205,3 +205,9 @@ This confirms that the preferred Azure/Chroma path is not just available by itse
 ## Notes
 
 The fallback retrieval path is still important, but it is no longer the only story. The current job is to make the Azure/Chroma path real, keep the fallback path safe, and make the retrieval mode obvious wherever the result is shown.
+
+Recent small fixes:
+
+- The preferred Azure/Chroma path now resets the Chroma collection before rebuilding, so old test results do not leak into new runs.
+- Ordinary unit tests are kept on the local fallback path by default, so local Azure settings do not change the normal test behavior.
+- Preferred-path tests still exist separately and can be run when we want to check the Azure/Chroma flow directly.
