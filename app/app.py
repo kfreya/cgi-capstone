@@ -1120,8 +1120,8 @@ elif page == "RFP Assignment Tool":
         "<div style='background:#F5F2EC;border:1px solid #E7E2D8;border-radius:8px;"
         "padding:0.75rem 1.1rem;margin-bottom:1.2rem;font-size:0.82rem;color:#57534E'>"
         "<b>Week 4 Final Prototype — RFP Assignment Tool</b><br>"
-        "<span style='color:#92400E'>Retrieval:</span> shown after analysis "
-        "(Azure/Chroma when available, local fallback otherwise). &nbsp;"
+        "<span style='color:#92400E'>Retrieval:</span> active mode is shown after "
+        "analysis (Azure/Chroma when available, local fallback otherwise). &nbsp;"
         "<span style='color:#065F46'>Capacity data:</span> real director capacity scores when available. &nbsp;"
         "<span style='color:#57534E'>Recommendations:</span> prototype guidance only — "
         "not final CGI assignment decisions."
@@ -1213,7 +1213,7 @@ elif page == "RFP Assignment Tool":
 
             st.markdown('<div class="sec-head">Similar Historical RFPs</div>', unsafe_allow_html=True)
             st.markdown(
-                f"<div style='{_ph}'>Retrieved RFP chunks ranked by local fallback similarity will appear here<br>"
+                f"<div style='{_ph}'>Retrieved RFP chunks and their retrieval mode will appear here<br>"
                 "<span style='font-size:0.72rem'>"
                 "Source: <code>generate_assignment_context()</code> → <code>retrieved_examples</code></span></div>",
                 unsafe_allow_html=True,
@@ -1242,14 +1242,13 @@ elif page == "RFP Assignment Tool":
                 "is_mock": _data_source == "mock",
             }
             capacity_source_label = str(capacity_source.get("label") or rfp_capacity_source_label)
-
-            retrieval_mode = str(context.get("retrieval_mode") or "local_fallback")
-            retrieval_label = (
-                "Azure/Chroma"
-                if retrieval_mode == "azure_chroma"
-                else "local fallback"
-            )
-            _retrieval_note = f"Retrieval: {retrieval_label}."
+            retrieval_mode = str(context.get("retrieval_mode") or "unknown")
+            retrieval_mode_label = {
+                "azure_chroma": "Azure/Chroma retrieval active",
+                "local_fallback": "Local fallback retrieval active",
+            }.get(retrieval_mode, "Retrieval mode unavailable")
+            _retrieval_note = f"Retrieval: {retrieval_mode_label}."
+            st.info(f"**Retrieval mode** — {retrieval_mode_label}.")
             if capacity_source.get("is_mock"):
                 st.warning(
                     f"**Prototype output — heuristic recommendations using synthetic mock capacity data.** "
