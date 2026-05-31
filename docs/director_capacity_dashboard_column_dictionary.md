@@ -23,6 +23,7 @@ capacity score → labeling.
 |---|---|---|---|
 | `opportunity_owner` | identifier | Owner / director key used for aggregation. | Primary key of the output table. Exactly one row per owner. |
 | `territory` | metadata | First observed `delivery_territory_center` per owner. | Informational grouping field. Not used in scoring logic. May be partially missing depending on upstream coverage. |
+| `service_solution` | metadata | Semicolon-separated owner-level service-solution profile derived from opportunity-level `service_solution` values. | Used as a prototype service-fit signal by the RFP Assignment Tool. Values are based on won/open opportunities, sorted by frequency within each owner, and capped to the top observed services. Not used in numeric capacity scoring. |
 | `current_load` | core metric | Sum of open sales load plus active won-delivery load per owner. | Primary workload signal used in relative load calculation. Lost, duplicate, cancelled, and inactive records do not contribute. |
 | `relative_load` | derived metric | `current_load / historical_avg_load` (baseline-normalized load). | Key normalization signal. Can be unstable for low-history owners. |
 | `historical_avg_load` | baseline metric | Mean quarterly load per owner across available history. | Derived from `compute_historical_baseline`. Used as normalization denominator. |
