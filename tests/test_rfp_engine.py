@@ -20,12 +20,48 @@ from src.vector_store import build_vector_store
 
 @pytest.fixture(autouse=True)
 def _disable_llm():
-    """Prevent LLM auto-detection from making real API calls in all tests.
+    """Prevent auto paths from making real API calls in unit tests.
 
     Tests that want to exercise the LLM path pass _chat_fn=fake_fn directly,
     which bypasses this fixture entirely.
     """
     with patch("src.azure_client.azure_chat_available", return_value=False):
+        yield
+
+
+@pytest.fixture(autouse=True)
+def _disable_azure_retrieval():
+    """Keep ordinary unit tests on the local retrieval path."""
+
+    def fake_preferred_retrieval_report(
+        query_text,
+        historical_chunks=None,
+        top_k=3,
+        persist_directory="data/vector_store",
+        collection_name="rfp_chunks",
+    ):
+        chunks = historical_chunks or [
+            {
+                "proposal_id": "historical_sample",
+                "chunk_id": "historical_sample_chunk_001",
+                "source_type": "proposal",
+                "text": "Prior Azure migration and dashboard reporting proposal.",
+                "chunk_index": 0,
+                "opportunity_owner": None,
+                "opportunity_id": None,
+            }
+        ]
+        store = build_vector_store(chunks)
+        results = [result.to_retrieved_example() for result in store.query(query_text, top_k=top_k)]
+        return {
+            "backend": "fallback",
+            "retrieval_mode": "local_fallback",
+            "status": {"local_store_ready": True},
+            "retrieved_examples": results,
+            "retrieval_context": "fallback-context",
+        }
+
+    with patch("src.rfp_engine.preferred_retrieval_report", side_effect=fake_preferred_retrieval_report):
         yield
 
 
@@ -64,6 +100,8 @@ def test_generate_assignment_context_matches_dashboard_contract():
         "retrieved_examples",
         "recommended_directors",
         "risk_flags",
+        "retrieval_mode",
+        "retrieval_status",
         "notes",
     }
     assert output["retrieved_examples"][0]["chunk_id"] == "historical_azure_chunk_001"
@@ -82,7 +120,61 @@ def test_generate_assignment_context_matches_dashboard_contract():
     assert "capacity_explanation" in output["recommended_directors"][0]
     assert "experience_match_explanation" in output["recommended_directors"][0]
     assert isinstance(output["recommended_directors"][0]["supporting_chunks"], list)
-    assert output["notes"] == "Prototype output for dashboard integration."
+    assert output["notes"].startswith("Prototype output for dashboard integration.")
+    assert output["retrieval_mode"] in {"azure_chroma", "local_fallback"}
+    assert isinstance(output["retrieval_status"], dict)
+
+
+def test_generate_assignment_context_prefers_azure_chroma_path(monkeypatch):
+    """Check that the preferred retrieval path flows into assignment_context."""
+
+    def fake_preferred_retrieval_report(query_text, historical_chunks=None, top_k=3):
+        return {
+            "backend": "azure_chroma",
+            "retrieval_mode": "azure_chroma",
+            "status": {"preferred_path_ready": True},
+            "retrieved_examples": [
+                {
+                    "proposal_id": "historical_azure",
+                    "chunk_id": "historical_azure_chunk_001",
+                    "source_type": "proposal",
+                    "supporting_text": "Prior Azure migration and dashboard reporting proposal.",
+                    "similarity_score": 0.91,
+                }
+            ],
+            "retrieval_context": "azure-context",
+        }
+
+    def fake_fallback_retrieval_report(*_args, **_kwargs):
+        raise AssertionError("fallback path should not be used when Azure path succeeds")
+
+    monkeypatch.setattr(
+        "src.rfp_engine.preferred_retrieval_report",
+        fake_preferred_retrieval_report,
+    )
+    monkeypatch.setattr(
+        "src.rfp_engine.fallback_retrieval_report",
+        fake_fallback_retrieval_report,
+    )
+
+    output = generate_assignment_context(
+        "Need Azure migration support and dashboard reporting.",
+        pd.DataFrame(
+            {
+                "opportunity_owner": ["Director A"],
+                "capacity_label": ["Available"],
+                "capacity_score": [0.72],
+                "relative_load": [0.65],
+            }
+        ),
+    )
+
+    assert output["retrieval_mode"] == "azure_chroma"
+    assert output["retrieval_status"]["preferred_path_ready"] is True
+    assert output["retrieved_examples"][0]["chunk_id"] == "historical_azure_chunk_001"
+    assert output["similar_rfps"][0]["source"] == "historical_azure_chunk_001"
+    assert "local fallback" not in output["notes"].lower()
+    assert "azure_chroma" in output["notes"].lower()
 
 
 def test_generate_assignment_context_uses_mock_director_when_missing():
