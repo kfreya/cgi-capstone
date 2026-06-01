@@ -16,10 +16,10 @@ The page uses a two-column layout:
 
 | Column | Contents |
 |------------------------------------|------------------------------------|
-| Left (input) | File upload (disabled), RFP text area, Territory / Service Domain dropdowns, Analyze RFP button |
+| Left (input) | File upload, RFP text area, Territory / Service Domain dropdowns, Analyze RFP button |
 | Right (results) | Prototype notice banner, then one section per `assignment_context` key |
 
-The file upload widget is disabled because RFP document parsing is a Role 5 (Jai) responsibility. The territory and service domain selectors are UI context only — they are not passed into backend scoring yet.
+The file upload widget accepts TXT, DOCX, and text-based PDF files and loads the extracted text into the RFP text area. Users can still paste or edit RFP text manually. The territory and service domain selectors are UI context only — they are not passed into backend scoring yet.
 
 ------------------------------------------------------------------------
 
@@ -82,7 +82,7 @@ Three visible labels distinguish prototype output from real results:
 
     Shows three labelled segments in one banner:
 
-    -   Retrieval: local fallback / heuristic (Azure-backed retrieval not yet integrated)
+    -   Retrieval: active backend shown after analysis (Azure/Chroma or labelled local fallback)
     -   Capacity data: real director capacity scores when available
     -   Recommendations: prototype guidance only — not final CGI assignment decisions
 
@@ -120,15 +120,19 @@ All list fields handle `None`, empty list, and non-list gracefully.
 
 ## Current Limitations
 
--   **File upload is disabled.** RFP document parsing (PDF / DOCX) is not yet connected. Users must paste RFP text manually. This is a Role 5 dependency.
+-   **File upload is enabled for text extraction.** TXT and DOCX are parsed directly. Text-based PDFs use `pypdf`; scanned image PDFs may return no readable text and should be pasted manually or OCR-processed outside the app.
 
 -   **Territory and service domain are not passed to the backend.** The dropdowns are UI context only. Jai's assignment logic does not yet accept these as inputs.
 
 -   **Director recommendations use mock/heuristic data when capacity data is unavailable.** When `director_df` is not passed to `generate_assignment_context()`, the engine returns a single mock "Director A" record. Real `capacity_df` is passed via `director_df=capacity_df` in the Streamlit flow.
 
--   **Similarity scores are local fallback scores.** The `similarity_score` values come from the deterministic local embedding, not Azure OpenAI embeddings. Scores are relative rankings within the fallback corpus, not absolute semantic similarity values.
+-   **Similarity score source depends on retrieval mode.** Azure/Chroma results use Azure embedding + Chroma retrieval. Local fallback results use deterministic local embeddings. Scores are relative rankings within the active corpus, not absolute business confidence.
 
--   **The historical corpus is synthetic.** When `proposals_responses.json` is not available locally, the engine falls back to a small built-in sample RFP text. All retrieved examples in this case come from that single sample document.
+-   **The historical corpus uses local proposal data when available.** When `proposals_responses.json` is available locally, the engine uses the chunked local proposal corpus. If it is unavailable or cannot be parsed, the engine falls back to a small built-in sample RFP text and labels that sample-corpus status.
+
+-   **Full-corpus Azure/Chroma rebuilds are guarded.** Azure/Chroma is wired through the RFP engine, but large full-corpus dashboard requests skip expensive on-demand Chroma rebuilds and use labelled local fallback retrieval over the same active corpus.
+
+-   **Retrieved chunks do not prove director experience.** Current proposal chunks may lack reliable `opportunity_owner` / `opportunity_id` linkage. The UI reports this as a caveat so retrieved examples are interpreted as semantic evidence, not proof of a director's prior work.
 
 ------------------------------------------------------------------------
 
@@ -154,9 +158,13 @@ All list fields handle `None`, empty list, and non-list gracefully.
 | Heuristic fallback when LLM unavailable / fails | Done — Week 4 |
 | LLM failure Low risk flag | Done — Week 4 |
 | `notes` field reflects LLM vs heuristic path | Done — Week 4 |
-| File upload (document parsing) | Pending — Role 5 (Jai) |
+| Pasted RFP chunked before retrieval | Done — Week 4 |
+| Full local proposal corpus used when available | Done — Week 4 |
+| Retrieval corpus/query status shown in UI | Done — Week 4 |
+| Missing director/opportunity linkage caveat | Done — Week 4 |
+| Azure-backed retrieval in Streamlit RFP flow | Done — Week 4, with fallback guard for large full-corpus requests |
+| File upload text extraction | Done — Week 4 for TXT, DOCX, and text-based PDF |
 | Territory / service domain passed to backend | Pending — Role 5 (Jai) |
-| Azure-backed retrieval in Streamlit RFP flow | Pending — smoke test passed (Role 3), not yet integrated into RFP engine / Streamlit flow |
 
 ------------------------------------------------------------------------
 
@@ -172,4 +180,4 @@ Passes with no errors. The RFP fallback pipeline tests also pass:
 python -m pytest tests/test_rfp_preprocessor.py tests/test_vector_store.py tests/test_rfp_engine.py
 ```
 
-Expected: `39 passed` (19 engine + 8 preprocessor + 12 vector store tests). Full suite: `120 passed`.
+Current verification: `148 passed, 1 warning`.

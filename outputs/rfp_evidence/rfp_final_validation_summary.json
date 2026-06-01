@@ -1,0 +1,124 @@
+{
+  "artifact": "Sprint 4 issue #53 final RFP evidence validation summary",
+  "azure_chroma_status": {
+    "indexed_chunks": 64,
+    "indexing_note": "Representative subset used to avoid Azure S0 embedding rate limits during evidence generation.",
+    "missing_config": [],
+    "reason": "Azure embeddings and Chroma query path returned evidence rows over a representative 64-chunk subset.",
+    "status": "available"
+  },
+  "chunk_metadata_support": {
+    "chunks_with_document_id": 1216,
+    "chunks_with_opportunity_id": 0,
+    "chunks_with_opportunity_owner": 0,
+    "chunks_with_proposal_id": 1216,
+    "chunks_with_text": 1216,
+    "source_type_counts": {
+      "proposal": 449,
+      "proposal_response": 767
+    },
+    "total_chunks": 1216,
+    "unique_document_ids": 46,
+    "unique_proposal_ids": 19
+  },
+  "claim_support": {
+    "director_experience_claim": {
+      "caveat": "Retrieved chunks are not proven director experience because opportunity_owner/director linkage is missing or incomplete.",
+      "supported": false,
+      "wording": "Only claim proven director experience when every retrieved chunk has validated director linkage."
+    },
+    "opportunity_linkage_claim": {
+      "caveat": "Retrieved chunks are not linked to CRM opportunity IDs, so opportunity-level claims remain unsupported.",
+      "supported": false,
+      "wording": "Only claim opportunity linkage when retrieved chunks have CRM opportunity IDs."
+    },
+    "similar_historical_rfp_claim": {
+      "caveat": "",
+      "supported": true,
+      "wording": "Retrieved chunks can support semantic similarity to historical proposal/response text."
+    }
+  },
+  "final_wording_guidance": "Use 'semantically similar historical proposal/response chunks' for retrieval claims. Do not state proven director experience or CRM opportunity linkage unless validated linkage fields are present.",
+  "proposal_json_path": "data\\proposals_responses.json",
+  "query_theme_count": 8,
+  "query_themes": [
+    {
+      "expected_terms": [
+        "cloud",
+        "azure",
+        "migration",
+        "managed",
+        "operations"
+      ],
+      "query_theme": "cloud migration"
+    },
+    {
+      "expected_terms": [
+        "managed",
+        "services",
+        "support",
+        "operations",
+        "transition"
+      ],
+      "query_theme": "managed services"
+    },
+    {
+      "expected_terms": [
+        "data",
+        "analytics",
+        "dashboard",
+        "reporting",
+        "kpi"
+      ],
+      "query_theme": "data analytics dashboard"
+    },
+    {
+      "expected_terms": [
+        "cybersecurity",
+        "security",
+        "compliance",
+        "risk",
+        "privacy"
+      ],
+      "query_theme": "cybersecurity compliance"
+    },
+    {
+      "expected_terms": [
+        "application",
+        "modernization",
+        "integration",
+        "architecture"
+      ],
+      "query_theme": "application modernization"
+    },
+    {
+      "expected_terms": [
+        "service",
+        "desk",
+        "support",
+        "incident",
+        "operational"
+      ],
+      "query_theme": "service desk support"
+    },
+    {
+      "expected_terms": [
+        "change",
+        "training",
+        "stakeholder",
+        "adoption"
+      ],
+      "query_theme": "change management training"
+    },
+    {
+      "expected_terms": [
+        "implementation",
+        "technology",
+        "public",
+        "sector"
+      ],
+      "query_theme": "short vague request"
+    }
+  ],
+  "total_chunks_evaluated": 1216
+}

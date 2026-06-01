@@ -87,6 +87,7 @@ def make_director_capacity_df() -> pd.DataFrame:
         rows.append({
             "opportunity_owner":           name,
             "territory":                   territory,
+            "service_solution":            "Cloud Infrastructure; Data Analytics",
             "historical_avg_load":         hist_avg,
             "relative_load":               round(rel_load, 3),
             "current_load":                current_load,

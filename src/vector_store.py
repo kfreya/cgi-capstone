@@ -11,6 +11,7 @@ For example: `python src/vector_store.py`.
 from __future__ import annotations
 
 import json
+import logging
 from collections.abc import Callable, Sequence
 from dataclasses import dataclass
 from math import isfinite, sqrt
@@ -39,6 +40,8 @@ _LOCAL_EMBEDDING_TERMS = [
     "delivery",
     "support",
 ]
+
+logging.getLogger("chromadb.telemetry.product.posthog").disabled = True
 
 
 @dataclass(frozen=True)
@@ -245,23 +248,36 @@ class ChromaVectorStore:
         self,
         persist_directory: str = "data/vector_store",
         collection_name: str = "rfp_chunks",
+        reset_collection: bool = False,
     ) -> None:
         """Connect to a persistent Chroma collection.
 
         @param persist_directory: Local directory for Chroma vector-store files.
         @param collection_name: Chroma collection name for RFP chunks.
+        @param reset_collection: When true, rebuild the collection from scratch.
         @raises ImportError: If `chromadb` is not installed.
         """
 
         try:
             import chromadb
+            from chromadb.config import Settings
         except ImportError as exc:
             raise ImportError(
                 "chromadb is required for ChromaVectorStore. "
                 "Install the project environment before using it."
             ) from exc
 
-        self.client = chromadb.PersistentClient(path=persist_directory)
+        self.client = chromadb.PersistentClient(
+            path=persist_directory,
+            settings=Settings(anonymized_telemetry=False),
+        )
+        if reset_collection:
+            try:
+                self.client.delete_collection(name=collection_name)
+            except Exception:
+                # Chroma raises when the collection does not exist; that is fine
+                # because get_or_create_collection below will create a fresh one.
+                pass
         self.collection = self.client.get_or_create_collection(name=collection_name)
 
     def add_chunks(
@@ -622,6 +638,7 @@ def build_chroma_from_chunks(
     persist_directory: str = "data/vector_store",
     collection_name: str = "rfp_chunks",
     embedding_function=None,
+    reset_collection: bool = False,
 ) -> "ChromaVectorStore":
     """Embed chunks and persist them into Chroma.
 
@@ -641,6 +658,7 @@ def build_chroma_from_chunks(
     store = ChromaVectorStore(
         persist_directory=persist_directory,
         collection_name=collection_name,
+        reset_collection=reset_collection,
     )
     store.add_chunks(rfp_chunks, embeddings)
     return store
@@ -699,3 +717,81 @@ def query_chroma(
 
     return out
 # --- Week 3 Add-ons Ends here ---
+
+
+def get_vector_store_status() -> dict[str, Any]:
+    return {
+        "local_store_ready": _DEFAULT_STORE is not None,
+        "local_store_size": len(_DEFAULT_STORE) if _DEFAULT_STORE is not None else 0,
+        "supports_flat_contract": True,
+        "supports_chroma": True,
+    }
+
+
+def retrieve_examples_from_chunks(
+    chunks: Sequence[dict[str, Any]],
+    query_text: str,
+    top_k: int = 3,
+) -> list[dict[str, Any]]:
+    store = build_vector_store(list(chunks or []))
+    return [
+        result.to_retrieved_example()
+        for result in store.query(query_text, top_k=top_k)
+    ]
+
+
+def retrieve_examples_from_query_chunks(
+    chunks: Sequence[dict[str, Any]],
+    query_text: str,
+    query_chunks: Sequence[dict[str, Any]] | None = None,
+    top_k: int = 3,
+) -> list[dict[str, Any]]:
+    """Retrieve examples by searching each pasted-RFP query chunk.
+
+    The dashboard still accepts one pasted RFP text field, but long RFPs should
+    not be represented by only one embedding. This helper chunks the query text
+    upstream, searches each query chunk, deduplicates retrieved corpus chunks,
+    and keeps the best similarity score per retrieved chunk.
+    """
+
+    store = build_vector_store(list(chunks or []))
+    query_texts = _query_texts(query_text, query_chunks)
+    best_by_chunk_id: dict[str, dict[str, Any]] = {}
+
+    for query in query_texts:
+        for result in store.query(query, top_k=top_k):
+            example = result.to_retrieved_example()
+            chunk_id = str(example.get("chunk_id") or "")
+            if not chunk_id:
+                continue
+            previous = best_by_chunk_id.get(chunk_id)
+            if previous is None or _similarity_value(example) > _similarity_value(previous):
+                best_by_chunk_id[chunk_id] = example
+
+    return sorted(
+        best_by_chunk_id.values(),
+        key=lambda example: (_similarity_value(example), str(example.get("chunk_id") or "")),
+        reverse=True,
+    )[:top_k]
+
+
+def _query_texts(
+    query_text: str,
+    query_chunks: Sequence[dict[str, Any]] | None = None,
+) -> list[str]:
+    texts = [
+        str(chunk.get("text") or "").strip()
+        for chunk in query_chunks or []
+        if isinstance(chunk, dict) and str(chunk.get("text") or "").strip()
+    ]
+    if texts:
+        return texts
+    return [str(query_text or "").strip()] if str(query_text or "").strip() else []
+
+
+def _similarity_value(example: dict[str, Any]) -> float:
+    try:
+        value = float(example.get("similarity_score"))
+    except (TypeError, ValueError, OverflowError):
+        return float("-inf")
+    return value if isfinite(value) else float("-inf")

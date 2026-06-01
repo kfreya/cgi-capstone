@@ -1,0 +1,145 @@
+[
+  {
+    "azure_available": true,
+    "azure_top_chunk_ids": [
+      "proposal_004__document_015__chunk_003",
+      "proposal_004__document_015__chunk_002",
+      "proposal_017__document_041__chunk_002"
+    ],
+    "azure_top_evidence": {
+      "chunk_id": "proposal_004__document_015__chunk_003",
+      "looks_relevant": false,
+      "matched_expected_terms": [],
+      "proposal_id": "proposal_004",
+      "query_theme": "cloud migration",
+      "similarity_score": 0.4892,
+      "supporting_text_preview": "[redacted: 2012 chars, 0 matched expected terms]",
+      "supports_summary_or_match_reason": false,
+      "weak_or_misleading_note": "No expected theme terms found in supporting text."
+    },
+    "local_available": true,
+    "local_top_chunk_ids": [
+      "proposal_010__document_028__chunk_064",
+      "proposal_001__document_002__chunk_029",
+      "proposal_004__document_016__chunk_010"
+    ],
+    "local_top_evidence": {
+      "chunk_id": "proposal_010__document_028__chunk_064",
+      "looks_relevant": true,
+      "matched_expected_terms": [
+        "azure",
+        "cloud",
+        "managed",
+        "migration",
+        "operations"
+      ],
+      "proposal_id": "proposal_010",
+      "query_theme": "cloud migration",
+      "similarity_score": 0.8316,
+      "supporting_text_preview": "[redacted: 4027 chars, 5 matched expected terms]",
+      "supports_summary_or_match_reason": true,
+      "weak_or_misleading_note": ""
+    },
+    "overlap_chunk_ids": [],
+    "overlap_count": 0,
+    "quality_note": "Retrieval paths returned different evidence; review before using in final wording.",
+    "query_theme": "cloud migration",
+    "top_result_agrees": false
+  },
+  {
+    "azure_available": true,
+    "azure_top_chunk_ids": [
+      "proposal_017__document_041__chunk_001",
+      "proposal_016__document_039__chunk_001",
+      "proposal_004__document_015__chunk_003"
+    ],
+    "azure_top_evidence": {
+      "chunk_id": "proposal_017__document_041__chunk_001",
+      "looks_relevant": true,
+      "matched_expected_terms": [
+        "services",
+        "support"
+      ],
+      "proposal_id": "proposal_017",
+      "query_theme": "managed services",
+      "similarity_score": 0.4945,
+      "supporting_text_preview": "[redacted: 3465 chars, 2 matched expected terms]",
+      "supports_summary_or_match_reason": true,
+      "weak_or_misleading_note": ""
+    },
+    "local_available": true,
+    "local_top_chunk_ids": [
+      "proposal_019__document_046__chunk_003",
+      "proposal_016__document_040__chunk_001",
+      "proposal_011__document_030__chunk_034"
+    ],
+    "local_top_evidence": {
+      "chunk_id": "proposal_019__document_046__chunk_003",
+      "looks_relevant": true,
+      "matched_expected_terms": [
+        "managed",
+        "services",
+        "transition"
+      ],
+      "proposal_id": "proposal_019",
+      "query_theme": "managed services",
+      "similarity_score": 0.8745,
+      "supporting_text_preview": "[redacted: 3279 chars, 3 matched expected terms]",
+      "supports_summary_or_match_reason": true,
+      "weak_or_misleading_note": ""
+    },
+    "overlap_chunk_ids": [],
+    "overlap_count": 0,
+    "quality_note": "Retrieval paths returned different evidence; review before using in final wording.",
+    "query_theme": "managed services",
+    "top_result_agrees": false
+  },
+  {
+    "azure_available": true,
+    "azure_top_chunk_ids": [
+      "proposal_009__document_025__chunk_002",
+      "proposal_009__document_025__chunk_001",
+      "proposal_013__document_033__chunk_001"
+    ],
+    "azure_top_evidence": {
+      "chunk_id": "proposal_009__document_025__chunk_002",
+      "looks_relevant": true,
+      "matched_expected_terms": [
+        "analytics",
+        "data",
+        "reporting"
+      ],
+      "proposal_id": "proposal_009",
+      "query_theme": "data analytics dashboard",
+      "similarity_score": 0.5161,
+      "supporting_text_preview": "[redacted: 3570 chars, 3 matched expected terms]",
+      "supports_summary_or_match_reason": true,
+      "weak_or_misleading_note": ""
+    },
+    "local_available": true,
+    "local_top_chunk_ids": [
+      "proposal_003__document_010__chunk_030",
+      "proposal_003__document_009__chunk_046",
+      "proposal_008__document_024__chunk_018"
+    ],
+    "local_top_evidence": {
+      "chunk_id": "proposal_003__document_010__chunk_030",
+      "looks_relevant": true,
+      "matched_expected_terms": [
+        "analytics",
+        "data"
+      ],
+      "proposal_id": "proposal_003",
+      "query_theme": "data analytics dashboard",
+      "similarity_score": 0.8587,
+      "supporting_text_preview": "[redacted: 1921 chars, 2 matched expected terms]",
+      "supports_summary_or_match_reason": true,
+      "weak_or_misleading_note": ""
+    },
+    "overlap_chunk_ids": [],
+    "overlap_count": 0,
+    "quality_note": "Retrieval paths returned different evidence; review before using in final wording.",
+    "query_theme": "data analytics dashboard",
+    "top_result_agrees": false
+  }
+]
