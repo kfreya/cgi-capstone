@@ -235,7 +235,7 @@ def chat_completion(
     messages: list[dict[str, str]],
     *,
     temperature: float = 0.2,
-    max_tokens: int = 800,
+    max_tokens: int = 1200,
     azure_openai_cls=None,
 ) -> str:
     """Call the Azure OpenAI chat deployment and return the response text.
@@ -269,12 +269,18 @@ def chat_completion(
         azure_endpoint=azure_endpoint,
         api_version=api_version,
     )
-    response = client.chat.completions.create(
-        model=chat_deployment,
-        messages=messages,
-        temperature=temperature,
-        max_tokens=max_tokens,
-    )
+    request = {
+        "model": chat_deployment,
+        "messages": messages,
+        "temperature": temperature,
+        "max_tokens": max_tokens,
+        "response_format": {"type": "json_object"},
+    }
+    try:
+        response = client.chat.completions.create(**request)
+    except TypeError:
+        request.pop("response_format", None)
+        response = client.chat.completions.create(**request)
     return response.choices[0].message.content or ""
 
 # --- Week 4 Chat Add-ons Ends here ---

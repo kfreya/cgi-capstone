@@ -12,22 +12,35 @@ For example: `python src/rfp_engine.py`.
 from __future__ import annotations
 
 import json
+import logging
 import math
 import time
 from typing import Any
 
 try:
     from src.azure_rag_client import fallback_retrieval_report, preferred_retrieval_report
-    from src.rfp_preprocessor import load_sample_rfp_text, prepare_rfp_chunks
+    from src.rfp_preprocessor import (
+        DEFAULT_PROPOSAL_JSON_PATH,
+        load_sample_rfp_text,
+        prepare_rfp_chunks,
+        preprocess_proposals,
+    )
     from src.vector_store import build_vector_store
 except ModuleNotFoundError:
     from azure_rag_client import fallback_retrieval_report, preferred_retrieval_report
-    from rfp_preprocessor import load_sample_rfp_text, prepare_rfp_chunks
+    from rfp_preprocessor import (
+        DEFAULT_PROPOSAL_JSON_PATH,
+        load_sample_rfp_text,
+        prepare_rfp_chunks,
+        preprocess_proposals,
+    )
     from vector_store import build_vector_store
 
 
 _AUTO = object()
 _RFP_SNIPPET_CHARS = 4000
+_MAX_LLM_DIRECTORS = 5
+LOGGER = logging.getLogger(__name__)
 
 SERVICE_KEYWORDS = {
     "cloud": {"cloud", "azure", "infrastructure", "migration"},
@@ -50,6 +63,20 @@ COMPLEXITY_TERMS = {
     "onsite",
     "on-site",
 }
+DIRECTOR_SERVICE_FIELDS = (
+    "service_domain",
+    "service_domains",
+    "expertise",
+    "experience_keywords",
+    "service_solution",
+    "service_solutions",
+    "service_line",
+    "primary_service",
+)
+_OVERLAP_UNAVAILABLE = "unavailable"
+_OVERLAP_NO_RFP_LABELS = "no_rfp_service_labels"
+_OVERLAP_MISSING_DIRECTOR_PROFILE = "missing_director_profile"
+_OVERLAP_NUMERIC = "numeric"
 
 
 def generate_assignment_context(
@@ -72,19 +99,29 @@ def generate_assignment_context(
     @return: Week 4 dashboard-ready RFP assignment context.
     """
 
-    used_sample_corpus = historical_chunks is None
-    chunks = (
-        historical_chunks
-        if historical_chunks is not None
-        else _default_historical_chunks()
-    )
+    if historical_chunks is not None:
+        chunks = historical_chunks
+        corpus_source = "provided_chunks"
+    else:
+        chunks, corpus_source = _default_historical_chunks()
+    used_sample_corpus = corpus_source == "sample_corpus"
+    query_chunks = _query_chunks(rfp_text)
     retrieval_report = _build_retrieval_report(
         chunks=chunks,
         query=rfp_text,
         top_k=3,
+        query_chunks=query_chunks,
     )
     retrieval_mode = retrieval_report.get("retrieval_mode", retrieval_report.get("backend", "local_fallback"))
-    retrieval_status = retrieval_report.get("status", {})
+    retrieval_status = dict(retrieval_report.get("status", {}))
+    retrieval_status.update(
+        {
+            "corpus_source": corpus_source,
+            "corpus_chunk_count": len(chunks or []),
+            "query_chunk_count": len(query_chunks),
+            **_corpus_linkage_status(chunks),
+        }
+    )
     retrieved_examples = retrieval_report.get("retrieved_examples", [])
     supporting_chunk_ids = [
         example["chunk_id"] for example in retrieved_examples
@@ -102,8 +139,10 @@ def generate_assignment_context(
 
     risk_flags = _risk_flags(
         retrieved_examples,
+        rfp_text=rfp_text,
         used_sample_corpus=used_sample_corpus,
         retrieval_mode=retrieval_mode,
+        retrieval_status=retrieval_status,
         director_records=director_records,
         llm_failed=llm_failed,
     )
@@ -122,7 +161,11 @@ def generate_assignment_context(
             effort["rationale"] = effort["reason"]
         match_reasons = llm_data.get("director_match_reasons") or {}
         if match_reasons:
-            _inject_llm_match_reasons(recommended_directors, match_reasons)
+            _inject_llm_match_reasons(
+                recommended_directors,
+                match_reasons,
+                require_evidence_caveat=bool(director_records),
+            )
     else:
         rfp_summary = _summarize_rfp_text(rfp_text)
         effort = _effort_estimate(rfp_text, retrieved_examples)
@@ -145,8 +188,12 @@ def generate_assignment_context(
     }
 
 
-def _default_historical_chunks() -> list[dict[str, Any]]:
-    """Build a small historical/sample corpus when no persisted store is ready."""
+def _default_historical_chunks() -> tuple[list[dict[str, Any]], str]:
+    """Load the local proposal corpus, falling back to a small sample corpus."""
+
+    proposal_chunks = _proposal_corpus_chunks()
+    if proposal_chunks:
+        return proposal_chunks, "proposal_corpus"
 
     sample_text = load_sample_rfp_text()
     chunks = prepare_rfp_chunks(sample_text)
@@ -156,7 +203,47 @@ def _default_historical_chunks() -> list[dict[str, Any]]:
             f"historical_sample_chunk_{int(chunk['chunk_index']) + 1:03d}"
         )
         chunk["source_type"] = "historical_sample"
-    return chunks
+    return chunks, "sample_corpus"
+
+
+def _proposal_corpus_chunks() -> list[dict[str, Any]]:
+    """Preprocess the full local proposal JSON when it is available."""
+
+    if not DEFAULT_PROPOSAL_JSON_PATH.exists():
+        return []
+
+    try:
+        with DEFAULT_PROPOSAL_JSON_PATH.open(encoding="utf-8") as json_file:
+            proposals = json.load(json_file)
+        chunks = preprocess_proposals(proposals)
+    except (OSError, TypeError, json.JSONDecodeError):
+        return []
+
+    return [_flatten_preprocessed_chunk(chunk.to_dict()) for chunk in chunks]
+
+
+def _flatten_preprocessed_chunk(chunk: dict[str, Any]) -> dict[str, Any]:
+    """Convert an RFPChunk dict into the flat retrieval contract."""
+
+    metadata = chunk.get("metadata") if isinstance(chunk.get("metadata"), dict) else {}
+    return {
+        "proposal_id": metadata.get("proposal_id") or chunk.get("document_id"),
+        "chunk_id": chunk.get("chunk_id"),
+        "document_id": chunk.get("document_id"),
+        "source_type": metadata.get("source_type") or chunk.get("section"),
+        "text": chunk.get("text"),
+        "chunk_index": metadata.get("chunk_index", chunk.get("chunk_index")),
+        "opportunity_owner": metadata.get("opportunity_owner"),
+        "opportunity_id": metadata.get("opportunity_id"),
+    }
+
+
+def _query_chunks(rfp_text: str) -> list[dict[str, Any]]:
+    return [
+        chunk
+        for chunk in prepare_rfp_chunks(rfp_text)
+        if str(chunk.get("text") or "").strip()
+    ]
 
 
 def _retrieve_from_chunks(
@@ -177,6 +264,7 @@ def _build_retrieval_report(
     chunks: list[dict[str, Any]],
     query: str,
     top_k: int,
+    query_chunks: list[dict[str, Any]],
 ) -> dict[str, Any]:
     """Choose the preferred retrieval path and fall back if anything fails."""
 
@@ -185,6 +273,7 @@ def _build_retrieval_report(
             query_text=query,
             historical_chunks=chunks,
             top_k=top_k,
+            query_chunks=query_chunks,
         )
         if report.get("retrieved_examples"):
             return report
@@ -193,6 +282,7 @@ def _build_retrieval_report(
             query_text=query,
             historical_chunks=chunks,
             top_k=top_k,
+            query_chunks=query_chunks,
         )
         fallback_report.setdefault("status", {})
         fallback_report["status"]["preferred_path_error"] = str(exc)
@@ -202,6 +292,7 @@ def _build_retrieval_report(
         query_text=query,
         historical_chunks=chunks,
         top_k=top_k,
+        query_chunks=query_chunks,
     )
 
 
@@ -292,6 +383,11 @@ def _director_record(
     relative_load = _as_float(record.get("relative_load"), default=1.0)
     similarity_signal = _max_similarity(retrieved_examples)
     keyword_overlap = _director_keyword_overlap(record, rfp_text)
+    keyword_overlap_score = (
+        keyword_overlap["score"]
+        if keyword_overlap["status"] == _OVERLAP_NUMERIC
+        else 0.0
+    )
     label_bonus = _capacity_label_bonus(record.get("capacity_label"))
     assignment_score = _as_float(
         record.get("assignment_score"),
@@ -302,7 +398,7 @@ def _director_record(
                     1.0,
                     (capacity_score * 0.45)
                     + (similarity_signal * 0.25)
-                    + (keyword_overlap * 0.15)
+                    + (keyword_overlap_score * 0.15)
                     + label_bonus,
                 ),
             ),
@@ -380,8 +476,10 @@ def _director_records(director_df: Any) -> list[dict[str, Any]]:
 
 def _risk_flags(
     retrieved_examples: list[dict[str, Any]],
+    rfp_text: str = "",
     used_sample_corpus: bool = False,
     retrieval_mode: str = "local_fallback",
+    retrieval_status: dict[str, Any] | None = None,
     director_records: list[dict[str, Any]] | None = None,
     llm_failed: bool = False,
 ) -> list[dict[str, str]]:
@@ -395,6 +493,7 @@ def _risk_flags(
     """
 
     flags = []
+    flags.extend(_input_quality_flags(rfp_text))
     if used_sample_corpus:
         retrieval_label = (
             "Azure/Chroma"
@@ -408,6 +507,53 @@ def _risk_flags(
                     f"{retrieval_label} retrieval searched the default sample "
                     "historical corpus. Treat retrieval evidence as a prototype "
                     "signal until the full approved proposal corpus is indexed."
+                ),
+            }
+        )
+    if retrieved_examples and _retrieval_linkage_missing(retrieval_status):
+        flags.append(
+            {
+                "level": "Low",
+                "message": (
+                    "Retrieved proposal chunks do not include reliable "
+                    "opportunity_owner or opportunity_id linkage. Treat them "
+                    "as semantic similarity evidence, not proof of a director's "
+                    "prior experience."
+                ),
+            }
+        )
+    service_labels = _service_labels(rfp_text)
+    if (
+        service_labels
+        and director_records
+        and all(_director_keyword_overlap(record, rfp_text)["status"] == _OVERLAP_MISSING_DIRECTOR_PROFILE for record in director_records)
+    ):
+        flags.append(
+            {
+                "level": "Low",
+                "message": (
+                    "Director capacity records do not include service-domain "
+                    "or expertise fields, so service overlap is unavailable. "
+                    "Treat ranking as capacity-led and retrieval-led."
+                ),
+            }
+        )
+    elif (
+        service_labels
+        and director_records
+        and all(
+            _director_keyword_overlap(record, rfp_text)["status"] == _OVERLAP_NUMERIC
+            and _director_keyword_overlap(record, rfp_text)["score"] == 0.0
+            for record in director_records
+        )
+    ):
+        flags.append(
+            {
+                "level": "Medium",
+                "message": (
+                    "Director experience match is weak because no service-domain "
+                    "overlap was detected between the RFP text and the current "
+                    "director capacity records. Treat ranking as capacity-led."
                 ),
             }
         )
@@ -444,15 +590,14 @@ def _risk_flags(
             }
         )
     else:
-        if any(_missing_capacity_fields(record) for record in director_records):
+        missing_capacity_records = [
+            record for record in director_records if _missing_capacity_fields(record)
+        ]
+        if missing_capacity_records:
             flags.append(
                 {
                     "level": "Medium",
-                    "message": (
-                        "Some director capacity fields are missing and were "
-                        "filled with heuristic defaults. Confirm these fields "
-                        "before trusting the ranking."
-                    ),
+                    "message": _missing_capacity_flag_message(missing_capacity_records),
                 }
             )
         if any(_is_overextended(record) for record in director_records):
@@ -480,6 +625,58 @@ def _risk_flags(
     return flags
 
 
+def _corpus_linkage_status(chunks: list[dict[str, Any]] | None) -> dict[str, Any]:
+    chunks = chunks or []
+    owner_count = sum(1 for chunk in chunks if _has_value(chunk.get("opportunity_owner")))
+    opportunity_count = sum(1 for chunk in chunks if _has_value(chunk.get("opportunity_id")))
+    return {
+        "chunks_with_opportunity_owner": owner_count,
+        "chunks_with_opportunity_id": opportunity_count,
+        "retrieval_has_director_linkage": owner_count > 0 and opportunity_count > 0,
+    }
+
+
+def _retrieval_linkage_missing(retrieval_status: dict[str, Any] | None) -> bool:
+    if not isinstance(retrieval_status, dict):
+        return False
+    if not retrieval_status.get("corpus_chunk_count"):
+        return False
+    return not bool(retrieval_status.get("retrieval_has_director_linkage"))
+
+
+def _has_value(value: Any) -> bool:
+    return not _is_missing_value(value)
+
+
+def _input_quality_flags(rfp_text: str) -> list[dict[str, str]]:
+    """Return risk flags for very short or vague input text."""
+
+    words = [word for word in str(rfp_text or "").split() if word.strip()]
+    if not words:
+        return []
+    if len(words) < 20:
+        return [
+            {
+                "level": "Low",
+                "message": (
+                    "Input RFP text is very short, so summary, retrieval, and "
+                    "director recommendations should be treated as low confidence."
+                ),
+            }
+        ]
+    if len(words) < 80 and not _service_labels(rfp_text):
+        return [
+            {
+                "level": "Low",
+                "message": (
+                    "Input RFP text has limited service-scope detail. Confirm "
+                    "the full scope before relying on the recommendation."
+                ),
+            }
+        ]
+    return []
+
+
 def _notes(
     used_sample_corpus: bool = False,
     retrieval_mode: str = "local_fallback",
@@ -498,8 +695,11 @@ def _notes(
     status_bits = []
     if retrieval_mode:
         status_bits.append(f"retrieval mode: {retrieval_mode}")
+    if retrieval_status and retrieval_status.get("chroma_build_skipped"):
+        status_bits.append("Azure/Chroma rebuild skipped for this full-corpus request")
     if retrieval_status and retrieval_status.get("preferred_path_error"):
         status_bits.append("preferred path fell back after an error")
+    corpus_source = str((retrieval_status or {}).get("corpus_source") or "")
     if retrieval_mode == "azure_chroma":
         retrieval_note = "Retrieval used Azure/Chroma."
     elif retrieval_mode == "local_fallback":
@@ -516,12 +716,20 @@ def _notes(
                 base + " The retrieved evidence comes from the default sample "
                 "historical corpus until the full approved proposal corpus is indexed."
             )
+        if corpus_source == "proposal_corpus":
+            return base + " Retrieved evidence searched the local proposals_responses.json corpus."
         return base
     if used_sample_corpus:
         return (
             f"Prototype output for dashboard integration. {retrieval_note} "
             "Retrieved evidence comes from the default sample historical corpus until "
             "the full approved proposal corpus is indexed. "
+            + ("; ".join(status_bits) + "." if status_bits else "")
+        )
+    if corpus_source == "proposal_corpus":
+        return (
+            f"Prototype output for dashboard integration. {retrieval_note} "
+            "Retrieved evidence searched the local proposals_responses.json corpus. "
             + ("; ".join(status_bits) + "." if status_bits else "")
         )
     if status_bits:
@@ -707,33 +915,41 @@ def _max_similarity(retrieved_examples: list[dict[str, Any]]) -> float:
     return max(scores, default=0.0)
 
 
-def _director_keyword_overlap(record: dict[str, Any], rfp_text: str) -> float:
+def _director_keyword_overlap(record: dict[str, Any], rfp_text: str) -> dict[str, Any]:
     """Estimate simple service fit between a director record and the RFP.
 
     @param record: Director record with optional expertise/service fields.
     @param rfp_text: New RFP text from the dashboard.
-    @return: Fraction of RFP service labels also found in the director record.
+    @return: Dict with status and optional numeric overlap score.
     """
 
     rfp_labels = set(_service_labels(rfp_text))
     if not rfp_labels:
-        return 0.0
+        return {"status": _OVERLAP_NO_RFP_LABELS, "score": None}
 
-    record_text = " ".join(
-        str(record.get(field, ""))
-        for field in (
-            "service_domain",
-            "service_domains",
-            "expertise",
-            "experience_keywords",
-            "match_reason",
-        )
-    )
+    record_text = _director_service_text(record)
+    if not record_text:
+        return {"status": _OVERLAP_MISSING_DIRECTOR_PROFILE, "score": None}
+
     director_labels = set(_service_labels(record_text))
     if not director_labels:
-        return 0.0
-    return len(rfp_labels & director_labels) / len(rfp_labels)
+        return {"status": _OVERLAP_NUMERIC, "score": 0.0}
+    return {
+        "status": _OVERLAP_NUMERIC,
+        "score": len(rfp_labels & director_labels) / len(rfp_labels),
+    }
 
+
+def _director_service_text(record: dict[str, Any]) -> str:
+    return " ".join(
+        str(value)
+        for field in DIRECTOR_SERVICE_FIELDS
+        if not _is_missing_value(value := record.get(field))
+    )
+
+
+def _has_director_service_profile(record: dict[str, Any]) -> bool:
+    return bool(_director_service_text(record).strip())
 
 def _capacity_label_bonus(capacity_label: Any) -> float:
     """Translate capacity labels into a small scoring adjustment.
@@ -759,7 +975,7 @@ def _capacity_label_bonus(capacity_label: Any) -> float:
 def _match_reason(
     capacity_label: str,
     similarity_signal: float,
-    keyword_overlap: float,
+    keyword_overlap: dict[str, Any],
     supporting_chunks: list[str],
 ) -> str:
     """Create a short reason for the prototype director recommendation.
@@ -776,10 +992,18 @@ def _match_reason(
         if supporting_chunks
         else "limited retrieval evidence"
     )
+    overlap_status = keyword_overlap.get("status", _OVERLAP_UNAVAILABLE)
+    if overlap_status == _OVERLAP_NO_RFP_LABELS:
+        overlap_text = "no service-domain keywords were detected in the RFP text."
+    elif overlap_status == _OVERLAP_MISSING_DIRECTOR_PROFILE:
+        overlap_text = "director service-domain overlap is unavailable in the current capacity records."
+    elif overlap_status == _OVERLAP_NUMERIC:
+        overlap_text = f"service keyword overlap is {_as_float(keyword_overlap.get('score'), 0.0):.2f}."
+    else:
+        overlap_text = "service-domain overlap is unavailable."
     return (
         f"Capacity is labelled {capacity_label}; {evidence} produced a top "
-        f"similarity score of {similarity_signal:.2f}; service keyword overlap is "
-        f"{keyword_overlap:.2f}."
+        f"similarity score of {similarity_signal:.2f}; {overlap_text}"
     )
 
 
@@ -806,7 +1030,7 @@ def _capacity_explanation(
 
 
 def _experience_explanation(
-    keyword_overlap: float,
+    keyword_overlap: dict[str, Any],
     retrieved_examples: list[dict[str, Any]],
 ) -> str:
     """Create the experience-match explanation displayed in the dashboard.
@@ -818,9 +1042,27 @@ def _experience_explanation(
 
     if not retrieved_examples:
         return "No retrieved examples were available, so experience fit is weak."
+    overlap_status = keyword_overlap.get("status", _OVERLAP_UNAVAILABLE)
+    if overlap_status == _OVERLAP_NO_RFP_LABELS:
+        return (
+            "Experience fit is estimated from retrieved historical/sample RFP "
+            "chunks. Service-keyword overlap was not calculated because no "
+            "service-domain keywords were detected in the RFP text."
+        )
+    if overlap_status == _OVERLAP_MISSING_DIRECTOR_PROFILE:
+        return (
+            "Experience fit is estimated from retrieved historical/sample RFP "
+            "chunks. Service-keyword overlap is unavailable because the current "
+            "director capacity records do not include service-domain or expertise fields."
+        )
+    if overlap_status != _OVERLAP_NUMERIC:
+        return (
+            "Experience fit is estimated from retrieved historical/sample RFP "
+            "chunks. Service-keyword overlap is unavailable."
+        )
     return (
         "Experience fit is estimated from retrieved historical/sample RFP chunks "
-        f"and simple service-keyword overlap ({keyword_overlap:.2f})."
+        f"and simple service-keyword overlap ({_as_float(keyword_overlap.get('score'), 0.0):.2f})."
     )
 
 
@@ -833,6 +1075,27 @@ def _missing_capacity_fields(record: dict[str, Any]) -> bool:
 
     required_fields = ("capacity_label", "capacity_score", "relative_load")
     return any(_is_missing_value(record.get(field)) for field in required_fields)
+
+
+def _missing_capacity_flag_message(records: list[dict[str, Any]]) -> str:
+    """Create the clearest warning for missing capacity values."""
+
+    if records and all(_is_no_baseline_record(record) for record in records):
+        return (
+            "Some directors have no historical baseline, so capacity_score "
+            "and relative_load use heuristic defaults in RFP ranking. Review "
+            "No baseline candidates before assignment."
+        )
+    return (
+        "Some director capacity fields are missing or non-finite and were "
+        "filled with heuristic defaults. Confirm these fields before trusting "
+        "the ranking."
+    )
+
+
+def _is_no_baseline_record(record: dict[str, Any]) -> bool:
+    label = str(record.get("capacity_label", "")).strip().lower()
+    return label == "no baseline"
 
 
 def _is_overextended(record: dict[str, Any]) -> bool:
@@ -880,17 +1143,18 @@ def _build_llm_messages(
     snippet = rfp_text[:_RFP_SNIPPET_CHARS]
     director_names = [
         str(r.get("director_name", r.get("opportunity_owner", r.get("name", "Director A"))))
-        for r in director_records
+        for r in _llm_director_candidates(director_records)
     ] or ["Director A"]
     system_msg = (
         "You are an RFP analysis assistant for a consulting firm. "
         "Analyze the RFP text and return a JSON object with exactly these fields:\n"
-        '  "rfp_summary": string (2-3 sentence summary of what the RFP is requesting)\n'
+        '  "rfp_summary": string (1-2 sentence summary of what the RFP is requesting)\n'
         '  "effort": object with "level" (one of: Low, Medium, High), '
-        '"reason" (1-2 sentences explaining the estimate), '
+        '"reason" (one concise sentence explaining the estimate), '
         '"estimated_duration" (e.g. "3-5 weeks")\n'
         '  "director_match_reasons": object mapping each director name to a '
-        "1-2 sentence explanation of why they may be a good fit\n"
+        "one short sentence explaining why they may be a good fit\n"
+        "Keep the entire JSON response under 900 words. "
         "Return ONLY valid JSON. Do not include markdown code fences."
     )
     user_msg = (
@@ -916,12 +1180,35 @@ def _llm_enrich(
         try:
             raw = chat_fn(messages)
             return _parse_llm_response(raw)
-        except Exception:
+        except Exception as exc:
+            LOGGER.warning(
+                "Azure OpenAI chat enrichment failed on attempt %s: %s",
+                attempt + 1,
+                exc,
+                exc_info=True,
+            )
             if attempt == 0:
                 time.sleep(0.5)
                 continue
             return None
     return None
+
+
+def _llm_director_candidates(
+    director_records: list[dict[str, Any]],
+) -> list[dict[str, Any]]:
+    """Keep the LLM match-reason prompt small enough to avoid truncated JSON."""
+
+    if not director_records:
+        return []
+    return sorted(
+        director_records,
+        key=lambda record: (
+            _as_float(record.get("capacity_score"), default=0.0),
+            -_as_float(record.get("relative_load"), default=999.0),
+        ),
+        reverse=True,
+    )[:_MAX_LLM_DIRECTORS]
 
 
 def _parse_llm_response(raw: str) -> dict[str, Any] | None:
@@ -971,10 +1258,27 @@ def _parse_llm_response(raw: str) -> dict[str, Any] | None:
 def _inject_llm_match_reasons(
     recommended_directors: list[dict[str, Any]],
     match_reasons: dict[str, str],
+    require_evidence_caveat: bool = False,
 ) -> None:
     """Overwrite heuristic match_reason values with LLM-generated ones in place."""
 
     for director in recommended_directors:
         name = director.get("director_name", "")
         if name in match_reasons and match_reasons[name]:
-            director["match_reason"] = str(match_reasons[name])
+            reason = str(match_reasons[name])
+            if (
+                require_evidence_caveat
+                and _needs_llm_match_caveat(
+                    str(director.get("experience_match_explanation", ""))
+                )
+            ):
+                reason = (
+                    "Capacity signal is available, but director-domain fit is "
+                    f"not validated by current data. LLM note: {reason}"
+                )
+            director["match_reason"] = reason
+
+
+def _needs_llm_match_caveat(experience_text: str) -> bool:
+    lower_text = experience_text.lower()
+    return "overlap (0.00)" in lower_text or "overlap is unavailable" in lower_text

@@ -14,8 +14,12 @@ Data loading precedence:
 from __future__ import annotations
 
 import html
+import hashlib
+import io
 import sys
+import zipfile
 from pathlib import Path
+from xml.etree import ElementTree as ET
 
 import numpy as np
 import pandas as pd
@@ -47,6 +51,84 @@ try:
     _ENGINE_AVAILABLE = True
 except ImportError:
     _ENGINE_AVAILABLE = False
+
+
+def _extract_uploaded_rfp_text(uploaded_file) -> tuple[str, str | None]:
+    """Extract text from an uploaded TXT, DOCX, or PDF file."""
+
+    if uploaded_file is None:
+        return "", None
+
+    filename = str(getattr(uploaded_file, "name", "") or "")
+    suffix = Path(filename).suffix.lower()
+    data = uploaded_file.getvalue()
+
+    if suffix == ".txt":
+        return _extract_txt_upload(data)
+    if suffix == ".docx":
+        return _extract_docx_upload(data)
+    if suffix == ".pdf":
+        return _extract_pdf_upload(data)
+
+    return "", "Unsupported file type. Upload a TXT, DOCX, or PDF file."
+
+
+def _extract_txt_upload(data: bytes) -> tuple[str, str | None]:
+    for encoding in ("utf-8-sig", "utf-8", "latin-1"):
+        try:
+            return data.decode(encoding).strip(), None
+        except UnicodeDecodeError:
+            continue
+    return "", "Could not decode the uploaded TXT file."
+
+
+def _extract_docx_upload(data: bytes) -> tuple[str, str | None]:
+    try:
+        with zipfile.ZipFile(io.BytesIO(data)) as archive:
+            document_xml = archive.read("word/document.xml")
+    except (KeyError, zipfile.BadZipFile):
+        return "", "Could not read the uploaded DOCX file."
+
+    namespace = "{http://schemas.openxmlformats.org/wordprocessingml/2006/main}"
+    try:
+        root = ET.fromstring(document_xml)
+    except ET.ParseError:
+        return "", "Could not parse the uploaded DOCX file."
+
+    paragraphs = []
+    for paragraph in root.iter(f"{namespace}p"):
+        text = "".join(
+            node.text or ""
+            for node in paragraph.iter(f"{namespace}t")
+        ).strip()
+        if text:
+            paragraphs.append(text)
+
+    extracted = "\n\n".join(paragraphs).strip()
+    if not extracted:
+        return "", "No readable text was found in the uploaded DOCX file."
+    return extracted, None
+
+
+def _extract_pdf_upload(data: bytes) -> tuple[str, str | None]:
+    try:
+        from pypdf import PdfReader
+    except ImportError:
+        return "", "PDF upload requires the pypdf package in the project environment."
+
+    try:
+        reader = PdfReader(io.BytesIO(data))
+        pages = [
+            page.extract_text() or ""
+            for page in reader.pages
+        ]
+    except Exception as exc:
+        return "", f"Could not read the uploaded PDF file: {exc}"
+
+    extracted = "\n\n".join(page.strip() for page in pages if page.strip()).strip()
+    if not extracted:
+        return "", "No readable text was found in the uploaded PDF file."
+    return extracted, None
 
 # ── Page config ───────────────────────────────────────────────────────────────
 st.set_page_config(
@@ -875,7 +957,7 @@ norm. They should be reviewed and adjusted with CGI judgment.
             hoverlabel=_HOVER,
             showlegend=False,
         )
-        st.plotly_chart(fig_bar, use_container_width=True, config={"displayModeBar": False})
+        st.plotly_chart(fig_bar, width="stretch", config={"displayModeBar": False})
 
     with col_donut:
         st.markdown('<div class="sec-head">Label Mix</div>', unsafe_allow_html=True)
@@ -918,7 +1000,7 @@ norm. They should be reviewed and adjusted with CGI judgment.
             hoverlabel=_HOVER,
             uniformtext=dict(minsize=12, mode="show"),
         )
-        st.plotly_chart(fig_donut, use_container_width=True, config={"displayModeBar": False})
+        st.plotly_chart(fig_donut, width="stretch", config={"displayModeBar": False})
 
     # ── Row 2: Current load vs historical average ─────────────────────────────
     st.markdown('<div class="sec-head">Current Load vs Historical Average</div>', unsafe_allow_html=True)
@@ -1006,7 +1088,7 @@ norm. They should be reviewed and adjusted with CGI judgment.
         bargap=0.42,
         hoverlabel=_HOVER,
     )
-    st.plotly_chart(fig_load, use_container_width=True, config={"displayModeBar": False})
+    st.plotly_chart(fig_load, width="stretch", config={"displayModeBar": False})
 
     # ── Row 3: Trend  |  Director table ──────────────────────────────────────
     col_trend, col_table = st.columns([1.6, 2.4])
@@ -1075,7 +1157,7 @@ norm. They should be reviewed and adjusted with CGI judgment.
             font=_CHART_FONT,
             hoverlabel=_HOVER,
         )
-        st.plotly_chart(fig_trend, use_container_width=True, config={"displayModeBar": False})
+        st.plotly_chart(fig_trend, width="stretch", config={"displayModeBar": False})
 
     with col_table:
         st.markdown('<div class="sec-head">Director Summary</div>', unsafe_allow_html=True)
@@ -1134,13 +1216,35 @@ elif page == "RFP Assignment Tool":
     with col_input:
         st.markdown('<div class="sec-head">RFP Input</div>', unsafe_allow_html=True)
 
-        st.file_uploader(
+        uploaded_rfp_file = st.file_uploader(
             "Upload RFP document",
             type=["pdf", "docx", "txt"],
-            disabled=True,
-            help="Available once RFP document parsing is connected (Role 5)",
+            help="Upload a TXT, DOCX, or text-based PDF. You can still paste RFP text directly below.",
         )
-        st.caption("Upload not yet connected — paste RFP text directly below (paste-only workflow).")
+        if uploaded_rfp_file is not None:
+            uploaded_bytes = uploaded_rfp_file.getvalue()
+            upload_signature = (
+                f"{uploaded_rfp_file.name}:"
+                f"{hashlib.sha256(uploaded_bytes).hexdigest()}"
+            )
+            if st.session_state.get("rfp_uploaded_file_signature") != upload_signature:
+                extracted_text, upload_error = _extract_uploaded_rfp_text(uploaded_rfp_file)
+                st.session_state["rfp_uploaded_file_signature"] = upload_signature
+                if upload_error:
+                    st.session_state["rfp_upload_error"] = upload_error
+                    st.session_state.pop("rfp_upload_success", None)
+                else:
+                    st.session_state["rfp_input_text"] = extracted_text
+                    st.session_state["rfp_upload_success"] = (
+                        f"Loaded text from {uploaded_rfp_file.name}."
+                    )
+                    st.session_state.pop("rfp_upload_error", None)
+
+        if st.session_state.get("rfp_upload_success"):
+            st.success(st.session_state["rfp_upload_success"])
+        if st.session_state.get("rfp_upload_error"):
+            st.warning(st.session_state["rfp_upload_error"])
+        st.caption("Upload a supported document or paste RFP text directly below.")
 
         rfp_text = st.text_area(
             "RFP text",
@@ -1161,7 +1265,7 @@ elif page == "RFP Assignment Tool":
 
         st.caption("Territory and service domain are UI context only for now; backend scoring does not use them yet.")
 
-        analyze_clicked = st.button("Analyze RFP", type="primary", use_container_width=True)
+        analyze_clicked = st.button("Analyze RFP", type="primary", width="stretch")
         if analyze_clicked:
             rfp_text = st.session_state.get("rfp_input_text", "")
             if not rfp_text.strip():
@@ -1171,6 +1275,8 @@ elif page == "RFP Assignment Tool":
                 st.warning("Please paste RFP text before running the analysis.")
             else:
                 try:
+                    # Pass the same capacity table used by the dashboard so
+                    # RFP recommendations use real/local capacity signals when available.
                     st.session_state["rfp_assignment_context"] = generate_assignment_context(
                         rfp_text,
                         director_df=capacity_df,
@@ -1261,13 +1367,36 @@ elif page == "RFP Assignment Tool":
                 )
             retrieval_status = context.get("retrieval_status") or {}
             if isinstance(retrieval_status, dict):
-                if retrieval_status.get("preferred_path_error"):
+                if retrieval_status.get("chroma_build_skipped"):
+                    st.caption(
+                        "Azure/Chroma rebuild skipped for this full-corpus dashboard request; "
+                        "using local retrieval over the same corpus."
+                    )
+                elif retrieval_status.get("preferred_path_error"):
                     st.caption(
                         "Preferred retrieval path fell back after an error: "
                         f"{retrieval_status.get('preferred_path_error')}"
                     )
                 elif retrieval_mode == "azure_chroma":
                     st.caption("Azure/Chroma retrieval is active for this result.")
+                corpus_source = str(retrieval_status.get("corpus_source") or "")
+                corpus_label = {
+                    "proposal_corpus": "local proposals_responses.json corpus",
+                    "provided_chunks": "provided historical chunk corpus",
+                    "sample_corpus": "default sample historical corpus",
+                }.get(corpus_source)
+                if corpus_label:
+                    st.caption(
+                        "Retrieval corpus: "
+                        f"{corpus_label}; "
+                        f"{retrieval_status.get('corpus_chunk_count', 'n/a')} corpus chunks; "
+                        f"{retrieval_status.get('query_chunk_count', 'n/a')} pasted-RFP query chunks."
+                    )
+                if retrieval_status.get("retrieval_has_director_linkage") is False:
+                    st.caption(
+                        "Retrieved chunks do not include reliable opportunity_owner/opportunity_id "
+                        "linkage, so they are semantic evidence rather than proof of director experience."
+                    )
 
             st.markdown('<div class="sec-head">RFP Summary</div>', unsafe_allow_html=True)
             st.write(context.get("rfp_summary") or "No summary returned.")
@@ -1305,12 +1434,17 @@ elif page == "RFP Assignment Tool":
                         score_str = f"{float(raw_score):.2f}"
                     except (TypeError, ValueError):
                         score_str = str(raw_score) if raw_score not in (None, "") else "n/a"
-                    st.markdown(
-                        f"**{index}. {example.get('proposal_id', 'Unknown proposal')}**  \n"
-                        f"`chunk_id`: `{example.get('chunk_id', 'unknown')}`  \n"
-                        f"`similarity_score`: `{score_str}`"
-                    )
-                    st.write(preview or "No supporting text returned.")
+                    proposal_id = example.get("proposal_id", "Unknown proposal")
+                    with st.expander(
+                        f"{index}. {proposal_id} — similarity {score_str}",
+                        expanded=index == 1,
+                    ):
+                        st.markdown(
+                            f"**Proposal:** {proposal_id}  \n"
+                            f"**Chunk ID:** `{example.get('chunk_id', 'unknown')}`  \n"
+                            f"**Similarity score:** `{score_str}`"
+                        )
+                        st.write(preview or "No supporting text returned.")
 
             recommended_directors = context.get("recommended_directors") or []
             st.markdown('<div class="sec-head">Recommended Directors</div>', unsafe_allow_html=True)

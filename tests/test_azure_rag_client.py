@@ -31,7 +31,7 @@ def test_preferred_retrieval_report_falls_back_when_azure_unavailable(monkeypatc
     monkeypatch.setattr(
         azure_rag_client,
         "fallback_retrieval_report",
-        lambda query_text, historical_chunks=None, top_k=3: {
+        lambda query_text, historical_chunks=None, top_k=3, query_chunks=None: {
             "backend": "fallback",
             "status": {"local_store_ready": True},
             "retrieved_examples": [{"chunk_id": "chunk_1"}],
@@ -107,3 +107,76 @@ def test_preferred_retrieval_report_uses_azure_chroma_path(monkeypatch):
     assert result["retrieved_examples"][0]["chunk_id"] == "historical_sample_chunk_001"
     assert result["retrieval_context"] == "azure-context"
     assert build_call["reset_collection"] is True
+
+
+def test_preferred_retrieval_report_skips_large_on_demand_chroma_build(monkeypatch):
+    monkeypatch.setattr(azure_rag_client, "embedding_ready", lambda: True)
+
+    def fail_build(*_args, **_kwargs):
+        raise AssertionError("large default corpus should not rebuild Chroma on demand")
+
+    monkeypatch.setattr(azure_rag_client, "build_chroma_from_chunks", fail_build)
+
+    chunks = [
+        {
+            "proposal_id": "historical_large",
+            "chunk_id": f"historical_large_chunk_{index:03d}",
+            "source_type": "proposal",
+            "text": "Azure migration dashboard support.",
+            "chunk_index": index,
+            "opportunity_owner": None,
+            "opportunity_id": None,
+        }
+        for index in range(azure_rag_client._MAX_ON_DEMAND_CHROMA_BUILD_CHUNKS + 1)
+    ]
+
+    result = azure_rag_client.preferred_retrieval_report(
+        "Need Azure migration support.",
+        historical_chunks=chunks,
+        top_k=1,
+    )
+
+    assert result["backend"] == "fallback"
+    assert result["retrieval_mode"] == "local_fallback"
+    assert result["status"]["chroma_build_skipped"] is True
+    assert "preferred_path_error" not in result["status"]
+    assert "rebuild skipped" in result["status"]["preferred_path_notice"].lower()
+    assert result["retrieved_examples"]
+
+
+def test_fallback_retrieval_report_searches_query_chunks():
+    chunks = [
+        {
+            "proposal_id": "historical_cloud",
+            "chunk_id": "historical_cloud_chunk_001",
+            "source_type": "proposal",
+            "text": "Azure migration and cloud infrastructure support.",
+            "chunk_index": 0,
+            "opportunity_owner": None,
+            "opportunity_id": None,
+        },
+        {
+            "proposal_id": "historical_security",
+            "chunk_id": "historical_security_chunk_001",
+            "source_type": "proposal",
+            "text": "Cybersecurity privacy compliance and risk review.",
+            "chunk_index": 1,
+            "opportunity_owner": None,
+            "opportunity_id": None,
+        },
+    ]
+
+    result = azure_rag_client.fallback_retrieval_report(
+        "Need Azure migration plus privacy risk review.",
+        historical_chunks=chunks,
+        query_chunks=[
+            {"text": "Azure migration and cloud infrastructure."},
+            {"text": "Cybersecurity privacy risk review."},
+        ],
+        top_k=2,
+    )
+
+    chunk_ids = {example["chunk_id"] for example in result["retrieved_examples"]}
+    assert "historical_cloud_chunk_001" in chunk_ids
+    assert "historical_security_chunk_001" in chunk_ids
+    assert result["status"]["query_chunk_count"] == 2
