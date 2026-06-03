@@ -758,7 +758,7 @@ def test_service_overlap_distinguishes_missing_rfp_service_labels():
 
 
 def test_llm_match_reason_gets_caveat_when_domain_fit_is_unvalidated():
-    """LLM director wording should be softened when service evidence is weak."""
+    """LLM director wording should not imply proven director experience."""
 
     fake_response = _json.dumps({
         "director_match_reasons": {
@@ -783,9 +783,9 @@ def test_llm_match_reason_gets_caveat_when_domain_fit_is_unvalidated():
         _chat_fn=fake_chat,
     )
 
-    assert output["recommended_directors"][0]["match_reason"].startswith(
-        "Capacity signal is available"
-    )
+    match_reason = output["recommended_directors"][0]["match_reason"]
+    assert match_reason.startswith("Prototype fit is based on available capacity")
+    assert "does not prove prior director experience" in match_reason
 
 
 def test_llm_enrichment_malformed_json_falls_back_to_heuristic():

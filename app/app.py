@@ -73,6 +73,23 @@ def _extract_uploaded_rfp_text(uploaded_file) -> tuple[str, str | None]:
     return "", "Unsupported file type. Upload a TXT, DOCX, or PDF file."
 
 
+def _format_decimal(value, digits: int = 2) -> str:
+    """Format optional numeric dashboard values for stakeholder display."""
+
+    try:
+        number = float(value)
+    except (TypeError, ValueError, OverflowError):
+        return "n/a"
+    if not np.isfinite(number):
+        return "n/a"
+    return f"{number:.{digits}f}"
+
+
+def _format_relative_load(value) -> str:
+    formatted = _format_decimal(value)
+    return f"{formatted}x" if formatted != "n/a" else formatted
+
+
 def _extract_txt_upload(data: bytes) -> tuple[str, str | None]:
     for encoding in ("utf-8-sig", "utf-8", "latin-1"):
         try:
@@ -1317,9 +1334,9 @@ elif page == "RFP Assignment Tool":
                 unsafe_allow_html=True,
             )
 
-            st.markdown('<div class="sec-head">Similar Historical RFPs</div>', unsafe_allow_html=True)
+            st.markdown('<div class="sec-head">Retrieved Supporting Examples</div>', unsafe_allow_html=True)
             st.markdown(
-                f"<div style='{_ph}'>Retrieved RFP chunks and their retrieval mode will appear here<br>"
+                f"<div style='{_ph}'>Retrieved proposal/RFP chunks and their retrieval mode will appear here<br>"
                 "<span style='font-size:0.72rem'>"
                 "Source: <code>generate_assignment_context()</code> → <code>retrieved_examples</code></span></div>",
                 unsafe_allow_html=True,
@@ -1369,12 +1386,13 @@ elif page == "RFP Assignment Tool":
             if isinstance(retrieval_status, dict):
                 if retrieval_status.get("chroma_build_skipped"):
                     st.caption(
-                        "Azure/Chroma rebuild skipped for this full-corpus dashboard request; "
-                        "using local retrieval over the same corpus."
+                        "Azure/Chroma retrieval was not used for this request. "
+                        "The system used local retrieval over the proposal corpus instead."
                     )
                 elif retrieval_status.get("preferred_path_error"):
                     st.caption(
-                        "Preferred retrieval path fell back after an error: "
+                        "Azure/Chroma retrieval was unavailable for this request. "
+                        "The system used local retrieval instead. Details: "
                         f"{retrieval_status.get('preferred_path_error')}"
                     )
                 elif retrieval_mode == "azure_chroma":
@@ -1390,13 +1408,26 @@ elif page == "RFP Assignment Tool":
                         "Retrieval corpus: "
                         f"{corpus_label}; "
                         f"{retrieval_status.get('corpus_chunk_count', 'n/a')} corpus chunks; "
-                        f"{retrieval_status.get('query_chunk_count', 'n/a')} pasted-RFP query chunks."
+                        f"{retrieval_status.get('query_chunk_count', 'n/a')} submitted-RFP query chunks."
                     )
                 if retrieval_status.get("retrieval_has_director_linkage") is False:
                     st.caption(
-                        "Retrieved chunks do not include reliable opportunity_owner/opportunity_id "
-                        "linkage, so they are semantic evidence rather than proof of director experience."
+                        "Retrieved chunks cannot currently be tied reliably to a specific "
+                        "director or opportunity. Treat them as semantic similarity evidence, "
+                        "not proof of prior director experience."
                     )
+
+            notes_text = str(context.get("notes") or "")
+            if "Azure OpenAI chat analysis" in notes_text:
+                st.caption(
+                    "LLM enrichment: Azure OpenAI chat was used for the summary, "
+                    "effort estimate, and director match wording."
+                )
+            else:
+                st.caption(
+                    "LLM enrichment: heuristic summary, effort, and match wording are "
+                    "shown for this result."
+                )
 
             st.markdown('<div class="sec-head">RFP Summary</div>', unsafe_allow_html=True)
             st.write(context.get("rfp_summary") or "No summary returned.")
@@ -1418,7 +1449,7 @@ elif page == "RFP Assignment Tool":
             st.write(effort_reason or "No effort reason returned.")
 
             retrieved_examples = context.get("retrieved_examples") or []
-            st.markdown('<div class="sec-head">Similar Historical RFPs</div>', unsafe_allow_html=True)
+            st.markdown('<div class="sec-head">Retrieved Supporting Examples</div>', unsafe_allow_html=True)
             if not isinstance(retrieved_examples, list) or not retrieved_examples:
                 st.info("No retrieved examples returned.")
             else:
@@ -1436,13 +1467,13 @@ elif page == "RFP Assignment Tool":
                         score_str = str(raw_score) if raw_score not in (None, "") else "n/a"
                     proposal_id = example.get("proposal_id", "Unknown proposal")
                     with st.expander(
-                        f"{index}. {proposal_id} — similarity {score_str}",
+                        f"{index}. {proposal_id} — match score {score_str}",
                         expanded=index == 1,
                     ):
                         st.markdown(
                             f"**Proposal:** {proposal_id}  \n"
                             f"**Chunk ID:** `{example.get('chunk_id', 'unknown')}`  \n"
-                            f"**Similarity score:** `{score_str}`"
+                            f"**Match score:** `{score_str}`"
                         )
                         st.write(preview or "No supporting text returned.")
 
@@ -1460,9 +1491,9 @@ elif page == "RFP Assignment Tool":
                     ):
                         st.markdown(
                             f"**Capacity:** {director.get('capacity_label', 'Unknown')}  \n"
-                            f"**Capacity score:** {director.get('capacity_score', 'n/a')}  \n"
-                            f"**Relative load:** {director.get('relative_load', 'n/a')}  \n"
-                            f"**Assignment score:** {director.get('assignment_score', 'n/a')}"
+                            f"**Capacity score:** {_format_decimal(director.get('capacity_score'))}  \n"
+                            f"**Relative load:** {_format_relative_load(director.get('relative_load'))}  \n"
+                            f"**Assignment score:** {_format_decimal(director.get('assignment_score'))}"
                         )
                         if director.get("match_reason"):
                             st.write(director.get("match_reason"))

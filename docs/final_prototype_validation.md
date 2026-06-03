@@ -28,6 +28,9 @@ Remaining boundary: scanned PDFs may still require manual paste or OCR because o
 - Kept the RFP page status banners aligned with final prototype behavior.
 - Displayed retrieval mode, capacity source, corpus source, corpus chunk count, query chunk count, and retrieval caveats.
 - Preserved severity-specific risk flag rendering.
+- Added a separate LLM enrichment caption so users can distinguish local retrieval fallback from Azure OpenAI chat enrichment status.
+- Renamed the retrieved-evidence section to "Retrieved Supporting Examples" to avoid implying that each row is a full distinct historical RFP.
+- Rounded recommendation metrics for stakeholder display (`capacity_score`, `relative_load`, and `assignment_score`).
 
 ### Retrieval Path
 
@@ -70,6 +73,7 @@ Remaining boundary: `service_solution` is a lightweight service-fit proxy, not a
 - Added fallback behavior when an Azure deployment does not support the response-format parameter.
 - Reduced and tightened the LLM prompt to limit truncated JSON responses.
 - Limited director match-reason candidates passed to the LLM.
+- Wrapped LLM-generated director match wording with a prototype-fit caveat when real director records are used, preventing unsupported claims of proven prior director experience.
 - Logged Azure chat enrichment failures while preserving deterministic heuristic fallback.
 
 Remaining boundary: LLM output is prototype explanation text, not authoritative staffing guidance.
