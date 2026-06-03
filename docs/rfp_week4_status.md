@@ -252,7 +252,7 @@ Very short keyword-heavy failure-state test:
 ## Risk Flags Shown
 
 - Azure/Chroma retrieval searched the default sample historical corpus, so retrieval evidence should be treated as a prototype signal until the full approved proposal corpus is indexed.
-- Some directors may have no historical baseline, so capacity_score and relative_load
+- Some directors may have no historical baseline, so capacity score and relative load
   use heuristic defaults in RFP ranking.
 - At least one candidate director is overextended based on capacity signals and should be reviewed before assignment.
 - Azure OpenAI chat enrichment may fail independently of Azure/Chroma retrieval. When this happens, the app falls back to heuristic summary, effort, and match reasons.
