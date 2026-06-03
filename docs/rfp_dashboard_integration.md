@@ -33,13 +33,13 @@ Every field from `generate_assignment_context()` is displayed. The table below l
 | `effort.level` | **Estimated Effort** | Colour-coded badge (`effort-high`, `effort-medium`, `effort-low` CSS classes) |
 | `effort.estimated_duration` | (under Estimated Effort) | `st.caption()` |
 | `effort.reason` | (under Estimated Effort) | `st.write()` — plain text; falls back to `effort.rationale` |
-| `retrieved_examples` | **Similar Historical RFPs** | One entry per chunk: `proposal_id` bold, `chunk_id` and `similarity_score` in code format, `supporting_text` truncated at 320 chars |
+| `retrieved_examples` | **Retrieved Supporting Examples** | One expandable entry per retrieved chunk, first expanded by default; shows proposal ID, chunk ID, match score, and `supporting_text` truncated at 320 chars |
 | `recommended_directors` | **Recommended Directors** | One `st.expander()` per director, first expanded by default |
 | ↳ `director_name` | Expander title | Text |
 | ↳ `capacity_label` | Inside expander | Bold label |
-| ↳ `capacity_score` | Inside expander | Numeric |
-| ↳ `relative_load` | Inside expander | Numeric |
-| ↳ `assignment_score` | Inside expander | Numeric (shown if present) |
+| ↳ `capacity_score` | Inside expander | Rounded numeric, 2 decimal places |
+| ↳ `relative_load` | Inside expander | Rounded numeric, 2 decimal places plus `x` |
+| ↳ `assignment_score` | Inside expander | Rounded numeric, 2 decimal places |
 | ↳ `match_reason` | Inside expander | `st.write()` |
 | ↳ `capacity_explanation` | Inside expander | `st.write()` under bold sub-header |
 | ↳ `experience_match_explanation` | Inside expander | `st.write()` under bold sub-header |
@@ -96,6 +96,8 @@ Three visible labels distinguish prototype output from real results:
 
 These labels satisfy the Week 4 requirement that the dashboard clearly mark which outputs are real API-backed, fallback, heuristic, or mock.
 
+Week 5 usability refinement: the results view now also shows a separate LLM enrichment caption. This explicitly distinguishes retrieval mode from Azure OpenAI chat enrichment, so a local retrieval fallback does not imply that LLM enrichment failed.
+
 ------------------------------------------------------------------------
 
 ## Required Fields from Backend
@@ -130,9 +132,9 @@ All list fields handle `None`, empty list, and non-list gracefully.
 
 -   **The historical corpus uses local proposal data when available.** When `proposals_responses.json` is available locally, the engine uses the chunked local proposal corpus. If it is unavailable or cannot be parsed, the engine falls back to a small built-in sample RFP text and labels that sample-corpus status.
 
--   **Full-corpus Azure/Chroma rebuilds are guarded.** Azure/Chroma is wired through the RFP engine, but large full-corpus dashboard requests skip expensive on-demand Chroma rebuilds and use labelled local fallback retrieval over the same active corpus.
+-   **Full-corpus Azure/Chroma rebuilds are guarded.** Azure/Chroma is wired through the RFP engine, but large full-corpus dashboard requests skip expensive on-demand Chroma rebuilds and use labelled local fallback retrieval over the same active corpus. The UI uses client-facing wording: "Azure/Chroma retrieval was not used for this request. The system used local retrieval over the proposal corpus instead."
 
--   **Retrieved chunks do not prove director experience.** Current proposal chunks may lack reliable `opportunity_owner` / `opportunity_id` linkage. The UI reports this as a caveat so retrieved examples are interpreted as semantic evidence, not proof of a director's prior work.
+-   **Retrieved chunks do not prove director experience.** Current proposal chunks may lack reliable `opportunity_owner` / `opportunity_id` linkage. The UI reports this in client-facing wording so retrieved examples are interpreted as semantic evidence, not proof of a director's prior work.
 
 ------------------------------------------------------------------------
 
@@ -147,7 +149,7 @@ All list fields handle `None`, empty list, and non-list gracefully.
 | Error / exception state | Done |
 | Prototype / fallback / heuristic labels | Done — Week 4 banner updated |
 | Risk flag severity styling (High/Medium/Low) | Done — Week 4 |
-| Paste-only workflow caption | Done — Week 4 |
+| Upload/paste workflow caption | Done — Week 4; refined after upload support |
 | Header subtitle updated to Week 4 Final Prototype | Done — Week 4 |
 | `effort` displayed as "Estimated Effort" | Done |
 | `similarity_score` formatted to 2 decimal places | Done |
@@ -158,12 +160,16 @@ All list fields handle `None`, empty list, and non-list gracefully.
 | Heuristic fallback when LLM unavailable / fails | Done — Week 4 |
 | LLM failure Low risk flag | Done — Week 4 |
 | `notes` field reflects LLM vs heuristic path | Done — Week 4 |
+| Separate LLM enrichment status caption | Done — Week 5 usability refinement |
 | Pasted RFP chunked before retrieval | Done — Week 4 |
 | Full local proposal corpus used when available | Done — Week 4 |
 | Retrieval corpus/query status shown in UI | Done — Week 4 |
 | Missing director/opportunity linkage caveat | Done — Week 4 |
 | Azure-backed retrieval in Streamlit RFP flow | Done — Week 4, with fallback guard for large full-corpus requests |
 | File upload text extraction | Done — Week 4 for TXT, DOCX, and text-based PDF |
+| Retrieved examples label changed to "Retrieved Supporting Examples" | Done — Week 5 usability refinement |
+| Recommendation numeric values rounded for stakeholder display | Done — Week 5 usability refinement |
+| LLM director match wording guarded against prior-experience overclaiming | Done — Week 5 usability refinement |
 | Territory / service domain passed to backend | Pending — Role 5 (Jai) |
 
 ------------------------------------------------------------------------
