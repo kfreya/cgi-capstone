@@ -515,10 +515,9 @@ def _risk_flags(
             {
                 "level": "Low",
                 "message": (
-                    "Retrieved proposal chunks do not include reliable "
-                    "opportunity_owner or opportunity_id linkage. Treat them "
-                    "as semantic similarity evidence, not proof of a director's "
-                    "prior experience."
+                    "Retrieved chunks cannot currently be tied reliably to a "
+                    "specific director or opportunity. Treat them as semantic "
+                    "similarity evidence, not proof of prior director experience."
                 ),
             }
         )
@@ -988,7 +987,7 @@ def _match_reason(
     """
 
     evidence = (
-        "retrieved historical examples"
+        "retrieved supporting examples"
         if supporting_chunks
         else "limited retrieval evidence"
     )
@@ -1003,7 +1002,7 @@ def _match_reason(
         overlap_text = "service-domain overlap is unavailable."
     return (
         f"Capacity is labelled {capacity_label}; {evidence} produced a top "
-        f"similarity score of {similarity_signal:.2f}; {overlap_text}"
+        f"match score of {similarity_signal:.2f}; {overlap_text}"
     )
 
 
@@ -1082,8 +1081,8 @@ def _missing_capacity_flag_message(records: list[dict[str, Any]]) -> str:
 
     if records and all(_is_no_baseline_record(record) for record in records):
         return (
-            "Some directors have no historical baseline, so capacity_score "
-            "and relative_load use heuristic defaults in RFP ranking. Review "
+            "Some directors have no historical baseline, so capacity score "
+            "and relative load use heuristic defaults in RFP ranking. Review "
             "No baseline candidates before assignment."
         )
     return (
@@ -1160,6 +1159,10 @@ def _build_llm_messages(
     user_msg = (
         f"RFP TEXT:\n{snippet}\n\n"
         f"CANDIDATE DIRECTORS: {', '.join(director_names)}\n\n"
+        "For director_match_reasons, do not claim that a director has proven "
+        "past experience with a retrieved proposal unless the provided data "
+        "explicitly says so. Frame recommendations as prototype fit based on "
+        "capacity, service-fit signals, and retrieved semantic evidence. "
         "Return your analysis as JSON."
     )
     return [
@@ -1266,19 +1269,14 @@ def _inject_llm_match_reasons(
         name = director.get("director_name", "")
         if name in match_reasons and match_reasons[name]:
             reason = str(match_reasons[name])
-            if (
-                require_evidence_caveat
-                and _needs_llm_match_caveat(
-                    str(director.get("experience_match_explanation", ""))
-                )
-            ):
-                reason = (
-                    "Capacity signal is available, but director-domain fit is "
-                    f"not validated by current data. LLM note: {reason}"
-                )
+            if require_evidence_caveat:
+                reason = _safe_llm_match_reason(reason)
             director["match_reason"] = reason
 
 
-def _needs_llm_match_caveat(experience_text: str) -> bool:
-    lower_text = experience_text.lower()
-    return "overlap (0.00)" in lower_text or "overlap is unavailable" in lower_text
+def _safe_llm_match_reason(reason: str) -> str:
+    return (
+        "Prototype fit is based on available capacity, service-fit signals, "
+        "and retrieved semantic evidence; it does not prove prior director "
+        f"experience. LLM note: {reason}"
+    )
