@@ -32,8 +32,8 @@ or final business decision engine.
 - Produces a director-level capacity table through `director_capacity_df`.
 - Shows capacity labels, relative load, and supporting workload indicators.
 - Provides a working Streamlit RFP Assignment Tool page for pasted RFP text.
-- Supports the official RFP demo path using pasted RFP text chunking, retrieval
-  over the active chunked corpus, assignment context generation, and dashboard
+- Supports the official RFP demo path using pasted RFP text as a query against
+  the active chunked corpus, assignment context generation, and dashboard
   display.
 - Preserves a stable dashboard-facing `assignment_context` structure with
   `retrieved_examples`, `recommended_directors`, and `risk_flags`.
@@ -64,7 +64,7 @@ Official Week 4 demo path:
 
 ```text
 pasted RFP text
--> chunked into query chunks
+-> used as the retrieval query
 -> retrieval over the chunked local proposal corpus when available
 -> assignment_context with real capacity_df / director capacity output when available
 -> Streamlit RFP page display
@@ -81,11 +81,13 @@ sample RFP text
 -> Streamlit RFP page display
 ```
 
-Azure+Chroma retrieval is integrated into the RFP engine and reported in the
-Streamlit RFP flow when used. For the full local proposal corpus, the dashboard
-request does not rebuild Chroma on demand; it uses labelled local fallback
-retrieval over the same full corpus. New pasted RFP input is chunked before
-retrieval, and the historical/sample retrieval corpus is also chunked. In both paths, the RFP
+Azure + Chroma retrieval is validated at backend/smoke-test/sample/full-corpus
+level, and the app reports retrieval mode when used. Full browser-based
+Streamlit flow should be claimed only after explicit UI testing. For the full
+local proposal corpus, the dashboard request does not rebuild Chroma on demand;
+it uses labelled local fallback retrieval over the same full corpus. Pasted RFP
+text is used as a query; historical/sample corpus chunking is the active
+retrieval basis. In both paths, the RFP
 Assignment Tool should pass real capacity data into
 `generate_assignment_context()` when available so
 `recommended_directors` is capacity-aware. Fallback or mock director data should
@@ -220,8 +222,8 @@ Week 4 capacity-aware RFP integration result:
   `generate_assignment_context()` using `director_df=capacity_df`.
 - The RFP page stores the recommendation capacity data source in
   `st.session_state["rfp_capacity_data_source"]`.
-- The RFP results area labels whether director recommendations use Live CRM
-  capacity data, Pre-built `director_capacity_df.csv`, or Synthetic
+- The RFP results area labels whether director recommendations use capacity data
+  computed from CRM opportunity records, Pre-built `director_capacity_df.csv`, or Synthetic
   mock/fallback capacity data.
 - If mock capacity data is used, the UI warns that recommendations should not
   be treated as final CGI assignment guidance.
@@ -242,8 +244,10 @@ Validation after the capacity-aware RFP page update:
 Manual demo result:
 
 - The Streamlit app launched successfully.
-- Director Capacity Dashboard loaded with Live CRM data and 24 owners.
-- RFP Assignment Tool loaded with Live CRM data.
+- Director Capacity Dashboard loaded with capacity data computed from CRM
+  opportunity records and 24 owners.
+- RFP Assignment Tool loaded with capacity data computed from CRM opportunity
+  records.
 - A sample public-sector digital transformation RFP was pasted and analyzed
   successfully without traceback.
 - The RFP result showed:
@@ -256,8 +260,8 @@ Manual demo result:
 - The Recommended Directors section displayed capacity label, capacity score,
   relative load, assignment score, match reason, capacity explanation,
   experience match explanation, and supporting chunks.
-- The UI labelled that director recommendations were using Live CRM capacity
-  data.
+- The UI labelled that director recommendations were using capacity data
+  computed from CRM opportunity records.
 - The risk flags clearly warned when retrieved chunks lacked reliable
   `opportunity_owner` / `opportunity_id` linkage, so retrieval evidence should
   be read as semantic similarity rather than proof of director experience.
@@ -266,7 +270,8 @@ Manual demo result:
 
 This manual demo confirms the capacity-aware Streamlit flow, but it does not
 claim production-ready retrieval or validated director-experience evidence.
-The demo combines live capacity data with labelled retrieval evidence.
+The demo combines processed CRM-derived capacity data with labelled retrieval
+evidence.
 
 ## 6. Demo Checklist
 
@@ -309,16 +314,16 @@ The demo combines live capacity data with labelled retrieval evidence.
 | `director_capacity_df` | Real prototype output | Used by the Streamlit capacity dashboard. |
 | Streamlit capacity display | Real prototype UI | Stakeholder-facing dashboard view. |
 | RFP text input | Real prototype UI | Uses pasted RFP text in Streamlit. |
-| RFP input query | Real prototype behavior | Chunks pasted RFP text before retrieval. |
+| RFP input query | Real prototype behavior | Pasted RFP text is used as a query against chunked historical/sample corpora. |
 | Historical/sample corpus chunking | Real local code | Splits the local proposal or sample retrieval corpus into retrievable chunks. |
-| New input RFP chunking | Integrated | Pasted RFP text is chunked before retrieval and query chunk count is reported. |
+| Pasted RFP query handling | Documented prototype behavior | Pasted RFP text is used as a query; historical/sample corpus chunking is the active retrieval basis. |
 | Local RFP retrieval | Fallback | Used when Azure is unavailable or when full-corpus on-demand Chroma rebuild is skipped. |
 | `assignment_context` | Real prototype contract | Contains summary, effort, examples, recommendations, risks, and notes. |
 | Recommended directors | Heuristic / fallback-sensitive | Should not be presented as final CGI assignment guidance. |
 | Risk flags | Heuristic prototype | Helps surface uncertainty and limitations. |
 | Azure OpenAI embeddings | Smoke-test validated | Environment/configuration is available; minimal embedding test returned one numeric 1536-dimension vector. |
 | Azure + Chroma sample retrieval | Smoke-test validated | `scripts/smoke_azure_chroma.py` added/query-tested three chunks with precomputed Azure embeddings; top result matched the cloud query direction. |
-| Streamlit Azure-backed RFP retrieval | Integrated with fallback guard | The RFP engine calls the Azure/Chroma path when embeddings are ready. Full-corpus dashboard requests skip on-demand Chroma rebuilds and show labelled local fallback status. |
+| Streamlit reports retrieval mode; Azure/Chroma validated at backend/smoke-test/sample/full-corpus level with fallback guard | Prototype status reporting | The RFP page reports the retrieval mode used by a run. Full browser-based Streamlit flow should be claimed only after explicit UI testing. Full-corpus dashboard requests skip on-demand Chroma rebuilds and show labelled local fallback status. |
 | Azure chat deployment — `azure_chat_available()` / `chat_completion()` | Integrated | `src/azure_client.py` now exposes `azure_chat_available()` (config check, no API call) and `chat_completion()` (uses `AZURE_OPENAI_ENDPOINT` + `AZURE_OPENAI_CHAT_DEPLOYMENT`). |
 | LLM enrichment in RFP engine | Integrated — fallback-safe | `generate_assignment_context()` accepts `_chat_fn=_AUTO`. When Azure chat is configured, LLM replaces `rfp_summary`, `effort`, and per-director `match_reason`. Heuristic fallback fires on any failure; a Low risk flag is added. Empty text skips LLM. |
 | Sample or placeholder director data | Mock / fallback when used | Only applies when real `capacity_df` is unavailable. |

@@ -230,7 +230,7 @@ Week 4 finalized the stakeholder-facing prototype:
   files. Scanned PDFs may still require manual paste or OCR.
 - The RFP engine loads the local `data/proposals_responses.json` corpus when
   available and uses the sample corpus only as fallback.
-- Submitted RFP text is chunked before retrieval.
+- Submitted RFP text is used as a query against a chunked historical/sample corpus.
 - Azure OpenAI embeddings with Chroma are the preferred retrieval path when
   configured and suitable for the request; local retrieval remains available as
   a fallback over the same corpus.

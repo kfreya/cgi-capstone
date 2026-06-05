@@ -645,7 +645,7 @@ with st.sidebar:
 
     _src_color = "#4ADE80" if _data_source == "real" else "#FBB040"
     _src_label = {
-        "real":     "Live CRM data",
+        "real":     "Computed CRM opportunity data",
         "prebuilt": "Pre-built CSV",
         "mock":     "Synthetic mock data",
     }[_data_source]
@@ -678,7 +678,7 @@ st.markdown(
 if _data_source == "real":
     st.markdown(
         "<div class='data-banner data-banner-real'>"
-        "<b>Live data</b> — Director capacity scores computed from CRM opportunity records "
+        "<b>Computed data</b> — Director capacity scores computed from CRM opportunity records "
         f"({len(capacity_df)} owners)."
         "</div>",
         unsafe_allow_html=True,
@@ -1210,7 +1210,7 @@ norm. They should be reviewed and adjusted with CGI judgment.
 # ==============================================================================
 elif page == "RFP Assignment Tool":
     rfp_capacity_source_label = {
-        "real": "Live CRM capacity data",
+        "real": "Computed from CRM opportunity records",
         "prebuilt": "Pre-built director_capacity_df.csv",
         "mock": "Synthetic mock capacity data",
     }.get(_data_source, "Unknown capacity data source")
@@ -1408,7 +1408,7 @@ elif page == "RFP Assignment Tool":
                         "Retrieval corpus: "
                         f"{corpus_label}; "
                         f"{retrieval_status.get('corpus_chunk_count', 'n/a')} corpus chunks; "
-                        f"{retrieval_status.get('query_chunk_count', 'n/a')} submitted-RFP query chunks."
+                        f"{retrieval_status.get('query_chunk_count', 'n/a')} submitted RFP query text; historical/sample corpus chunks."
                     )
                 if retrieval_status.get("retrieval_has_director_linkage") is False:
                     st.caption(

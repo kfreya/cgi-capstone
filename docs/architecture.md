@@ -442,7 +442,7 @@ RFP ENGINE
   vector_store.py
     embed chunks with Azure OpenAI
     store embeddings in Chroma
-    query with one or more RFP query chunks
+    query against chunked historical/sample corpora; query chunking is path-dependent
     provide local fallback retrieval
 
   rfp_engine.py
