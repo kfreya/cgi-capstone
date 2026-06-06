@@ -34,7 +34,7 @@ The data files are local and ignored by git.
 | Director / senior leader | `opportunity_owner` | Primary capacity dashboard entity |
 | Opportunity manager | `opportunity_manager` | Optional metadata / supporting reporting field |
 | RFP / proposal | `proposals_responses.json` | Historical proposal and response text |
-| Service solution | `opps1` | Supplemental opportunity detail |
+| Service solution | `opps1` | Supplemental opportunity detail; aggregated by owner from open/won opportunities for the RFP service-fit signal |
 
 CGI confirmed that `opportunity_owner` is the primary field representing the director whose capacity should be estimated. `opportunity_manager` is more like a direct-report or reporting-structure field; it can be retained as metadata, but it is not part of the MVP scoring model.
 
@@ -288,12 +288,13 @@ RFP processing pipeline:
 
 1.  Extract proposal and response text.
 2.  Chunk documents with overlap.
-3.  Embed chunks using Azure OpenAI embeddings.
-4.  Store chunk embeddings in Chroma.
-5.  For a new RFP, chunk and embed the text.
-6.  Retrieve similar historical RFP chunks.
-7.  Estimate effort level using retrieved examples and LLM reasoning.
-8.  Rank directors using capacity, semantic relevance, structured track record, service fit, and risk flags.
+3.  Load the local proposal corpus when available, with a small sample corpus as fallback.
+4.  Use Azure OpenAI embeddings with Chroma as the preferred retrieval path when an indexed store is available or the request can be safely indexed on demand.
+5.  Fall back to local retrieval over the same corpus when Azure/Chroma is unavailable or when on-demand indexing is skipped for the full corpus.
+6.  For a new RFP, extract uploaded TXT/DOCX/text-PDF content or use pasted text, then chunk the RFP query before retrieval.
+7.  Retrieve similar historical proposal/RFP chunks.
+8.  Estimate effort level using deterministic heuristics, enriched by Azure OpenAI chat when configured.
+9.  Rank directors using capacity, retrieval similarity, service-solution fit, capacity label, and risk flags.
 
 RFP effort features:
 
@@ -324,6 +325,8 @@ Semantic relevance measures how similar the new RFP is to a director's historica
 
 CGI confirmed that experience should combine semantic relevance with structured track record. Structured track record measures outcome quality and historical success. It should use smoothed rates and confidence adjustment based on sample size and data completeness.
 
+Current prototype boundary: reliable director-to-proposal linkage is not available in the proposal chunks because `opportunity_owner` and `opportunity_id` are not populated consistently. Therefore, retrieved chunks are treated as semantic evidence for the RFP, not proof of a director's prior experience. The final prototype uses director capacity, retrieval similarity, and an owner-level `service_solution` profile as the implemented fit signals.
+
 Candidate features include:
 
 ``` text
@@ -352,13 +355,13 @@ Assignment score:
 
 ``` text
 assignment_score =
-    experience_weight * experience_score
-  + capacity_weight * director_available_capacity
-  + fit_weight * service_solution_match
-  - risk_weight * overextension_penalty
+    capacity_score_weight * capacity_score
+  + retrieval_weight * top_retrieval_similarity
+  + service_fit_weight * service_solution_match
+  + capacity_label_bonus
 ```
 
-Based on CGI feedback, director recommendations should use a balanced scoring approach with past experience weighted most heavily, followed by available capacity, then service-solution fit. The initial MVP should keep these weights configurable.
+The final prototype ranks every candidate director before selecting the top three recommendations. Because reliable proposal-to-director linkage is not yet available, the implemented ranking is capacity-aware and service-aware, but it should not be described as a validated historical-performance ranking.
 
 The tool should return:
 
@@ -380,8 +383,7 @@ LLM tasks:
 ``` text
 RFP summarization
 effort explanation
-assignment rationale
-director workload narrative
+director match-reason enrichment
 ```
 
 Non-LLM tasks:
@@ -440,12 +442,15 @@ RFP ENGINE
   vector_store.py
     embed chunks with Azure OpenAI
     store embeddings in Chroma
+    query with one or more RFP query chunks
+    provide local fallback retrieval
 
   rfp_engine.py
     retrieve similar RFPs
     estimate RFP effort
-    match against director capacity
+    match against director capacity and service_solution profiles
     rank recommended directors
+    enrich summary, effort, and match reasons with Azure OpenAI chat when configured
 
 PRESENTATION LAYER
   Streamlit app
@@ -487,7 +492,7 @@ Territory and opportunity-owner filters define the selected population for both 
 Page 2: RFP Assignment Tool
 
 ``` text
-upload or paste RFP text
+upload TXT/DOCX/text-based PDF or paste RFP text
 estimated effort level
 retrieved similar historical RFPs
 recommended directors
@@ -522,10 +527,10 @@ Capacity labels and RFP recommendation weights should be refined after CGI revie
 | 3     | Build historical baseline           | `baseline_df`          |
 | 4     | Build current capacity scoring      | `director_capacity_df` |
 | 5     | Build Streamlit capacity dashboard  | Deliverable 1          |
-| 6     | Chunk and embed historical RFPs     | Chroma vector store    |
+| 6     | Chunk and retrieve historical RFPs  | Azure/Chroma path with local fallback |
 | 7     | Build RFP effort estimator          | `rfp_engine.py`        |
 | 8     | Build director assignment ranking   | Deliverable 2          |
-| 9     | Add LLM-generated explanations      | Stretch goal           |
+| 9     | Add LLM-generated explanations      | Implemented when Azure chat is configured |
 
 ## Design Notes
 
@@ -538,4 +543,6 @@ The architecture reflects these EDA findings and CGI meeting decisions:
 5.  Won opportunities can be used as a delivery-load proxy for the corresponding `opportunity_owner`.
 6.  Proposal and RFP documents require chunking before embedding.
 7.  `total_estimated_revenue` or matched opportunity-level total revenue is the authoritative revenue input; do not add service-solution revenue to opportunity total revenue.
-8.  Some fields are too sparse for capacity scoring, including `proposal_submission_date`, `rfp_release_date`, `comments`, and `free_field_text_2`.
+8.  `service_solution` can support service-fit matching, but the final prototype only uses it as a lightweight owner-level profile, not as proof of director expertise.
+9.  Retrieved proposal chunks currently lack reliable `opportunity_owner` / `opportunity_id` linkage, so retrieval evidence should be described as semantic similarity evidence rather than director experience evidence.
+10. Some fields are too sparse for capacity scoring, including `proposal_submission_date`, `rfp_release_date`, `comments`, and `free_field_text_2`.

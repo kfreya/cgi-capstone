@@ -14,7 +14,10 @@ The project has two core deliverables:
    Uses CRM opportunity data to summarize director workload, historical baseline, relative load, capacity score, and capacity labels.
 
 2. **RFP Assignment Tool**  
-   Uses proposal/RFP text and structured opportunity data to support RFP effort estimation, similar RFP retrieval, and director recommendations.
+   Accepts pasted RFP text or uploaded TXT, DOCX, and text-based PDF files.
+   It supports effort estimation, similar RFP retrieval, capacity-aware
+   director recommendations, optional Azure OpenAI chat enrichment, and
+   fallback-safe prototype output.
 
 ## Repository Structure
 
@@ -24,13 +27,17 @@ cgi-capstone/
 │   ├── app.py                  # Streamlit integrated prototype dashboard
 │   └── mock_data.py            # synthetic data for dashboard prototyping
 ├── src/
-│   ├── azure_client.py         # Azure/OpenAI environment validation helper
+│   ├── azure_client.py         # Azure/OpenAI chat and environment helpers
+│   ├── azure_embedding_client.py # Azure embedding compatibility helpers
+│   ├── azure_rag_client.py     # Azure/Chroma retrieval with local fallback
 │   ├── check_env.py            # local environment variable check script
 │   ├── data_loader.py          # local data loading helpers
 │   ├── opportunity_cleaner.py  # opportunity Excel merge/cleaning pipeline
 │   ├── data_validator.py       # validation summaries and owner aggregates
 │   ├── capacity_engine.py      # capacity scoring and director output contract
+│   ├── rfp_data_validator.py   # proposal/RFP data validation helpers
 │   ├── rfp_engine.py           # dashboard-facing RFP assignment context
+│   ├── rfp_evidence_validator.py # retrieved-evidence validation helpers
 │   ├── rfp_preprocessor.py     # RFP/proposal text extraction and chunking
 │   └── vector_store.py         # in-memory and Chroma vector retrieval helpers
 ├── tests/                      # unit tests for data, scoring, dashboard contracts, and RFP modules
@@ -50,6 +57,11 @@ cgi-capstone/
 │   ├── dashboard_requirements.md # dashboard data and UI contracts
 │   ├── rfp_pipeline.md         # RFP preprocessing and retrieval pipeline
 │   ├── rfp_assignment_integration_qa.md # RFP assignment integration QA notes
+│   ├── rfp_dashboard_integration.md # final RFP dashboard integration notes
+│   ├── rfp_data_validation.md  # proposal/RFP data validation notes
+│   ├── rfp_final_evidence_validation.md # final retrieval evidence validation
+│   ├── final_integration_qa.md # final prototype QA and demo scope
+│   ├── final_prototype_validation.md # final local changes and validation
 │   ├── azure_embedding_vector_store_notes.md # Azure embedding/vector-store notes
 │   ├── team_charter.md         # team working agreement
 │   └── time_management/        # weekly team report PDFs and time-management artifacts
@@ -81,7 +93,12 @@ Core technical documentation:
 - [Dashboard requirements](docs/dashboard_requirements.md)
 - [RFP pipeline](docs/rfp_pipeline.md)
 - [RFP assignment integration QA](docs/rfp_assignment_integration_qa.md)
+- [RFP dashboard integration](docs/rfp_dashboard_integration.md)
+- [RFP data validation](docs/rfp_data_validation.md)
+- [RFP final evidence validation](docs/rfp_final_evidence_validation.md)
 - [Azure embedding and vector store notes](docs/azure_embedding_vector_store_notes.md)
+- [Final integration QA](docs/final_integration_qa.md)
+- [Final prototype validation](docs/final_prototype_validation.md)
 
 Project process documentation:
 
@@ -175,10 +192,10 @@ python -m pytest tests/test_capacity_engine.py
 python -m pytest tests/test_rfp_engine.py tests/test_vector_store.py
 ```
 
-## Week 3 Prototype Status
+## Final Prototype Status
 
-This repository is a Week 3 integrated capstone prototype. It is not a
-production system.
+This repository is a Week 4 final capstone prototype. It is not a production
+system or a business-validated assignment system.
 
 Week 1 established the project foundations:
 
@@ -199,21 +216,41 @@ Week 2 moved the project toward an integrated capacity prototype:
 
 Week 3 moved the RFP Assignment Tool and documentation closer to an integrated demo:
 
-- RFP data validation now documents proposal/response structure, text quality,
+- RFP data validation documented proposal/response structure, text quality,
   chunk metadata, representative sample chunk exports, and proposal-to-director
   linkage limitations.
-- Azure embedding and vector-store helper work is in place while local fallback
-  retrieval remains available for demos and tests.
-- `generate_assignment_context()` is more stable for Streamlit integration, with
-  improved assignment logic, risk flags, and schema-oriented tests.
-- RFP dashboard integration notes and QA documentation capture fallback,
-  heuristic, mock, and real component boundaries.
-- Documentation filenames and README links have been cleaned up around canonical,
-  content-based documentation sources.
+- Local fallback retrieval remained available for demos and tests.
+- `generate_assignment_context()` became more stable for Streamlit integration,
+  with improved assignment logic, risk flags, and schema-oriented tests.
 
-Full Azure-backed Chroma retrieval, production retrieval quality,
-stakeholder-calibrated recommendation weights, and final demo polish remain
-ongoing work.
+Week 4 finalized the stakeholder-facing prototype:
+
+- The Streamlit app is labelled as the Week 4 Final Prototype.
+- The RFP page accepts pasted input or uploaded TXT, DOCX, and text-based PDF
+  files. Scanned PDFs may still require manual paste or OCR.
+- The RFP engine loads the local `data/proposals_responses.json` corpus when
+  available and uses the sample corpus only as fallback.
+- Submitted RFP text is chunked before retrieval.
+- Azure OpenAI embeddings with Chroma are the preferred retrieval path when
+  configured and suitable for the request; local retrieval remains available as
+  a fallback over the same corpus.
+- Azure OpenAI chat enrichment can improve the RFP summary, effort estimate,
+  and director match reasons when configured; heuristic output is used when
+  chat enrichment is unavailable or fails.
+- RFP recommendations are capacity-aware when `capacity_df` is available.
+- Owner-level `service_solution` profiles from open/won opportunities provide
+  a lightweight service-fit signal.
+- The dashboard labels retrieval mode, capacity source, prototype status, and
+  risk flags.
+- Retrieved proposal chunks are treated as semantic similarity evidence, not
+  proof of director experience, because reliable `opportunity_owner` /
+  `opportunity_id` linkage is not available in the proposal chunks.
+
+Latest validation:
+
+```text
+148 passed, 1 warning
+```
 
 ## Data Security
 

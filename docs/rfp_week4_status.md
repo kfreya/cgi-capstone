@@ -33,10 +33,11 @@ Week 4 focused on validating the RFP Assignment Tool inside the Streamlit app an
 
 - Added a low-confidence risk flag for very short RFP input.
 - Added a limited-scope risk flag for short/vague RFP text that lacks service-domain detail.
-- Added a capacity-led ranking risk flag when RFP service keywords are present but no service-domain overlap is detected in the current director capacity records.
+- Added `service_solution` to the director capacity output as an owner-level service profile, allowing RFP recommendations to use a basic service-fit signal.
+- Added a capacity-led ranking risk flag when RFP service keywords are present but service-domain overlap is unavailable or weak in the current director capacity records.
 - Updated LLM-generated director match reasons so they are softened when director-domain fit is not validated by current data.
 - Added logging for Azure OpenAI chat enrichment failures so the terminal/debug logs can show the actual exception while the Streamlit page still falls back safely.
-- Focused tests passed after these changes: `40 passed, 1 skipped` across `tests/test_rfp_engine.py`, `tests/test_vector_store.py`, and `tests/test_azure_rag_client.py`.
+- Focused tests passed after these changes: `52 passed` across `tests/test_capacity_engine.py` and `tests/test_rfp_engine.py`.
 
 ## Capacity Data Verification
 
@@ -45,7 +46,7 @@ Week 4 focused on validating the RFP Assignment Tool inside the Streamlit app an
 - The RFP Assignment Tool passes the same `capacity_df` into `generate_assignment_context(rfp_text, director_df=capacity_df)`.
 - The RFP page labels the source as Live CRM capacity data when `_data_source` is `real`.
 - Recommended directors display capacity label, capacity score, and relative load from the passed capacity table.
-- The assignment score is capacity-aware because `src/rfp_engine.py` uses `capacity_score`, capacity label, retrieval similarity, and keyword overlap when ranking directors.
+- The assignment score is capacity-aware because `src/rfp_engine.py` uses `capacity_score`, capacity label, retrieval similarity, and `service_solution` overlap when available.
 - This confirms the RFP recommendations are using the same capacity data source as the dashboard, while still remaining prototype guidance.
 
 ## Director-to-RFP Linkage Check
@@ -132,7 +133,7 @@ Health data roadmap RFP test:
 - Azure OpenAI chat enrichment succeeded and produced a clean RFP summary, High effort estimate, 4-6 month estimated duration, and director match reasons.
 - Similar historical chunks were retrieved from the default `historical_sample` corpus.
 - The same top directors appeared again because the ranking is still mostly capacity-aware.
-- Director explanations were more polished because chat enrichment succeeded, but service keyword overlap remained 0.00.
+- Director explanations were more polished because chat enrichment succeeded, but service-domain overlap was unavailable with the current capacity records.
 - This shows that the prototype can generate useful explanation text, but true director-to-domain experience mapping is still limited.
 - Risk flags correctly warned about sample-corpus retrieval, missing/default capacity fields, and overextended candidates.
 
@@ -142,7 +143,7 @@ Agile delivery / digital transformation resources RFP test:
 - Azure OpenAI chat enrichment was attempted but failed, so the app used the heuristic RFP summary, effort estimate, and match reasons.
 - Estimated effort was labelled Medium with an estimated duration of 3-5 weeks.
 - The same top directors appeared again because the current recommendation logic is still mostly capacity-aware.
-- Service keyword overlap remained 0.00, so the experience match explanation stayed generic.
+- Service-domain overlap was unavailable with the current capacity records, so the experience match explanation stayed generic.
 - Risk flags correctly showed sample-corpus retrieval, missing/default capacity fields, overextended candidate warning, and chat-enrichment fallback.
 
 Microsoft Centre of Excellence / cloud advisory RFP test:
@@ -152,7 +153,7 @@ Microsoft Centre of Excellence / cloud advisory RFP test:
 - Estimated effort was labelled Medium with an estimated duration of 3-5 weeks.
 - Retrieved chunks included technical architecture, Microsoft tool/access, and scope-of-work related evidence.
 - The same top directors appeared again because the current recommendation logic is still mostly capacity-aware.
-- Service keyword overlap remained 0.00, so the director experience explanations remained generic.
+- Service-domain overlap was unavailable with the current capacity records, so the director experience explanations remained generic.
 - Risk flags correctly showed sample-corpus retrieval, missing/default capacity fields, overextended candidate warning, and chat-enrichment fallback.
 
 Empty input failure-state test:
@@ -180,7 +181,7 @@ Vague RFP failure-state test:
 - Estimated effort was labelled Medium with an estimated duration of 3-5 weeks.
 - The summary correctly noted that additional details would be shared later.
 - The same top directors appeared again because the current ranking is still mostly capacity-aware.
-- Service keyword overlap remained 0.00, so the experience match evidence stayed weak even though the LLM-generated wording sounded polished.
+- Service-domain overlap was unavailable with the current capacity records, so the experience match evidence stayed weak even though the LLM-generated wording sounded polished.
 - This confirms the app can handle vague input, but the recommendations should be treated cautiously because the source text does not contain enough detail for strong matching.
 
 Missing-scope / administrative RFP failure-state test:
@@ -190,7 +191,7 @@ Missing-scope / administrative RFP failure-state test:
 - Retrieved evidence leaned toward administrative/proposal-response sections, including cover letter, contact, pricing, and fee schedule language.
 - Azure OpenAI chat enrichment succeeded and produced a readable summary, Medium effort estimate, 2-4 week estimated duration, and director match reasons.
 - The same top directors appeared again because the current ranking is still mostly capacity-aware.
-- Service keyword overlap remained 0.00, confirming that the input did not contain enough service-domain detail for strong experience matching.
+- Service-domain overlap was unavailable with the current capacity records.
 - This confirms the app can handle incomplete procurement-style text, but the resulting recommendations should be treated as low-confidence.
 
 Administrative-only RFP failure-state test:
@@ -200,7 +201,7 @@ Administrative-only RFP failure-state test:
 - Retrieved evidence focused on administrative/procurement sections, including closing deadline, fee schedule, pricing, and confidentiality language.
 - Azure OpenAI chat enrichment succeeded and produced a readable summary, Medium effort estimate, 3-5 week estimated duration, and director match reasons.
 - The same top directors appeared again because the current ranking is still mostly capacity-aware.
-- Service keyword overlap remained 0.00, confirming that the input did not provide service-domain evidence.
+- Service-domain overlap was unavailable with the current capacity records.
 - This confirms the app can process administrative-only RFP text, but the recommendations should not be treated as strong assignment guidance.
 
 Contradictory / unrealistic scope failure-state test:
@@ -212,7 +213,7 @@ Contradictory / unrealistic scope failure-state test:
 - Estimated effort was labelled High, and the duration reflected the two-week timeline stated in the RFP.
 - The explanation correctly noted that the scope is extensive and the timeline is extremely tight.
 - The same top directors appeared again because the current ranking is still mostly capacity-aware.
-- Service keyword overlap remained 0.00, so director-domain matching is still weak even though the LLM-generated explanations mention specific domains.
+- Service-domain overlap was unavailable with the current capacity records, so director-domain matching is still weak even though the LLM-generated explanations mention specific domains.
 - This confirms the app can handle contradictory or unrealistic input without crashing, but the output should be treated as a stress-test result rather than a realistic assignment recommendation.
 
 Non-RFP text failure-state test:
@@ -223,7 +224,7 @@ Non-RFP text failure-state test:
 - Azure OpenAI chat enrichment succeeded and produced a concise summary and Low effort estimate.
 - Estimated duration was 1-2 days, matching the small task-like nature of the input.
 - The same top directors appeared again because the current ranking is still mostly capacity-aware.
-- Service keyword overlap remained 0.00, so the director match evidence stayed weak.
+- Service-domain overlap was unavailable with the current capacity records, so the director match evidence stayed weak.
 - This confirms the app does not crash on non-RFP text, but it can still produce recommendations even when the input is outside the intended workflow.
 
 Random symbols / keyword-only failure-state test:
@@ -234,7 +235,7 @@ Random symbols / keyword-only failure-state test:
 - Azure OpenAI chat enrichment succeeded and inferred a plausible cloud dashboard/privacy/security scope from the limited keywords.
 - Estimated effort was labelled Medium with an estimated duration of 4-6 weeks.
 - The same top directors appeared again because the current ranking is still mostly capacity-aware.
-- Service keyword overlap remained 0.00, so the director match evidence stayed weak.
+- Service-domain overlap was unavailable with the current capacity records, so the director match evidence stayed weak.
 - This confirms the app does not crash on noisy input, but keyword-only text can still lead to over-interpreted summaries and recommendations.
 
 Very short keyword-heavy failure-state test:
@@ -245,19 +246,20 @@ Very short keyword-heavy failure-state test:
 - Azure OpenAI chat enrichment succeeded and inferred a broad enterprise technology scope from the keywords.
 - Estimated effort was labelled High with an estimated duration of 8-12 weeks because the keywords covered multiple complex domains.
 - The same top directors appeared again because the current ranking is still mostly capacity-aware.
-- Service keyword overlap remained 0.00, so the director match evidence stayed weak.
+- Service-domain overlap was unavailable with the current capacity records, so the director match evidence stayed weak.
 - This confirms the app can process very short keyword-heavy input, but keywords alone can make the output look more confident than the source text supports.
 
 ## Risk Flags Shown
 
 - Azure/Chroma retrieval searched the default sample historical corpus, so retrieval evidence should be treated as a prototype signal until the full approved proposal corpus is indexed.
-- Some director capacity fields are missing and were filled with heuristic defaults.
+- Some directors may have no historical baseline, so capacity score and relative load
+  use heuristic defaults in RFP ranking.
 - At least one candidate director is overextended based on capacity signals and should be reviewed before assignment.
 - Azure OpenAI chat enrichment may fail independently of Azure/Chroma retrieval. When this happens, the app falls back to heuristic summary, effort, and match reasons.
 
 ## Known Limitations
 
-- File upload UI is present but document parsing is not connected yet; the current workflow is paste-only.
+- File upload is enabled for TXT, DOCX, and text-based PDF extraction; scanned PDFs may still need manual paste/OCR.
 - Territory and service domain dropdowns are UI context only and are not used by backend scoring yet.
 - The retrieved historical examples currently come from the default sample corpus unless the full approved proposal corpus is indexed.
 - Director-to-RFP history linkage is still limited, so recommendations remain prototype guidance rather than final staffing decisions.
