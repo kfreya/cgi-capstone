@@ -4,6 +4,7 @@ streamlit
 plotly
 openai
 chromadb
+pypdf
 scikit-learn
 python-dotenv
 pytest
