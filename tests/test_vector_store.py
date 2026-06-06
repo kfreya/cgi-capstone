@@ -385,6 +385,48 @@ def test_build_vector_store_skips_empty_text_chunks():
     assert [result.chunk.chunk_id for result in results] == ["valid_chunk_001"]
 
 
+def test_build_chroma_from_chunks_embeds_large_corpus_in_batches(monkeypatch):
+    """Large Chroma rebuilds should batch embeddings instead of sending one huge request."""
+
+    vector_store = __import__(
+        "src.vector_store",
+        fromlist=["build_chroma_from_chunks", "ChromaVectorStore"],
+    )
+    batch_sizes = []
+
+    class FakeStore:
+        def __init__(self, *args, **kwargs):
+            self.added_chunks = []
+            self.added_embeddings = []
+
+        def add_chunks(self, chunks, embeddings):
+            self.added_chunks = list(chunks)
+            self.added_embeddings = list(embeddings)
+
+    monkeypatch.setattr(vector_store, "ChromaVectorStore", FakeStore)
+
+    def fake_embed(texts):
+        batch_sizes.append(len(texts))
+        return [[float(len(texts))] for _ in texts]
+
+    chunks = [
+        make_dashboard_chunk(f"proposal_001_chunk_{index:03d}", f"Azure support {index}")
+        for index in range(65)
+    ]
+
+    store = vector_store.build_chroma_from_chunks(
+        chunks,
+        persist_directory="data/vector_store",
+        collection_name="rfp_chunks_test",
+        embedding_function=fake_embed,
+        reset_collection=True,
+    )
+
+    assert batch_sizes == [32, 32, 1]
+    assert len(store.added_chunks) == 65
+    assert len(store.added_embeddings) == 65
+
+
 def test_get_vector_store_status_reflects_local_store_state():
     from src.vector_store import get_vector_store_status
 

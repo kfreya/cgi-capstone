@@ -72,14 +72,16 @@ def test_validate_azure_config_accepts_embedding_endpoint_for_embeddings(monkeyp
     _clear_azure_env(monkeypatch)
     _disable_dotenv(monkeypatch)
     monkeypatch.setenv("AZURE_OPENAI_API_KEY", "test-key")
-    monkeypatch.setenv("AZURE_OPENAI_EMBEDDINGS_ENDPOINT", "https://embeddings.openai.azure.com")
+    monkeypatch.setenv(
+        "AZURE_OPENAI_EMBEDDINGS_ENDPOINT",
+        "https://embeddings.openai.azure.com/openai/deployments/text-embedding-3-small/embeddings",
+    )
     monkeypatch.setenv("AZURE_OPENAI_API_VERSION", "2024-02-01")
-    monkeypatch.setenv("AZURE_OPENAI_EMBEDDING_DEPLOYMENT", "embedding-deployment")
 
     config = azure_client.validate_azure_config(require_embedding=True)
 
-    assert config["azure_embedding_endpoint"] == "https://embeddings.openai.azure.com"
-    assert config["embedding_model"] == "embedding-deployment"
+    assert config["azure_embedding_endpoint"] == "https://embeddings.openai.azure.com/openai/deployments/text-embedding-3-small/embeddings"
+    assert config["embedding_model"] == "text-embedding-3-small"
 
 
 def test_embed_texts_rejects_empty_input():
@@ -91,7 +93,10 @@ def test_get_azure_openai_client_uses_config_without_api_call(monkeypatch):
     _clear_azure_env(monkeypatch)
     _disable_dotenv(monkeypatch)
     monkeypatch.setenv("AZURE_OPENAI_API_KEY", "test-key")
-    monkeypatch.setenv("AZURE_OPENAI_ENDPOINT", "https://general.openai.azure.com")
+    monkeypatch.setenv(
+        "AZURE_OPENAI_ENDPOINT",
+        "https://general.openai.azure.com/openai/deployments/gpt-4o/chat/completions",
+    )
     monkeypatch.setenv("AZURE_OPENAI_API_VERSION", "2024-02-01")
 
     captured = {}
@@ -115,9 +120,11 @@ def test_embed_texts_uses_embedding_endpoint_and_returns_mocked_vectors(monkeypa
     _disable_dotenv(monkeypatch)
     monkeypatch.setenv("AZURE_OPENAI_API_KEY", "test-key")
     monkeypatch.setenv("AZURE_OPENAI_ENDPOINT", "https://general.openai.azure.com")
-    monkeypatch.setenv("AZURE_OPENAI_EMBEDDINGS_ENDPOINT", "https://embeddings.openai.azure.com")
+    monkeypatch.setenv(
+        "AZURE_OPENAI_EMBEDDINGS_ENDPOINT",
+        "https://embeddings.openai.azure.com/openai/deployments/text-embedding-3-small/embeddings",
+    )
     monkeypatch.setenv("AZURE_OPENAI_API_VERSION", "2024-02-01")
-    monkeypatch.setenv("AZURE_OPENAI_EMBEDDING_MODEL", "text-embedding-3-large")
 
     captured_client = {}
     captured_embedding_call = {}
@@ -148,7 +155,7 @@ def test_embed_texts_uses_embedding_endpoint_and_returns_mocked_vectors(monkeypa
         "api_version": "2024-02-01",
     }
     assert captured_embedding_call == {
-        "model": "text-embedding-3-large",
+        "model": "text-embedding-3-small",
         "input": ["hello"],
     }
 
@@ -172,9 +179,11 @@ def test_optional_embedding_helpers_when_present(monkeypatch):
         assert get_embedding_function(prefer_azure=True) is None
 
     monkeypatch.setenv("AZURE_OPENAI_API_KEY", "test-key")
-    monkeypatch.setenv("AZURE_OPENAI_EMBEDDINGS_ENDPOINT", "https://embeddings.openai.azure.com")
+    monkeypatch.setenv(
+        "AZURE_OPENAI_EMBEDDINGS_ENDPOINT",
+        "https://embeddings.openai.azure.com/openai/deployments/text-embedding-3-small/embeddings",
+    )
     monkeypatch.setenv("AZURE_OPENAI_API_VERSION", "2024-02-01")
-    monkeypatch.setenv("AZURE_OPENAI_EMBEDDING_MODEL", "text-embedding-3-large")
 
     if azure_embedding_available is not None:
         assert azure_embedding_available() is True
@@ -221,9 +230,11 @@ def test_get_azure_environment_summary_reports_ready_state(monkeypatch):
     _clear_azure_env(monkeypatch)
     _disable_dotenv(monkeypatch)
     monkeypatch.setenv("AZURE_OPENAI_API_KEY", "test-key")
-    monkeypatch.setenv("AZURE_OPENAI_EMBEDDINGS_ENDPOINT", "https://embeddings.openai.azure.com")
+    monkeypatch.setenv(
+        "AZURE_OPENAI_EMBEDDINGS_ENDPOINT",
+        "https://embeddings.openai.azure.com/openai/deployments/text-embedding-3-small/embeddings",
+    )
     monkeypatch.setenv("AZURE_OPENAI_API_VERSION", "2024-02-01")
-    monkeypatch.setenv("AZURE_OPENAI_EMBEDDING_MODEL", "text-embedding-3-large")
 
     summary = azure_client.get_azure_environment_summary(require_embedding=True)
 
@@ -270,7 +281,10 @@ def test_chat_completion_uses_general_endpoint_and_returns_content(monkeypatch):
     _clear_azure_env(monkeypatch)
     _disable_dotenv(monkeypatch)
     monkeypatch.setenv("AZURE_OPENAI_API_KEY", "test-key")
-    monkeypatch.setenv("AZURE_OPENAI_ENDPOINT", "https://general.openai.azure.com")
+    monkeypatch.setenv(
+        "AZURE_OPENAI_ENDPOINT",
+        "https://general.openai.azure.com/openai/deployments/gpt-4o/chat/completions",
+    )
     monkeypatch.setenv("AZURE_OPENAI_API_VERSION", "2024-02-01")
     monkeypatch.setenv("AZURE_OPENAI_CHAT_DEPLOYMENT", "gpt-4o")
 
@@ -306,7 +320,10 @@ def test_chat_completion_falls_back_when_json_response_format_unsupported(monkey
     _clear_azure_env(monkeypatch)
     _disable_dotenv(monkeypatch)
     monkeypatch.setenv("AZURE_OPENAI_API_KEY", "test-key")
-    monkeypatch.setenv("AZURE_OPENAI_ENDPOINT", "https://general.openai.azure.com")
+    monkeypatch.setenv(
+        "AZURE_OPENAI_ENDPOINT",
+        "https://general.openai.azure.com/openai/deployments/gpt-4o/chat/completions",
+    )
     monkeypatch.setenv("AZURE_OPENAI_API_VERSION", "2024-02-01")
     monkeypatch.setenv("AZURE_OPENAI_CHAT_DEPLOYMENT", "gpt-4o")
 

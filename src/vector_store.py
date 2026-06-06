@@ -40,6 +40,7 @@ _LOCAL_EMBEDDING_TERMS = [
     "delivery",
     "support",
 ]
+_EMBEDDING_BATCH_SIZE = 32
 
 logging.getLogger("chromadb.telemetry.product.posthog").disabled = True
 
@@ -653,7 +654,7 @@ def build_chroma_from_chunks(
 
     rfp_chunks = _valid_chunks_from_dicts(chunks or [])
     texts = [chunk.text for chunk in rfp_chunks]
-    embeddings = embedding_function(texts) if texts else []
+    embeddings = _embed_texts_in_batches(texts, embedding_function) if texts else []
 
     store = ChromaVectorStore(
         persist_directory=persist_directory,
@@ -717,6 +718,31 @@ def query_chroma(
 
     return out
 # --- Week 3 Add-ons Ends here ---
+
+
+def _embed_texts_in_batches(
+    texts: Sequence[str],
+    embedding_function: EmbeddingFunction,
+    batch_size: int = _EMBEDDING_BATCH_SIZE,
+) -> list[list[float]]:
+    """Embed texts in smaller batches so large corpora stay on the Azure path."""
+
+    if batch_size <= 0:
+        raise ValueError("batch_size must be positive")
+
+    embeddings: list[list[float]] = []
+    batch: list[str] = []
+
+    for text in texts:
+        batch.append(text)
+        if len(batch) >= batch_size:
+            embeddings.extend(embedding_function(batch))
+            batch = []
+
+    if batch:
+        embeddings.extend(embedding_function(batch))
+
+    return embeddings
 
 
 def get_vector_store_status() -> dict[str, Any]:
