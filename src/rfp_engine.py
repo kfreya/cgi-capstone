@@ -815,7 +815,7 @@ def _mock_director_record() -> dict[str, Any]:
         "capacity_label": "Available",
         "capacity_score": 0.72,
         "relative_load": 0.65,
-        "match_reason": "Relevant historical experience and available capacity",
+        "match_reason": "Semantically similar historical context and available capacity signal",
     }
 
 
