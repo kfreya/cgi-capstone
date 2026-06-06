@@ -22,8 +22,18 @@ BASE_CONFIG_KEYS = (
 EMBEDDING_CONFIG_KEYS = (
     "AZURE_OPENAI_EMBEDDINGS_ENDPOINT",
     "AZURE_OPENAI_API_VERSION",
-    "AZURE_OPENAI_EMBEDDING_DEPLOYMENT",
 )
+DEFAULT_EMBEDDING_MODEL = "text-embedding-3-large"
+
+
+def _get_embedding_model() -> str:
+    """Return the embedding model/deployment name for Azure embeddings."""
+
+    return (
+        os.getenv("AZURE_OPENAI_EMBEDDING_DEPLOYMENT")
+        or os.getenv("AZURE_OPENAI_EMBEDDING_MODEL")
+        or DEFAULT_EMBEDDING_MODEL
+    )
 
 def missing_azure_config(require_embedding: bool = False) -> list[str]:
     """Return missing Azure OpenAI configuration keys (does not raise).
@@ -70,7 +80,7 @@ def try_validate_azure_config(require_embedding: bool = False) -> tuple[dict[str
             "azure_endpoint": os.getenv("AZURE_OPENAI_ENDPOINT", ""),
             "azure_embedding_endpoint": os.getenv("AZURE_OPENAI_EMBEDDINGS_ENDPOINT", ""),
             "api_version": os.getenv("AZURE_OPENAI_API_VERSION", ""),
-            "embedding_deployment": os.getenv("AZURE_OPENAI_EMBEDDING_DEPLOYMENT", ""),
+            "embedding_model": _get_embedding_model(),
         },
         [],
     )
@@ -92,7 +102,7 @@ def validate_azure_config(require_embedding: bool = False) -> dict[str, str]:
         "azure_endpoint": os.getenv("AZURE_OPENAI_ENDPOINT", ""),
         "azure_embedding_endpoint": os.getenv("AZURE_OPENAI_EMBEDDINGS_ENDPOINT", ""),
         "api_version": os.getenv("AZURE_OPENAI_API_VERSION", ""),
-        "embedding_deployment": os.getenv("AZURE_OPENAI_EMBEDDING_DEPLOYMENT", ""),
+        "embedding_model": _get_embedding_model(),
     }
 
     missing_config = missing_azure_config(require_embedding=require_embedding)
@@ -155,7 +165,7 @@ def embed_texts(texts: Sequence[str]) -> list[list[float]]:
     config = validate_azure_config(require_embedding=True)
     client = get_azure_embedding_client()
     response = client.embeddings.create(
-        model=config["embedding_deployment"],
+        model=config["embedding_model"],
         input=list(texts),
     )
     return [list(item.embedding) for item in response.data]
@@ -182,6 +192,30 @@ def get_embedding_function(prefer_azure: bool = True):
         return embed_texts
     return None
 
+
+def get_azure_environment_status(require_embedding: bool = True) -> dict[str, Any]:
+    config, missing = try_validate_azure_config(require_embedding=require_embedding)
+    return {
+        "ready": config is not None,
+        "require_embedding": require_embedding,
+        "missing": missing,
+        "can_create_client": config is not None,
+        "can_embed": config is not None and require_embedding,
+    }
+
+
+def get_azure_environment_summary(require_embedding: bool = True) -> str:
+    status = get_azure_environment_status(require_embedding=require_embedding)
+    if status["ready"]:
+        return "Azure OpenAI configuration is ready."
+    if status["missing"]:
+        return "Azure OpenAI configuration is blocked: " + ", ".join(status["missing"])
+    return "Azure OpenAI configuration is blocked."
+
+
+def can_run_azure_embedding_smoke_test() -> bool:
+    return azure_embedding_available()
+
 # --- Week 3 Add-ons Ends here ---
 
 
@@ -201,7 +235,7 @@ def chat_completion(
     messages: list[dict[str, str]],
     *,
     temperature: float = 0.2,
-    max_tokens: int = 800,
+    max_tokens: int = 1200,
     azure_openai_cls=None,
 ) -> str:
     """Call the Azure OpenAI chat deployment and return the response text.
@@ -235,12 +269,18 @@ def chat_completion(
         azure_endpoint=azure_endpoint,
         api_version=api_version,
     )
-    response = client.chat.completions.create(
-        model=chat_deployment,
-        messages=messages,
-        temperature=temperature,
-        max_tokens=max_tokens,
-    )
+    request = {
+        "model": chat_deployment,
+        "messages": messages,
+        "temperature": temperature,
+        "max_tokens": max_tokens,
+        "response_format": {"type": "json_object"},
+    }
+    try:
+        response = client.chat.completions.create(**request)
+    except TypeError:
+        request.pop("response_format", None)
+        response = client.chat.completions.create(**request)
     return response.choices[0].message.content or ""
 
 # --- Week 4 Chat Add-ons Ends here ---

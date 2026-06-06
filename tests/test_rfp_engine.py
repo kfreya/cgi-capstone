@@ -20,12 +20,49 @@ from src.vector_store import build_vector_store
 
 @pytest.fixture(autouse=True)
 def _disable_llm():
-    """Prevent LLM auto-detection from making real API calls in all tests.
+    """Prevent auto paths from making real API calls in unit tests.
 
     Tests that want to exercise the LLM path pass _chat_fn=fake_fn directly,
     which bypasses this fixture entirely.
     """
     with patch("src.azure_client.azure_chat_available", return_value=False):
+        yield
+
+
+@pytest.fixture(autouse=True)
+def _disable_azure_retrieval():
+    """Keep ordinary unit tests on the local retrieval path."""
+
+    def fake_preferred_retrieval_report(
+        query_text,
+        historical_chunks=None,
+        top_k=3,
+        persist_directory="data/vector_store",
+        collection_name="rfp_chunks",
+        query_chunks=None,
+    ):
+        chunks = historical_chunks or [
+            {
+                "proposal_id": "historical_sample",
+                "chunk_id": "historical_sample_chunk_001",
+                "source_type": "proposal",
+                "text": "Prior Azure migration and dashboard reporting proposal.",
+                "chunk_index": 0,
+                "opportunity_owner": None,
+                "opportunity_id": None,
+            }
+        ]
+        store = build_vector_store(chunks)
+        results = [result.to_retrieved_example() for result in store.query(query_text, top_k=top_k)]
+        return {
+            "backend": "fallback",
+            "retrieval_mode": "local_fallback",
+            "status": {"local_store_ready": True},
+            "retrieved_examples": results,
+            "retrieval_context": "fallback-context",
+        }
+
+    with patch("src.rfp_engine.preferred_retrieval_report", side_effect=fake_preferred_retrieval_report):
         yield
 
 
@@ -64,6 +101,8 @@ def test_generate_assignment_context_matches_dashboard_contract():
         "retrieved_examples",
         "recommended_directors",
         "risk_flags",
+        "retrieval_mode",
+        "retrieval_status",
         "notes",
     }
     assert output["retrieved_examples"][0]["chunk_id"] == "historical_azure_chunk_001"
@@ -82,7 +121,62 @@ def test_generate_assignment_context_matches_dashboard_contract():
     assert "capacity_explanation" in output["recommended_directors"][0]
     assert "experience_match_explanation" in output["recommended_directors"][0]
     assert isinstance(output["recommended_directors"][0]["supporting_chunks"], list)
-    assert output["notes"] == "Prototype output for dashboard integration."
+    assert output["notes"].startswith("Prototype output for dashboard integration.")
+    assert output["retrieval_mode"] in {"azure_chroma", "local_fallback"}
+    assert isinstance(output["retrieval_status"], dict)
+
+
+def test_generate_assignment_context_prefers_azure_chroma_path(monkeypatch):
+    """Check that the preferred retrieval path flows into assignment_context."""
+
+    def fake_preferred_retrieval_report(query_text, historical_chunks=None, top_k=3, query_chunks=None):
+        return {
+            "backend": "azure_chroma",
+            "retrieval_mode": "azure_chroma",
+            "status": {"preferred_path_ready": True},
+            "retrieved_examples": [
+                {
+                    "proposal_id": "historical_azure",
+                    "chunk_id": "historical_azure_chunk_001",
+                    "source_type": "proposal",
+                    "supporting_text": "Prior Azure migration and dashboard reporting proposal.",
+                    "similarity_score": 0.91,
+                }
+            ],
+            "retrieval_context": "azure-context",
+        }
+
+    def fake_fallback_retrieval_report(*_args, **_kwargs):
+        raise AssertionError("fallback path should not be used when Azure path succeeds")
+
+    monkeypatch.setattr(
+        "src.rfp_engine.preferred_retrieval_report",
+        fake_preferred_retrieval_report,
+    )
+    monkeypatch.setattr(
+        "src.rfp_engine.fallback_retrieval_report",
+        fake_fallback_retrieval_report,
+    )
+
+    output = generate_assignment_context(
+        "Need Azure migration support and dashboard reporting.",
+        pd.DataFrame(
+            {
+                "opportunity_owner": ["Director A"],
+                "capacity_label": ["Available"],
+                "capacity_score": [0.72],
+                "relative_load": [0.65],
+            }
+        ),
+    )
+
+    assert output["retrieval_mode"] == "azure_chroma"
+    assert output["retrieval_status"]["preferred_path_ready"] is True
+    assert output["retrieval_status"]["query_chunk_count"] == 1
+    assert output["retrieved_examples"][0]["chunk_id"] == "historical_azure_chunk_001"
+    assert output["similar_rfps"][0]["source"] == "historical_azure_chunk_001"
+    assert "local fallback" not in output["notes"].lower()
+    assert "azure_chroma" in output["notes"].lower()
 
 
 def test_generate_assignment_context_uses_mock_director_when_missing():
@@ -131,15 +225,64 @@ def test_generate_assignment_context_does_not_retrieve_new_rfp_from_stale_store(
         for example in retrieved_examples
     )
     assert all(
-        example["chunk_id"].startswith("historical_sample_chunk_")
+        not example["chunk_id"].startswith("proposal_001_chunk_")
         for example in retrieved_examples
     )
+    assert output["retrieval_status"]["corpus_source"] == "proposal_corpus"
     assert all(
         example["supporting_text"] != new_rfp_text
         for example in retrieved_examples
     )
+
+
+def test_generate_assignment_context_chunks_new_rfp_query(monkeypatch):
+    """Check that long pasted RFP text is passed as query chunks to retrieval."""
+
+    captured = {}
+
+    def fake_preferred_retrieval_report(query_text, historical_chunks=None, top_k=3, query_chunks=None):
+        captured["query_text"] = query_text
+        captured["query_chunks"] = query_chunks
+        return {
+            "backend": "fallback",
+            "retrieval_mode": "local_fallback",
+            "status": {"local_store_ready": True},
+            "retrieved_examples": [
+                {
+                    "proposal_id": "historical_cloud",
+                    "chunk_id": "historical_cloud_chunk_001",
+                    "supporting_text": "Prior cloud analytics delivery.",
+                    "similarity_score": 0.9,
+                }
+            ],
+            "retrieval_context": "fallback-context",
+        }
+
+    monkeypatch.setattr(
+        "src.rfp_engine.preferred_retrieval_report",
+        fake_preferred_retrieval_report,
+    )
+
+    long_rfp = " ".join(["Need Azure cloud migration and analytics dashboards."] * 120)
+    output = generate_assignment_context(long_rfp, historical_chunks=[_SAMPLE_CHUNK], _chat_fn=None)
+
+    assert captured["query_text"] == long_rfp
+    assert len(captured["query_chunks"]) > 1
+    assert output["retrieval_status"]["query_chunk_count"] == len(captured["query_chunks"])
+
+
+def test_generate_assignment_context_flags_missing_retrieval_linkage():
+    """Retrieved chunks without owner/opportunity linkage should be caveated."""
+
+    output = generate_assignment_context(
+        "Need Azure cloud migration and security review.",
+        historical_chunks=[_SAMPLE_CHUNK],
+        _chat_fn=None,
+    )
+
+    assert output["retrieval_status"]["retrieval_has_director_linkage"] is False
     assert any(
-        "sample historical corpus" in flag["message"].lower()
+        "semantic similarity evidence" in flag["message"].lower()
         for flag in output["risk_flags"]
     )
 
@@ -282,7 +425,7 @@ def test_generate_assignment_context_flags_missing_capacity_fields():
     )
 
     assert any(
-        "capacity fields are missing" in flag["message"].lower()
+        "capacity fields are missing or non-finite" in flag["message"].lower()
         for flag in output["risk_flags"]
     )
 
@@ -326,7 +469,7 @@ def test_generate_assignment_context_treats_nan_capacity_fields_as_missing():
     assert no_baseline["assignment_score"] < 1.0
     assert "nan" not in no_baseline["capacity_explanation"].lower()
     assert any(
-        "capacity fields are missing" in flag["message"].lower()
+        "no historical baseline" in flag["message"].lower()
         for flag in output["risk_flags"]
     )
 
@@ -365,7 +508,7 @@ def test_generate_assignment_context_treats_inf_capacity_fields_as_missing():
     assert director["relative_load"] == 1.0
     assert director["assignment_score"] < 1.0
     assert any(
-        "capacity fields are missing" in flag["message"].lower()
+        "capacity fields are missing or non-finite" in flag["message"].lower()
         for flag in output["risk_flags"]
     )
 
@@ -472,6 +615,39 @@ def test_llm_enrichment_happy_path():
     )
 
 
+def test_llm_prompt_limits_director_match_reason_candidates():
+    """Large capacity tables should not ask the LLM for every director."""
+
+    captured = {}
+
+    def fake_chat(messages):
+        captured["messages"] = messages
+        return _json.dumps({"rfp_summary": "LLM summary."})
+
+    output = generate_assignment_context(
+        "Need Azure cloud migration and security review.",
+        director_df=[
+            {
+                "director_name": f"Director {index}",
+                "capacity_label": "Available",
+                "capacity_score": index / 10,
+                "relative_load": 1 / (index + 1),
+                "service_solution": "Cloud Infrastructure",
+            }
+            for index in range(12)
+        ],
+        historical_chunks=[_SAMPLE_CHUNK],
+        _chat_fn=fake_chat,
+    )
+
+    prompt = captured["messages"][1]["content"]
+    assert "Director 11" in prompt
+    assert "Director 10" in prompt
+    assert "Director 7" in prompt
+    assert "Director 6" not in prompt
+    assert output["rfp_summary"] == "LLM summary."
+
+
 def test_llm_enrichment_exception_falls_back_to_heuristic():
     """When the LLM raises, heuristic output is used and a Low risk flag is added."""
 
@@ -491,6 +667,125 @@ def test_llm_enrichment_exception_falls_back_to_heuristic():
         for flag in output["risk_flags"]
     )
     assert "Azure OpenAI chat analysis" not in output["notes"]
+
+
+def test_short_input_adds_low_confidence_risk_flag():
+    """Very short inputs should be labelled low confidence instead of over-trusted."""
+
+    output = generate_assignment_context(
+        "Need IT help.",
+        historical_chunks=[_SAMPLE_CHUNK],
+        _chat_fn=None,
+    )
+
+    assert any(
+        "very short" in flag["message"].lower()
+        for flag in output["risk_flags"]
+    )
+
+
+def test_zero_service_overlap_adds_capacity_led_risk_flag():
+    """Director rankings should disclose when no service-domain overlap exists."""
+
+    output = generate_assignment_context(
+        "Need Azure cloud migration and security review.",
+        director_df=[
+            {
+                "director_name": "Director One",
+                "capacity_label": "Available",
+                "capacity_score": 0.9,
+                "relative_load": 0.1,
+            }
+        ],
+        historical_chunks=[_SAMPLE_CHUNK],
+        _chat_fn=None,
+    )
+
+    assert any(
+        "capacity-led" in flag["message"].lower()
+        for flag in output["risk_flags"]
+    )
+    assert "overlap is unavailable" in output["recommended_directors"][0]["match_reason"]
+    assert "overlap is unavailable" in output["recommended_directors"][0]["experience_match_explanation"]
+
+
+def test_zero_service_overlap_is_reported_when_profile_exists():
+    """A real zero should only be shown when director service fields exist."""
+
+    output = generate_assignment_context(
+        "Need Azure cloud migration and security review.",
+        director_df=[
+            {
+                "director_name": "Director Apps",
+                "capacity_label": "Available",
+                "capacity_score": 0.9,
+                "relative_load": 0.1,
+                "service_domain": "Application development",
+            }
+        ],
+        historical_chunks=[_SAMPLE_CHUNK],
+        _chat_fn=None,
+    )
+
+    assert "service keyword overlap is 0.00" in output["recommended_directors"][0]["match_reason"]
+    assert "service-keyword overlap (0.00)" in output["recommended_directors"][0]["experience_match_explanation"]
+
+
+def test_service_overlap_distinguishes_missing_rfp_service_labels():
+    """Admin-only RFP text should not imply missing director service metadata."""
+
+    output = generate_assignment_context(
+        "Please provide company background, references, pricing, and project team resumes.",
+        director_df=[
+            {
+                "director_name": "Director Cloud",
+                "capacity_label": "Available",
+                "capacity_score": 0.9,
+                "relative_load": 0.1,
+                "service_solution": "Cloud Infrastructure",
+            }
+        ],
+        historical_chunks=[_SAMPLE_CHUNK],
+        _chat_fn=None,
+    )
+
+    assert "no service-domain keywords were detected" in output["recommended_directors"][0]["match_reason"]
+    assert "no service-domain keywords were detected" in output["recommended_directors"][0]["experience_match_explanation"]
+    assert not any(
+        "service overlap is unavailable" in flag["message"].lower()
+        for flag in output["risk_flags"]
+    )
+
+
+def test_llm_match_reason_gets_caveat_when_domain_fit_is_unvalidated():
+    """LLM director wording should not imply proven director experience."""
+
+    fake_response = _json.dumps({
+        "director_match_reasons": {
+            "Director One": "Director One has strong cloud delivery experience.",
+        },
+    })
+
+    def fake_chat(messages):
+        return fake_response
+
+    output = generate_assignment_context(
+        "Need Azure cloud migration and security review.",
+        director_df=[
+            {
+                "director_name": "Director One",
+                "capacity_label": "Available",
+                "capacity_score": 0.9,
+                "relative_load": 0.1,
+            }
+        ],
+        historical_chunks=[_SAMPLE_CHUNK],
+        _chat_fn=fake_chat,
+    )
+
+    match_reason = output["recommended_directors"][0]["match_reason"]
+    assert match_reason.startswith("Prototype fit is based on available capacity")
+    assert "does not prove prior director experience" in match_reason
 
 
 def test_llm_enrichment_malformed_json_falls_back_to_heuristic():
