@@ -115,7 +115,8 @@ Core technical documentation:
 Project process documentation:
 
 - [Team charter](docs/team_charter.md)
-- [Weekly reports and time management artifacts](docs/time_management/)
+- [Weekly reports and time management artifacts](docs/time_management/) (Week
+  1 through Week 5, including the [Week 5 team report](docs/time_management/week5_2026-06-07_team_report.pdf))
 
 ## Setup
 
