@@ -144,7 +144,7 @@ Prefer linking GitHub issues, pull requests, commits, or notes when available.
 | W5-010 | Pasted RFP chunking wording cleanup | Some app-facing and final-facing wording implied newly pasted RFP text is chunked before retrieval in the current Streamlit fallback path | High | Yixiao | Fixed | Fixed after post-PR #73 audit; updated wording to say pasted RFP text is used as a query against chunked historical/sample corpora; historical/sample corpus chunking is the active retrieval basis |  |
 | W5-011 | Azure/Chroma full-integration wording cleanup | Some final-facing wording implied a fully Azure-backed Streamlit RFP flow | High | Yixiao / Lyken | Fixed | Fixed after post-PR #73 audit; softened wording to say Azure/Chroma retrieval status is shown when active and Azure embedding + Chroma retrieval are validated at smoke-test/sample level unless full Streamlit testing is documented |  |
 | W5-012 | Retrieval / Config Validation | Lyken provided Week 5 retrieval/config validation notes | Medium | Lyken / Yixiao | Received | Use Lyken's results as backend retrieval/config evidence; keep caveat that full Streamlit UI path still needs browser confirmation if the final report claims end-to-end app verification |  |
-| W5-013 | Assignment Logic Review | Yixiao completed interim user-style assignment logic QA for three RFP samples while Jai owner note remains pending | Medium | Yixiao / Jai | Completed / Interim | Use Yixiao's interim QA as preliminary evidence; keep Jai follow-up pending if available. Vague short input may benefit from stronger limited-detail warning because it still produced confident-looking retrieved examples and recommendations. |  |
+| W5-013 | Assignment Logic Review | Jai PR #78 was merged into main with RFP assignment caveat/risk wording updates; Yixiao also completed interim user-style assignment logic QA for three RFP samples | Medium | Yixiao / Jai | Received / Merged | Use Jai's merged owner work as the assignment-logic follow-up. Yixiao's interim QA remains supporting evidence across cloud migration, cybersecurity/compliance, and vague short RFP inputs. Vague and broad-evidence limitations remain documented caveats rather than hidden blockers. | PR #78 |
 | W5-014 | Evidence / Output Review | Kian completed RFP evidence review and confirmed semantic-evidence boundaries; one wording concern remained around "Relevant historical experience and available capacity." | Medium | Kian / Yixiao / Jai | Fixed | Use Kian's review as evidence/output validation; keep semantic-evidence caveat. The app-facing fallback phrase was softened to "Semantically similar historical context and available capacity signal." |  |
 
 ### RFP Capacity Integration QA Finding
@@ -231,7 +231,7 @@ Use this table for final CGI feedback, stakeholder questions, and action items.
 | Kian | Evidence & Output Review | Review retrieved example wording, output evidence language, and final report phrasing so semantic evidence is not overstated | Kian | Received / Integrated | Kian completed evidence/output review for cloud/managed services, cybersecurity/compliance, and vague/short RFP input. Kian confirmed retrieved examples are usable as semantic evidence but not proof of director involvement or opportunity ownership. |
 | Lyken | Retrieval & Config Validation | Review retrieval mode wording, Azure/Chroma sample validation notes, and configuration caveats | Lyken | Received / Integrated | Retrieval/config validation checklist received and integrated. Azure config readability, embedding smoke test, Azure + Chroma sample retrieval, full-corpus backend retrieval, retrieval mode reporting, and fallback behavior validated. Caveat: full Streamlit browser flow still needs explicit UI confirmation before claiming complete app-flow verification. |
 | Freya | Dashboard Usability & Wording | Review Director Capacity Dashboard usability, labels, empty states, and final prototype wording | Freya | Received / Merged | PR #73 was reviewed and merged; post-PR wording cleanup and verification were completed. Dashboard language should continue to avoid exact availability/utilization claims. |
-| Jai | Assignment Logic Review | Review recommendation ranking, capacity-aware logic, risk flags, and decision-support caveats | Jai | Pending | Yixiao completed interim user-style assignment logic QA across cloud migration, cybersecurity/compliance, and vague short RFP inputs; Jai owner confirmation is optional/pending if available. Confirm recommendations require stakeholder validation. |
+| Jai | Assignment Logic Review | Review recommendation ranking, capacity-aware logic, risk flags, and decision-support caveats | Jai | Received / Merged | Jai PR #78 was merged into main and its RFP assignment caveat/risk wording updates are included after latest-main alignment. Yixiao's interim browser QA across cloud migration, cybersecurity/compliance, and vague short RFP inputs remains supporting evidence, not a replacement for Jai's owner work. Confirm recommendations require stakeholder validation. |
 
 ## 9. Week 5 QA Summary
 
@@ -251,7 +251,7 @@ Current summary:
   charts, safe computed-data wording, and initial RFP page load. The full
   pasted-input RFP analysis path was browser-tested with three sample inputs;
   remaining separate items include upload input, empty input, large input, and
-  optional Jai owner confirmation if available.
+  future CGI feedback if received.
 - Lyken's retrieval/config validation notes were received: Azure config
   readability, embedding smoke test, Azure + Chroma sample/full-corpus backend
   retrieval, retrieval mode reporting, and fallback behavior passed. Full
@@ -271,11 +271,14 @@ Current summary:
   prove director/opportunity linkage. The app-facing fallback phrase Kian
   flagged was softened to "Semantically similar historical context and available
   capacity signal."
+- Jai's assignment logic review was received through PR #78 and merged into
+  main. Its RFP assignment caveat/risk wording updates are included after
+  latest-main alignment; Yixiao's three-input interim browser QA remains
+  supporting evidence.
 - Teammate follow-up is being tracked but is not blocking Yixiao's Week 5 QA
   scope tracking. Lyken's retrieval/config notes, Freya's wording PR, and
-  Kian's evidence/output review have been integrated; Jai owner confirmation
-  remains optional/pending because interim assignment logic QA was completed by
-  Yixiao.
+  Kian's evidence/output review have been integrated, and Jai's assignment logic
+  review is merged through PR #78.
 - Manual QA checklist is prepared for Director Capacity Dashboard, RFP
   Assignment Tool, and Azure / Chroma smoke-test status.
 - Key claim boundaries are documented:
