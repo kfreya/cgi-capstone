@@ -3,8 +3,10 @@ openpyxl
 streamlit
 plotly
 openai
-chromadb
 pypdf
 scikit-learn
 python-dotenv
 pytest
+
+# Optional Azure/Chroma backend smoke-test dependency:
+# chromadb

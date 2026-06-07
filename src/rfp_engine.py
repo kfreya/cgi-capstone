@@ -14,6 +14,7 @@ from __future__ import annotations
 import json
 import logging
 import math
+import os
 import time
 from typing import Any
 
@@ -99,18 +100,45 @@ def generate_assignment_context(
     @return: Week 4 dashboard-ready RFP assignment context.
     """
 
+    timing_enabled = _timing_debug_enabled()
+    timings: dict[str, float] = {}
+    total_start = time.perf_counter()
+
+    start = time.perf_counter()
     if historical_chunks is not None:
         chunks = historical_chunks
         corpus_source = "provided_chunks"
     else:
         chunks, corpus_source = _default_historical_chunks()
+    _record_timing(
+        timings,
+        "retrieval_setup_corpus_load_seconds",
+        start,
+        enabled=timing_enabled,
+    )
     used_sample_corpus = corpus_source == "sample_corpus"
+
+    start = time.perf_counter()
     query_chunks = _query_chunks(rfp_text)
+    _record_timing(
+        timings,
+        "retrieval_setup_query_chunking_seconds",
+        start,
+        enabled=timing_enabled,
+    )
+
+    start = time.perf_counter()
     retrieval_report = _build_retrieval_report(
         chunks=chunks,
         query=rfp_text,
         top_k=3,
         query_chunks=query_chunks,
+    )
+    _record_timing(
+        timings,
+        "retrieval_query_total_seconds",
+        start,
+        enabled=timing_enabled,
     )
     retrieval_mode = retrieval_report.get("retrieval_mode", retrieval_report.get("backend", "local_fallback"))
     retrieval_status = dict(retrieval_report.get("status", {}))
@@ -126,8 +154,17 @@ def generate_assignment_context(
     supporting_chunk_ids = [
         example["chunk_id"] for example in retrieved_examples
     ]
-    director_records = _director_records(director_df)
 
+    start = time.perf_counter()
+    director_records = _director_records(director_df)
+    _record_timing(
+        timings,
+        "director_data_normalization_seconds",
+        start,
+        enabled=timing_enabled,
+    )
+
+    start = time.perf_counter()
     chat_fn = _resolve_chat_fn(_chat_fn)
     llm_data: dict[str, Any] | None = None
     llm_failed = False
@@ -136,7 +173,14 @@ def generate_assignment_context(
         if llm_data is None:
             llm_failed = True
     llm_used = llm_data is not None
+    _record_timing(
+        timings,
+        "llm_summary_effort_enrichment_seconds",
+        start,
+        enabled=timing_enabled,
+    )
 
+    start = time.perf_counter()
     risk_flags = _risk_flags(
         retrieved_examples,
         rfp_text=rfp_text,
@@ -146,6 +190,14 @@ def generate_assignment_context(
         director_records=director_records,
         llm_failed=llm_failed,
     )
+    _record_timing(
+        timings,
+        "risk_flag_generation_seconds",
+        start,
+        enabled=timing_enabled,
+    )
+
+    start = time.perf_counter()
     recommended_directors = _director_recommendations(
         director_records or [_mock_director_record()],
         supporting_chunk_ids,
@@ -153,7 +205,14 @@ def generate_assignment_context(
         rfp_text,
         retrieved_examples,
     )
+    _record_timing(
+        timings,
+        "director_recommendation_ranking_seconds",
+        start,
+        enabled=timing_enabled,
+    )
 
+    start = time.perf_counter()
     if llm_used:
         rfp_summary = llm_data.get("rfp_summary") or _summarize_rfp_text(rfp_text)
         effort = llm_data.get("effort") or _effort_estimate(rfp_text, retrieved_examples)
@@ -169,8 +228,14 @@ def generate_assignment_context(
     else:
         rfp_summary = _summarize_rfp_text(rfp_text)
         effort = _effort_estimate(rfp_text, retrieved_examples)
+    _record_timing(
+        timings,
+        "summary_effort_finalize_seconds",
+        start,
+        enabled=timing_enabled,
+    )
 
-    return {
+    result = {
         "rfp_summary": rfp_summary,
         "effort": effort,
         "similar_rfps": _similar_rfps(retrieved_examples),
@@ -186,6 +251,33 @@ def generate_assignment_context(
             llm_used=llm_used,
         ),
     }
+    if timing_enabled:
+        timings["total_generate_assignment_context_seconds"] = round(
+            time.perf_counter() - total_start,
+            4,
+        )
+        result["timings"] = timings
+    return result
+
+
+def _timing_debug_enabled() -> bool:
+    return str(os.getenv("RFP_TIMING_DEBUG", "")).strip().lower() in {
+        "1",
+        "true",
+        "yes",
+        "on",
+    }
+
+
+def _record_timing(
+    timings: dict[str, float],
+    label: str,
+    start: float,
+    *,
+    enabled: bool,
+) -> None:
+    if enabled:
+        timings[label] = round(time.perf_counter() - start, 4)
 
 
 def _default_historical_chunks() -> tuple[list[dict[str, Any]], str]:
