@@ -61,7 +61,7 @@ python -m pytest
 Result:
 
 ```text
-148 passed, 2 warnings
+149 passed, 2 warnings
 ```
 
 Interpretation:
@@ -133,7 +133,7 @@ Prefer linking GitHub issues, pull requests, commits, or notes when available.
 | ID | Area | Issue or Observation | Severity | Owner | Status | Decision or Fix | PR / Link |
 | --- | --- | --- | --- | --- | --- | --- | --- |
 | W5-001 | QA coordination | Create Week 5 final app QA and scope tracking companion document for Issue #68 | Medium | Yixiao | Completed | Established manual QA, scope, caveat, feedback, and teammate follow-up tracking structure | Issue #68 |
-| W5-002 | Automated tests | Current automated baseline is passing: `148 passed, 2 warnings` | Low | Yixiao | Recorded | Use as the starting baseline for final QA; rerun after behavior-affecting fixes |  |
+| W5-002 | Automated tests | Current automated baseline is passing: `149 passed, 2 warnings` | Low | Yixiao | Recorded | Use as the starting baseline for final QA; rerun after behavior-affecting fixes |  |
 | W5-003 | Scope wording | Need consistent final prototype language across Week 5 report and app discussion | Medium | Yixiao / Team | Open | Describe app as stakeholder-facing final prototype, not production staffing system |  |
 | W5-004 | RFP recommendation caveat | Recommendations must not be framed as authoritative assignment decisions | High | Yixiao / Jai | Open | Use decision-support wording requiring stakeholder validation |  |
 | W5-005 | Retrieval caveat | Retrieved examples must not be framed as proof of a director's prior work | High | Yixiao / Lyken / Kian | Open | Describe retrieved examples as semantic evidence only |  |
@@ -237,7 +237,7 @@ Use this table for final CGI feedback, stakeholder questions, and action items.
 
 Current summary:
 
-- Automated baseline recorded: `python -m pytest` -> `148 passed, 2 warnings`.
+- Automated baseline recorded: `python -m pytest` -> `149 passed, 2 warnings`.
 - This Week 5 baseline may differ from the older Week 4 result recorded in
   `docs/final_integration_qa.md`; this file records the result observed after
   the Yixiao branch was aligned with main.
@@ -302,7 +302,7 @@ Suggested safe report wording:
 - The app should be presented as a stakeholder-facing final prototype that
   supports review of director capacity signals and RFP assignment
   decision-support outputs.
-- The current automated baseline is passing with `148 passed, 2 warnings` from
+- The current automated baseline is passing with `149 passed, 2 warnings` from
   `python -m pytest`.
 - Manual QA should confirm that the Director Capacity Dashboard is usable,
   understandable, and appropriately caveated.
