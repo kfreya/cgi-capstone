@@ -65,7 +65,7 @@ final screenshots:
 - Changed the results section header from **Similar Historical RFPs** to
   **Retrieved Supporting Examples**.
 - Changed retrieved result labels from **similarity score** to **match score**.
-- Changed "pasted-RFP query chunks" to "submitted-RFP query chunks".
+- Changed "pasted-RFP query chunks" to "submitted RFP query text; historical/sample corpus chunks".
 - Reworded the Azure/Chroma fallback caption:
   "Azure/Chroma retrieval was not used for this request. The system used local
   retrieval over the proposal corpus instead."
@@ -120,7 +120,7 @@ After rerunning the app, final RFP screenshots should verify that:
 - The retrieved examples section is titled **Retrieved Supporting Examples**.
 - Retrieved examples show **match score** rather than **similarity score**.
 - Retrieval captions use client-facing wording.
-- The corpus caption says **submitted-RFP query chunks**.
+- The corpus caption says **submitted RFP query text; historical/sample corpus chunks**.
 - The LLM enrichment caption appears separately from retrieval mode.
 - Director cards show rounded metrics.
 - LLM match reasons include the prototype-fit caveat and do not claim proven
