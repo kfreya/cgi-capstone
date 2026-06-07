@@ -13,16 +13,48 @@ Jai's focus area is assignment logic review:
 
 ## Current Retrieval Behavior
 
-- Azure/Chroma retrieval is active when local Azure configuration is available.
+- Azure/Chroma retrieval is active when local Azure configuration is available
+  and a reusable Chroma collection is already present.
+- Interactive Streamlit RFP analysis now reuses an existing Chroma collection by
+  default instead of rebuilding/resetting the full proposal-corpus index on
+  every **Analyze RFP** click.
+- To explicitly rebuild the Chroma index for backend validation or maintenance,
+  set `RFP_REBUILD_CHROMA=1` before running the retrieval path.
 - The RFP engine now loads the local `proposals_responses.json` corpus when available instead of only the small sample corpus.
 - In the current local data, the proposal corpus preprocesses into roughly 1,216 chunks.
+- If Chroma is unavailable, `chromadb` is not installed, no reusable store is
+  found, or Chroma query/reuse fails, the app automatically uses local fallback
+  retrieval and reports that fallback status.
 
-## Week 5 Caveat: Real-Corpus Indexing Performance
+## Week 5 Performance / Stability Fix: Real-Corpus Indexing
 
-- Azure/Chroma real-corpus retrieval works, but first-run indexing can be slow because the app may rebuild the full proposal corpus inside the Streamlit request.
-- When the user clicks **Analyze RFP**, the app can load the proposal JSON, preprocess chunks, generate Azure embeddings, rebuild/reset the Chroma collection, query Chroma, and optionally run Azure chat enrichment.
-- This is much heavier than the earlier sample-corpus path and can make the Streamlit page appear stuck while the backend is still running.
-- Recommended follow-up: cache or prebuild the Chroma index so the app reuses an existing proposal index instead of rebuilding it during every analysis click.
+- Earlier Week 5 testing found that Azure/Chroma real-corpus retrieval could be
+  slow because the app could rebuild and re-embed the full proposal corpus
+  inside the Streamlit request.
+- The interactive path has been adjusted so rebuilding is opt-in via
+  `RFP_REBUILD_CHROMA=1`.
+- Local fallback remains the safe demo path when Chroma is unavailable or not
+  installed; `chromadb` is not required for basic Streamlit demo use.
+- Azure/Chroma remains available for backend smoke tests and configured
+  environments where dependencies, Azure embedding config, and a reusable
+  Chroma collection are present.
+
+## Final UI Smoke Test: PDF Upload and Retrieval Mode
+
+- After the retrieval performance/stability fix, the Streamlit RFP Assignment
+  Tool was retested in the local main-aligned Yixiao branch.
+- PDF upload worked once `pypdf` was available in the active environment. The
+  dependency is listed in `environment.yml` and `requirements.txt`, but existing
+  environments may need to be updated before PDF upload works.
+- Uploaded PDF text loaded successfully, the RFP summary rendered, and no
+  traceback was observed.
+- The RFP page displayed computed CRM-derived capacity data, capacity-aware
+  recommendations, and Azure/Chroma retrieval active for the final local browser
+  smoke test.
+- Runtime was much faster after the Chroma reuse/fallback performance fix.
+- The retrieved-example caveat remained visible: retrieved chunks are semantic
+  similarity evidence, not proof of prior director experience or opportunity
+  ownership.
 
 Test 1:
 cloud/data modernization RFP: Passed. Azure/Chroma retrieval used the local proposals_responses.json corpus with 1,216 chunks, and Azure OpenAI chat enrichment produced the summary, effort estimate, and match wording. Output was coherent and caveated correctly. Retrieved examples were moderately relevant, though match scores were around 0.54-0.55. After PR #78, the overextended risk flag is framed as a broader-capacity-pool caveat rather than a claim that a displayed top-3 director is overextended.
