@@ -161,11 +161,11 @@ All list fields handle `None`, empty list, and non-list gracefully.
 | LLM failure Low risk flag | Done — Week 4 |
 | `notes` field reflects LLM vs heuristic path | Done — Week 4 |
 | Separate LLM enrichment status caption | Done — Week 5 usability refinement |
-| Pasted RFP chunked before retrieval | Done — Week 4 |
+| Pasted RFP text used as query; historical/sample corpus chunked | Documented — Week 5 |
 | Full local proposal corpus used when available | Done — Week 4 |
 | Retrieval corpus/query status shown in UI | Done — Week 4 |
 | Missing director/opportunity linkage caveat | Done — Week 4 |
-| Azure-backed retrieval in Streamlit RFP flow | Done — Week 4, with fallback guard for large full-corpus requests |
+| Azure/Chroma retrieval status shown when active; backend/smoke-test validation documented | Week 5 caveat added |
 | File upload text extraction | Done — Week 4 for TXT, DOCX, and text-based PDF |
 | Retrieved examples label changed to "Retrieved Supporting Examples" | Done — Week 5 usability refinement |
 | Recommendation numeric values rounded for stakeholder display | Done — Week 5 usability refinement |
