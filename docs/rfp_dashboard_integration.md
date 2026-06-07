@@ -132,7 +132,7 @@ All list fields handle `None`, empty list, and non-list gracefully.
 
 -   **The historical corpus uses local proposal data when available.** When `proposals_responses.json` is available locally, the engine uses the chunked local proposal corpus. If it is unavailable or cannot be parsed, the engine falls back to a small built-in sample RFP text and labels that sample-corpus status.
 
--   **Full-corpus Azure/Chroma rebuilds are guarded.** Azure/Chroma is wired through the RFP engine, but large full-corpus dashboard requests skip expensive on-demand Chroma rebuilds and use labelled local fallback retrieval over the same active corpus. The UI uses client-facing wording: "Azure/Chroma retrieval was not used for this request. The system used local retrieval over the proposal corpus instead."
+-   **Full-corpus Azure/Chroma rebuilds are guarded.** Azure/Chroma is wired through the RFP engine, but normal dashboard requests reuse an existing Chroma collection instead of rebuilding on every request. If Azure/Chroma config, optional dependencies, or a reusable store are unavailable, the UI uses labelled local fallback retrieval over the same active corpus. The UI uses client-facing wording such as: "Azure/Chroma retrieval was unavailable for this request. The system used local retrieval instead."
 
 -   **Retrieved chunks do not prove director experience.** Current proposal chunks may lack reliable `opportunity_owner` / `opportunity_id` linkage. The UI reports this in client-facing wording so retrieved examples are interpreted as semantic evidence, not proof of a director's prior work.
 
@@ -150,7 +150,7 @@ All list fields handle `None`, empty list, and non-list gracefully.
 | Prototype / fallback / heuristic labels | Done — Week 4 banner updated |
 | Risk flag severity styling (High/Medium/Low) | Done — Week 4 |
 | Upload/paste workflow caption | Done — Week 4; refined after upload support |
-| Header subtitle updated to Week 4 Final Prototype | Done — Week 4 |
+| Header subtitle updated for final prototype scope | Done |
 | `effort` displayed as "Estimated Effort" | Done |
 | `similarity_score` formatted to 2 decimal places | Done |
 | Real `capacity_df` passed to RFP engine | Done — Week 4 (`director_df=capacity_df`) |
@@ -186,4 +186,4 @@ Passes with no errors. The RFP fallback pipeline tests also pass:
 python -m pytest tests/test_rfp_preprocessor.py tests/test_vector_store.py tests/test_rfp_engine.py
 ```
 
-Current verification: `148 passed, 1 warning`.
+Current verification: `151 passed, 2 warnings`.

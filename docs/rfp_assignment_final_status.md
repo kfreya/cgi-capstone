@@ -1,4 +1,4 @@
-# RFP Week 5 Status
+# RFP Assignment Tool Final Status
 
 ## Current Focus
 
@@ -69,16 +69,16 @@ vague IT consulting input: Mostly passed. Azure/Chroma retrieval used the local 
 Test 4, procurement/deadline-only input:
 Passed. The tool correctly summarized the input as proposal submission instructions rather than a technical scope. Azure/Chroma retrieval returned procurement/timeline/pricing-related examples, and service-domain overlap was not calculated because no service keywords were detected. The limited-scope risk flag appeared as expected. Minor caveat: effort may be somewhat high for procurement-only text, and LLM director wording can still sound more specific than the available evidence supports.
 
-Test 5, large multi-domain transformation RFP: 
+Test 5, large multi-domain transformation RFP:
 Mostly passed. Azure/Chroma retrieval used the local proposal corpus and LLM enrichment produced a reasonable high-effort summary. Retrieved evidence was relevant, but all top 3 chunks came from the same Salesforce proposal even though the RFP covered multiple domains such as cloud, cybersecurity, data governance, managed services, and Salesforce. Recommended follow-up: add retrieval diversification so broad RFPs surface examples across multiple proposals or service areas instead of several chunks from one document.
 
 Test 6: Nothing is passed to RFP box
 Prompted to input text or upload a file.
 
-Test 7, TXT upload workflow: 
+Test 7, TXT upload workflow:
 The uploaded TXT file parsed correctly and populated the RFP text box. Azure/Chroma retrieval used the local proposals_responses.json corpus, and Azure OpenAI chat enrichment generated the summary, effort estimate, and director wording. Retrieved examples were generally relevant to managed services, operational support, service requests, and incident management. Minor caveat: effort may skew high for short managed-services inputs, depending on whether the tool interprets the work as ongoing support.
 
-Fallback test: 
+Fallback test:
 After temporarily disabling data/.env, the app switched to Local fallback retrieval active and still returned summary, effort, retrieved examples, recommended directors, risk flags, and notes without crashing. Azure OpenAI chat enrichment was disabled and heuristic output was shown instead. Processed CRM-derived capacity data still worked. Caveat: fallback similarity scores are not directly comparable to Azure/Chroma scores, and the risk flags could more explicitly mention that fallback mode was used.
 
 ## Proposal-to-CRM Crosswalk Check
