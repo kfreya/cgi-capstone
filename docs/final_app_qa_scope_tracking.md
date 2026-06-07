@@ -7,7 +7,7 @@ and scope-freeze notes. This Week 5 companion focuses on manual user-style QA,
 issue/fix/decision tracking, CGI feedback tracking, teammate follow-up, and
 final scope/caveat alignment.
 
-Owner: Yixiao  
+Owner: Yixiao
 Week 5 role: Final App QA & Scope Tracking
 
 Week 5 is focused on user-style testing, issue fixes, CGI feedback tracking, and
@@ -248,8 +248,10 @@ Current summary:
   pasted RFP query handling, Azure/Chroma integration status, and capacity data
   source wording.
 - Initial manual Streamlit QA passed for Dashboard page load, visible dashboard
-  charts, safe computed-data wording, and initial RFP page load. Full RFP
-  analysis path and filter/empty-state behavior still need separate testing.
+  charts, safe computed-data wording, and initial RFP page load. The full
+  pasted-input RFP analysis path was browser-tested with three sample inputs;
+  remaining separate items include upload input, empty input, large input, and
+  optional Jai owner confirmation if available.
 - Lyken's retrieval/config validation notes were received: Azure config
   readability, embedding smoke test, Azure + Chroma sample/full-corpus backend
   retrieval, retrieval mode reporting, and fallback behavior passed. Full

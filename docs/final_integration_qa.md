@@ -103,7 +103,7 @@ clearly label which data source is being used.
 - [ ] Confirm dashboard labels and explanations do not imply exact utilization.
 - [ ] Confirm the RFP page accepts pasted sample RFP text.
 - [ ] Confirm empty or whitespace-only RFP input is handled with a warning.
-- [ ] Confirm pasted RFP text is chunked into retrieval query chunks.
+- [ ] Confirm pasted RFP text is used as a query against a chunked historical/sample corpus.
 - [ ] Confirm the historical/sample retrieval corpus is chunked before
   retrieval.
 - [ ] Confirm local fallback retrieval returns dashboard-facing examples.
