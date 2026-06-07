@@ -109,13 +109,45 @@ def test_preferred_retrieval_report_uses_azure_chroma_path(monkeypatch):
     assert build_call["reset_collection"] is True
 
 
-def test_preferred_retrieval_report_skips_large_on_demand_chroma_build(monkeypatch):
+def test_preferred_retrieval_report_rebuilds_large_corpus(monkeypatch):
     monkeypatch.setattr(azure_rag_client, "embedding_ready", lambda: True)
+    build_call = {}
+    monkeypatch.setattr(
+        azure_rag_client,
+        "build_chroma_from_chunks",
+        lambda *args, **kwargs: build_call.update(kwargs) or object(),
+    )
+    monkeypatch.setattr(
+        azure_rag_client,
+        "query_chroma",
+        lambda *args, **kwargs: [
+            {
+                "proposal_id": "historical_large",
+                "chunk_id": "historical_large_chunk_001",
+                "source_type": "proposal",
+                "supporting_text": "Azure migration dashboard support.",
+                "similarity_score": 0.84,
+            }
+        ],
+    )
 
-    def fail_build(*_args, **_kwargs):
-        raise AssertionError("large default corpus should not rebuild Chroma on demand")
+    class FakeResult:
+        def to_retrieved_example(self):
+            return {
+                "proposal_id": "historical_large",
+                "chunk_id": "historical_large_chunk_001",
+                "source_type": "proposal",
+                "supporting_text": "Azure migration dashboard support.",
+                "similarity_score": 0.84,
+            }
 
-    monkeypatch.setattr(azure_rag_client, "build_chroma_from_chunks", fail_build)
+    class FakeStore:
+        def query(self, *_args, **_kwargs):
+            return [FakeResult()]
+
+    monkeypatch.setattr(azure_rag_client, "build_vector_store", lambda chunks: FakeStore())
+    monkeypatch.setattr(azure_rag_client, "build_retrieval_context", lambda results: "azure-context")
+    monkeypatch.setattr(azure_rag_client, "get_vector_store_status", lambda: {"local_store_ready": True})
 
     chunks = [
         {
@@ -127,7 +159,7 @@ def test_preferred_retrieval_report_skips_large_on_demand_chroma_build(monkeypat
             "opportunity_owner": None,
             "opportunity_id": None,
         }
-        for index in range(azure_rag_client._MAX_ON_DEMAND_CHROMA_BUILD_CHUNKS + 1)
+        for index in range(1216)
     ]
 
     result = azure_rag_client.preferred_retrieval_report(
@@ -136,12 +168,12 @@ def test_preferred_retrieval_report_skips_large_on_demand_chroma_build(monkeypat
         top_k=1,
     )
 
-    assert result["backend"] == "fallback"
-    assert result["retrieval_mode"] == "local_fallback"
-    assert result["status"]["chroma_build_skipped"] is True
-    assert "preferred_path_error" not in result["status"]
-    assert "rebuild skipped" in result["status"]["preferred_path_notice"].lower()
-    assert result["retrieved_examples"]
+    assert result["backend"] == "azure_chroma"
+    assert result["retrieval_mode"] == "azure_chroma"
+    assert result["status"]["preferred_path_ready"] is True
+    assert result["retrieved_examples"][0]["chunk_id"] == "historical_large_chunk_001"
+    assert result["retrieval_context"] == "azure-context"
+    assert build_call["reset_collection"] is True
 
 
 def test_fallback_retrieval_report_searches_query_chunks():
