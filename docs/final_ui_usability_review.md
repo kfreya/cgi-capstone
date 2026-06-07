@@ -1,4 +1,4 @@
-# Final Prototype Usability Notes
+# Final UI Usability Review
 
 Date: June 2, 2026
 
@@ -24,11 +24,11 @@ retrieval states.
 ### Capacity Dashboard
 
 The Director Capacity Dashboard is understandable and reasonable for a
-stakeholder demo. The page clearly shows that live data is loaded, presents
-capacity labels and relative load prominently, and includes an explanatory
-expander for relative load. The KPI cards, relative-load chart, label mix,
-current-vs-historical comparison, trend chart, and director summary table are
-appropriate for final prototype review.
+stakeholder demo. The page clearly shows that processed/computed CRM-derived
+data is loaded, presents capacity labels and relative load prominently, and
+includes an explanatory expander for relative load. The KPI cards,
+relative-load chart, label mix, current-vs-historical comparison, trend chart,
+and director summary table are appropriate for final prototype review.
 
 No major wording changes were required on the capacity dashboard screenshot.
 

@@ -4,18 +4,23 @@ UBC MDS Capstone 2025/2026 project in partnership with CGI Atlantic / Media Atla
 
 ## Project Overview
 
-CGI Capacity Analyzer is a decision-support tool for understanding director capacity and supporting new RFP assignment decisions. It is intended to surface useful workload, pipeline, and retrieval signals for leadership and delivery teams; it does not replace business judgment or CGI's internal decision processes.
+CGI Capacity Analyzer is a stakeholder-facing capstone prototype for
+understanding director capacity and supporting new RFP assignment discussions.
+It surfaces useful workload, pipeline, retrieval, and recommendation signals for
+leadership and delivery teams; it does not replace business judgment or CGI's
+internal decision processes.
 
 The prototype emphasizes transparency, reproducibility, and stakeholder review rather than fully automated decision-making.
 
 The project has two core deliverables:
 
-1. **Director Capacity Dashboard**  
-   Uses CRM opportunity data to summarize director workload, historical baseline, relative load, capacity score, and capacity labels.
+1. **Director Capacity Dashboard**
+   Uses processed CRM-derived opportunity data to summarize director workload,
+   historical baseline, relative load, capacity score, and capacity labels.
 
-2. **RFP Assignment Tool**  
+2. **RFP Assignment Tool**
    Accepts pasted RFP text or uploaded TXT, DOCX, and text-based PDF files.
-   It supports effort estimation, similar RFP retrieval, capacity-aware
+   It supports effort estimation, semantic retrieval, capacity-aware
    director recommendations, optional Azure OpenAI chat enrichment, and
    fallback-safe prototype output.
 
@@ -61,8 +66,11 @@ cgi-capstone/
 │   ├── rfp_data_validation.md  # proposal/RFP data validation notes
 │   ├── rfp_final_evidence_validation.md # final retrieval evidence validation
 │   ├── final_integration_qa.md # final prototype QA and demo scope
-│   ├── final_prototype_validation.md # final local changes and validation
-│   ├── azure_embedding_vector_store_notes.md # Azure embedding/vector-store notes
+│   ├── final_prototype_change_validation.md # final local changes and validation
+│   ├── final_app_qa_scope_tracking.md # Week 5 final QA and scope tracking
+│   ├── rfp_assignment_final_status.md # final RFP Assignment Tool status
+│   ├── rfp_azure_chroma_retrieval_notes.md # Azure/Chroma retrieval notes
+│   ├── rfp_retrieval_backend_validation.md # RFP retrieval backend validation
 │   ├── team_charter.md         # team working agreement
 │   └── time_management/        # weekly team report PDFs and time-management artifacts
 ├── notebooks/                  # EDA and validation notebooks
@@ -96,9 +104,13 @@ Core technical documentation:
 - [RFP dashboard integration](docs/rfp_dashboard_integration.md)
 - [RFP data validation](docs/rfp_data_validation.md)
 - [RFP final evidence validation](docs/rfp_final_evidence_validation.md)
-- [Azure embedding and vector store notes](docs/azure_embedding_vector_store_notes.md)
+- [RFP evidence output review](docs/rfp_evidence_output_review.md)
+- [Azure/Chroma retrieval notes](docs/rfp_azure_chroma_retrieval_notes.md)
+- [RFP retrieval backend validation](docs/rfp_retrieval_backend_validation.md)
 - [Final integration QA](docs/final_integration_qa.md)
-- [Final prototype validation](docs/final_prototype_validation.md)
+- [Final app QA and scope tracking](docs/final_app_qa_scope_tracking.md)
+- [Final prototype change validation](docs/final_prototype_change_validation.md)
+- [RFP Assignment Tool final status](docs/rfp_assignment_final_status.md)
 
 Project process documentation:
 
@@ -125,6 +137,13 @@ If conda is not available, use the optional pip fallback:
 ```bash
 pip install -r requirements.txt
 ```
+
+Dependency notes:
+
+- `pypdf` is required for text-based PDF upload in the RFP Assignment Tool.
+- `chromadb` is optional. It is needed for Azure/Chroma backend retrieval and
+  smoke tests, but it is not required for the basic Streamlit demo because
+  local fallback retrieval remains supported.
 
 ## Data Setup
 
@@ -184,6 +203,12 @@ Run all tests:
 python -m pytest
 ```
 
+Current final validation baseline:
+
+```text
+151 passed, 2 warnings
+```
+
 Run selected validation suites:
 
 ```bash
@@ -192,10 +217,25 @@ python -m pytest tests/test_capacity_engine.py
 python -m pytest tests/test_rfp_engine.py tests/test_vector_store.py
 ```
 
+## Demo-Safe Behavior
+
+The Streamlit app is intended to run safely for stakeholder demonstration:
+
+- Capacity views use processed/computed CRM-derived opportunity data when
+  available.
+- If processed data is unavailable, the app can fall back to prebuilt capacity
+  output or synthetic mock data, clearly labelled in the UI.
+- RFP retrieval uses Azure/Chroma only when Azure config, optional dependencies,
+  and a reusable Chroma store are available.
+- Local fallback retrieval remains supported when Azure/Chroma is unavailable.
+- Set `RFP_REBUILD_CHROMA=1` only when an explicit Chroma rebuild is needed for
+  backend validation or maintenance; normal interactive analysis does not
+  rebuild Chroma on every request.
+
 ## Final Prototype Status
 
-This repository is a Week 4 final capstone prototype. It is not a production
-system or a business-validated assignment system.
+This repository is a final stakeholder-facing capstone prototype. It is not a
+production staffing system or a business-validated assignment system.
 
 Week 1 established the project foundations:
 
@@ -223,17 +263,16 @@ Week 3 moved the RFP Assignment Tool and documentation closer to an integrated d
 - `generate_assignment_context()` became more stable for Streamlit integration,
   with improved assignment logic, risk flags, and schema-oriented tests.
 
-Week 4 finalized the stakeholder-facing prototype:
+Final prototype capabilities:
 
-- The Streamlit app is labelled as the Week 4 Final Prototype.
 - The RFP page accepts pasted input or uploaded TXT, DOCX, and text-based PDF
   files. Scanned PDFs may still require manual paste or OCR.
 - The RFP engine loads the local `data/proposals_responses.json` corpus when
   available and uses the sample corpus only as fallback.
 - Submitted RFP text is used as a query against a chunked historical/sample corpus.
 - Azure OpenAI embeddings with Chroma are the preferred retrieval path when
-  configured and suitable for the request; local retrieval remains available as
-  a fallback over the same corpus.
+  configured and a reusable store is available; local retrieval remains
+  available as a fallback over the same corpus.
 - Azure OpenAI chat enrichment can improve the RFP summary, effort estimate,
   and director match reasons when configured; heuristic output is used when
   chat enrichment is unavailable or fails.
@@ -243,14 +282,28 @@ Week 4 finalized the stakeholder-facing prototype:
 - The dashboard labels retrieval mode, capacity source, prototype status, and
   risk flags.
 - Retrieved proposal chunks are treated as semantic similarity evidence, not
-  proof of director experience, because reliable `opportunity_owner` /
-  `opportunity_id` linkage is not available in the proposal chunks.
+  proof of director involvement, director experience, or opportunity ownership,
+  because reliable `opportunity_owner` / `opportunity_id` linkage is not
+  available in the proposal chunks.
 
 Latest validation:
 
 ```text
-148 passed, 1 warning
+151 passed, 2 warnings
 ```
+
+## Limitations and Non-Claims
+
+- The app is a stakeholder-facing final prototype, not a production staffing
+  system.
+- RFP recommendations are decision-support outputs and require stakeholder
+  validation before use.
+- Retrieved chunks are semantic evidence only; they do not establish historical
+  director participation or related opportunity ownership.
+- Azure/Chroma retrieval is optional and backend-validated. The app reports the
+  retrieval mode used by each run and can fall back locally.
+- Capacity results use processed CRM-derived data, not a live production CRM
+  integration.
 
 ## Data Security
 
@@ -275,5 +328,5 @@ This should return no output.
 
 ## Team
 
-Freya Kan, Qian Yang, Junxian Lin, Yixiao Jing, Jai  
+Freya Kan, Qian Yang, Junxian Lin, Yixiao Jing, Jai
 UBC MDS Capstone 2025/2026

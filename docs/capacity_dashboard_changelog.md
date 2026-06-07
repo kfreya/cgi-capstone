@@ -1,4 +1,4 @@
-# Capacity Dashboard Change Log
+# Capacity Dashboard Changelog
 
 This note documents the relative-load, capacity-label, dashboard, filter, and documentation changes made on 2026-05-19. It is intended as a handoff/review artifact for the prototype.
 
