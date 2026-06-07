@@ -584,7 +584,11 @@ def _dashboard_director_record(
         "assignment_score": assignment_score,
         "match_reason": director.get(
             "match_reason",
-            director.get("reason", "Relevant historical experience and available capacity"),
+            director.get(
+                "reason",
+                "Available capacity signal plus retrieved semantic examples; "
+                "this does not prove prior director experience.",
+            ),
         ),
         "capacity_explanation": director.get(
             "capacity_explanation",

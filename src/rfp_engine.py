@@ -604,9 +604,9 @@ def _risk_flags(
                 {
                     "level": "High",
                     "message": (
-                        "At least one candidate director is overextended based "
-                        "on capacity signals. This should be reviewed before "
-                        "assignment."
+                        "At least one director in the broader capacity pool is "
+                        "overextended based on capacity signals. Review workload "
+                        "before assigning outside the recommended shortlist."
                     ),
                 }
             )
@@ -815,7 +815,11 @@ def _mock_director_record() -> dict[str, Any]:
         "capacity_label": "Available",
         "capacity_score": 0.72,
         "relative_load": 0.65,
-        "match_reason": "Semantically similar historical context and available capacity signal",
+        "match_reason": (
+            "Semantically similar historical context and available capacity signal "
+            "based on retrieved semantic examples; "
+            "this does not prove prior director experience."
+        ),
     }
 
 
