@@ -2,6 +2,7 @@ import os
 from pathlib import Path
 from collections.abc import Sequence
 from typing import TYPE_CHECKING, Any
+from urllib.parse import urlparse, urlunparse
 
 try:
     from dotenv import load_dotenv  # type: ignore
@@ -26,12 +27,34 @@ EMBEDDING_CONFIG_KEYS = (
 DEFAULT_EMBEDDING_MODEL = "text-embedding-3-large"
 
 
+def _normalize_azure_endpoint(endpoint: str) -> str:
+    """Return the Azure resource root URL from a possibly fully qualified endpoint."""
+
+    parsed = urlparse(str(endpoint or "").strip())
+    if not parsed.scheme or not parsed.netloc:
+        return str(endpoint or "").strip()
+    return urlunparse((parsed.scheme, parsed.netloc, "", "", "", ""))
+
+
+def _infer_deployment_from_endpoint(endpoint: str) -> str:
+    """Extract a deployment/model name from an Azure-style endpoint path."""
+
+    parsed = urlparse(str(endpoint or "").strip())
+    parts = [part for part in parsed.path.split("/") if part]
+    if "deployments" in parts:
+        deployment_index = parts.index("deployments") + 1
+        if deployment_index < len(parts):
+            return parts[deployment_index]
+    return ""
+
+
 def _get_embedding_model() -> str:
     """Return the embedding model/deployment name for Azure embeddings."""
 
     return (
         os.getenv("AZURE_OPENAI_EMBEDDING_DEPLOYMENT")
         or os.getenv("AZURE_OPENAI_EMBEDDING_MODEL")
+        or _infer_deployment_from_endpoint(os.getenv("AZURE_OPENAI_EMBEDDINGS_ENDPOINT", ""))
         or DEFAULT_EMBEDDING_MODEL
     )
 
@@ -134,7 +157,7 @@ def get_azure_openai_client(azure_openai_cls=None):
     azure_openai_cls = azure_openai_cls or _load_azure_openai_cls()
     return azure_openai_cls(
         api_key=config["api_key"],
-        azure_endpoint=config["azure_endpoint"],
+        azure_endpoint=_normalize_azure_endpoint(config["azure_endpoint"]),
         api_version=config["api_version"],
     )
 
@@ -146,7 +169,7 @@ def get_azure_embedding_client(azure_openai_cls=None):
     azure_openai_cls = azure_openai_cls or _load_azure_openai_cls()
     return azure_openai_cls(
         api_key=config["api_key"],
-        azure_endpoint=config["azure_embedding_endpoint"],
+        azure_endpoint=_normalize_azure_endpoint(config["azure_embedding_endpoint"]),
         api_version=config["api_version"],
     )
 
@@ -266,7 +289,7 @@ def chat_completion(
     azure_openai_cls = azure_openai_cls or _load_azure_openai_cls()
     client = azure_openai_cls(
         api_key=api_key,
-        azure_endpoint=azure_endpoint,
+        azure_endpoint=_normalize_azure_endpoint(azure_endpoint),
         api_version=api_version,
     )
     request = {

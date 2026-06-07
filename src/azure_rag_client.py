@@ -16,9 +16,6 @@ from src.vector_store import (
     retrieve_examples_from_query_chunks,
 )
 
-_MAX_ON_DEMAND_CHROMA_BUILD_CHUNKS = 200
-
-
 def _historical_sample_chunks() -> list[dict[str, Any]]:
     chunks = prepare_rfp_chunks(load_sample_rfp_text())
     for chunk in chunks:
@@ -73,21 +70,6 @@ def preferred_retrieval_report(
         )
 
     chunks = historical_chunks if historical_chunks is not None else _historical_sample_chunks()
-    if len(chunks) > _MAX_ON_DEMAND_CHROMA_BUILD_CHUNKS:
-        fallback_report = fallback_retrieval_report(
-            query_text,
-            historical_chunks=chunks,
-            top_k=top_k,
-            query_chunks=query_chunks,
-        )
-        fallback_report.setdefault("status", {})
-        fallback_report["status"]["preferred_path_ready"] = False
-        fallback_report["status"]["chroma_build_skipped"] = True
-        fallback_report["status"]["preferred_path_notice"] = (
-            "On-demand Azure/Chroma rebuild skipped for the full proposal corpus. "
-            "Using local retrieval over the same corpus for this dashboard request."
-        )
-        return fallback_report
 
     try:
         build_chroma_from_chunks(
