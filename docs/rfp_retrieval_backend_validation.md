@@ -1,4 +1,4 @@
-# Week 5 Retrieval Backend Work
+# RFP Retrieval Backend Validation
 
 This week I focused on the retrieval backend and its user-facing behavior. The main goal was to make the Azure/Chroma path actually work on the full proposal corpus, while keeping the fallback path available and keeping the app output honest.
 
@@ -27,11 +27,26 @@ This week I focused on the retrieval backend and its user-facing behavior. The m
 - `generate_assignment_context()` on full corpus: `retrieval_mode = azure_chroma`
 - Targeted retrieval/backend tests: `66 passed`
 
+## Current final behavior
+
+After the Week 5 performance/stability fix, the interactive Streamlit path
+does not rebuild Chroma on every **Analyze RFP** click. It reuses an existing
+Chroma collection when Azure config, optional `chromadb`, and a reusable store
+are available. Set `RFP_REBUILD_CHROMA=1` only for explicit backend validation
+or maintenance rebuilds.
+
+Local fallback retrieval remains the safe path when Azure/Chroma config,
+dependencies, or store reuse are unavailable.
+
 ## What this means
 
-The retrieval backend is now actually usable on the full proposal corpus, not just on a tiny test sample. The code no longer pretends Azure/Chroma is available while silently using fallback for large inputs. Instead, it now tries the preferred path, rebuilds Chroma in batches, and falls back only when something really fails.
+The retrieval backend is usable on the full proposal corpus, not just on a tiny
+test sample. The code no longer pretends Azure/Chroma is available while
+silently using fallback for large inputs. Instead, it reports the retrieval mode
+used by the request, reuses Chroma by default when a store is available, keeps
+the batched rebuild path available for explicit rebuilds, and falls back locally
+when the preferred path cannot run.
 
 ## Remaining note
 
 The proposal corpus still does not provide reliable `opportunity_owner` or `opportunity_id` linkage for historical RFP evidence, so retrieved chunks should be treated as semantic similarity evidence rather than proof of a director's prior work.
-

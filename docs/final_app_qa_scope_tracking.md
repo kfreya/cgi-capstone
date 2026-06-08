@@ -61,7 +61,7 @@ python -m pytest
 Result:
 
 ```text
-149 passed, 2 warnings
+151 passed, 2 warnings
 ```
 
 Interpretation:
@@ -101,15 +101,15 @@ and `Notes / Issue Link` as testing is completed.
 
 | Test ID | Area | Test Case | Steps | Expected Result | Actual Result | Status | Notes / Issue Link |
 | --- | --- | --- | --- | --- | --- | --- | --- |
-| RFP-01 | Page access | Open RFP Assignment Tool page | Start the app and navigate to the RFP page | Page loads without crash and input controls are visible | Pass - RFP Assignment Tool page loaded without traceback; top banner showed computed CRM opportunity record capacity source and prototype guidance only, not final CGI assignment decisions; upload, paste-text, and placeholder result areas rendered | Pass | Initial page-load only; full Analyze RFP path not yet tested |
+| RFP-01 | Page access | Open RFP Assignment Tool page | Start the app and navigate to the RFP page | Page loads without crash and input controls are visible | Pass - RFP Assignment Tool page loaded without traceback; top banner showed computed CRM opportunity record capacity source and prototype guidance only, not final CGI assignment decisions; upload, paste-text, and result areas rendered | Pass | Initial page-load QA plus later final PDF-upload Analyze RFP smoke test |
 | RFP-02 | Empty input | Submit empty or whitespace-only RFP text | Leave input blank and run analysis | App shows a clear warning and does not attempt retrieval or recommendation generation | TBD | Not started |  |
 | RFP-03 | Pasted input | Submit representative RFP text | Paste sample RFP text and run analysis | App returns a structured assignment context with summary, effort estimate, semantic evidence, recommendations, and risk/caveat notes | Pass - three browser-tested pasted inputs ran without crash or traceback; summaries, estimated effort, Retrieved Supporting Examples, and Recommended Directors rendered | Pass | Interim assignment logic QA by Yixiao; cloud migration/managed services, cybersecurity/compliance, and vague short technology project samples |
-| RFP-04 | Upload input | Test supported upload path if available | Upload supported TXT, DOCX, or text-based PDF file and run analysis | Text is extracted or a clear error is shown; scanned/OCR-only PDFs are not overclaimed as supported | TBD | Not started |  |
+| RFP-04 | Upload input | Test supported upload path if available | Upload supported TXT, DOCX, or text-based PDF file and run analysis | Text is extracted or a clear error is shown; scanned/OCR-only PDFs are not overclaimed as supported | Pass - final browser smoke test uploaded a text-based PDF after `pypdf` was available in the active environment; PDF text loaded successfully, the RFP summary rendered, and no traceback was observed | Pass | Active environment must include `pypdf` from `environment.yml` / `requirements.txt`; scanned/OCR-only PDFs remain out of scope unless separately tested |
 | RFP-05 | Capacity-aware recommendations | Confirm capacity data is used when available | Run an RFP analysis while `capacity_df` is available | RFP recommendations are capacity-aware when `capacity_df` is available | Pass - app-facing RFP path passes `director_df=capacity_df` into `generate_assignment_context()` | Pass | See W5-008 |
 | RFP-06 | Missing capacity fallback | Confirm behavior when capacity data is unavailable where feasible | Simulate or inspect fallback path if real capacity data cannot load | App labels fallback/mock director data clearly and avoids presenting outputs as final staffing guidance | TBD | Not started |  |
 | RFP-07 | Recommendation wording | Review recommendation section | Inspect match reasons, ranking labels, and any explanatory notes | Recommendations are described as decision-support outputs requiring stakeholder validation | Pass - Recommended Directors rendered with capacity, capacity score, relative load, and assignment score; prototype/capacity-aware framing remained visible | Pass | Interim assignment logic QA by Yixiao |
 | RFP-08 | Retrieval wording | Review retrieved examples section | Inspect headings and notes around retrieved examples | Retrieved examples are described as semantic evidence, not proof of director involvement or prior experience | Pass with caveat - Retrieved Supporting Examples rendered with match scores; wording stated retrieved chunks are semantic similarity evidence and not proof of prior director experience. Kian confirmed retrieved examples are semantic evidence only, not proof of director involvement or opportunity ownership; vague input evidence was weak/unclear because examples were broad or generic. | Pass with caveat | Interim assignment logic QA by Yixiao; Kian evidence/output review |
-| RFP-09 | Azure wording | Review retrieval/Azure status shown in the RFP page | Run standard RFP page flow and inspect status text | The page does not claim the Streamlit RFP page is fully Azure-backed unless that exact path is implemented and tested | Pass with caveat - browser runs displayed Local fallback retrieval active; Azure/Chroma active browser path was not verified in this manual pass | Pass with caveat | Interim assignment logic QA by Yixiao |
+| RFP-09 | Azure wording | Review retrieval/Azure status shown in the RFP page | Run standard RFP page flow and inspect status text | The page does not claim the Streamlit RFP page is fully Azure-backed unless that exact path is implemented and tested | Pass with caveat - final local browser smoke test after the retrieval performance/stability fix displayed Azure/Chroma retrieval active, capacity-aware recommendations using Computed from CRM opportunity records, and the semantic-evidence caveat; earlier browser runs also validated local fallback wording | Pass with caveat | Local browser smoke test only; describe carefully and keep fallback/demo caveats |
 | RFP-10 | Risk flags | Confirm risk/caveat display | Run an RFP analysis and inspect risk flags | Risk flags render clearly and include relevant caveats for fallback, data limits, missing linkage, or prototype status | Pass with caveat - risk flags and caveat wording appeared for missing director/opportunity linkage and short/vague input; semantic-evidence warning helped. Vague short input still produced confident-looking retrieved examples and recommendation output, so a stronger limited-input / low-detail warning may be useful. | Pass with caveat | See W5-013 and W5-014 |
 | RFP-11 | Large input | Submit a long RFP-like text | Paste a longer sample and run analysis | App handles chunking and either completes or shows a clear non-crashing warning/fallback status | TBD | Not started |  |
 | RFP-12 | Repeat analysis | Run two different RFP inputs in one session | Analyze sample A, then sample B | Results update for the new input and stale results are not mistaken for current analysis | Pass - three different pasted RFP inputs were run in one browser session and outputs updated without stale results | Pass | Interim assignment logic QA by Yixiao |
@@ -121,7 +121,7 @@ and `Notes / Issue Link` as testing is completed.
 | AZ-01 | Environment | Confirm Azure environment variables are present where needed | Run the environment check used by the team, without printing secret values | Required variables are found or missing variables are clearly reported without exposing secrets | Pass - `python src/check_env.py` confirmed required Azure variables are readable locally; no secret or endpoint values recorded | Pass | Lyken Week 5 retrieval/config validation |
 | AZ-02 | Azure embeddings | Run or review embedding smoke test | Execute the minimal embedding smoke test if credentials are available | Azure embeddings are validated only at smoke-test/sample level | Pass - minimal Azure embedding smoke test returned `ok=True`, `vectors=1`, `dim=1536` | Pass | Lyken Week 5 retrieval/config validation |
 | AZ-03 | Chroma retrieval | Run or review Azure + Chroma smoke test | Execute sample Azure + Chroma smoke test if credentials are available | Sample chunks can be stored and queried; result is documented as smoke-test/sample validation only | Pass - Azure + Chroma sample retrieval returned `backend=azure_chroma`, `retrieval_mode=azure_chroma`, `preferred_path_ready=True`; full-corpus backend smoke test used 1216 proposal chunks and returned `retrieval_mode=azure_chroma`; `scripts/smoke_azure_chroma.py` returned `stored_chunks=3`, `query_result_count=2`, `first_result_mentions_cloud=True` | Pass | Backend smoke-test/sample/full-corpus validation only |
-| AZ-04 | Streamlit claim boundary | Check Streamlit RFP page status wording | Run the RFP page and inspect retrieval status text | The app does not claim the Streamlit RFP page is fully Azure-backed unless a later end-to-end Streamlit Azure path is explicitly implemented and tested | Pass with caveat - backend output and code path confirm the RFP page reads retrieval mode from backend output and labels Azure/Chroma active only when that mode is returned; full browser UI run still needed before claiming complete app-flow verification | Pass with caveat | Lyken manual-code confirmation; explicit Streamlit browser verification still needed |
+| AZ-04 | Streamlit claim boundary | Check Streamlit RFP page status wording | Run the RFP page and inspect retrieval status text | The app does not claim the Streamlit RFP page is fully Azure-backed unless a later end-to-end Streamlit Azure path is explicitly implemented and tested | Pass with caveat - final local browser smoke test showed Azure/Chroma retrieval active after the performance/stability fix, with computed CRM capacity source wording and no traceback; this verifies the local Streamlit UI path in the tested environment, not every deployment environment | Pass with caveat | Keep wording careful: Azure/Chroma browser path was smoke-tested locally; local fallback remains the safe path when Chroma/Azure dependencies or reusable store are unavailable |
 | AZ-05 | Fallback status | Confirm fallback is clearly labelled | Trigger or inspect fallback/local retrieval status | Local fallback is labelled clearly and not presented as Azure + Chroma retrieval | Pass - local fallback path is preserved and retrieval status / notes distinguish fallback from `azure_chroma` | Pass | Lyken Week 5 retrieval/config validation |
 | AZ-06 | Secrets safety | Inspect logs, UI, and docs for secret exposure | Run smoke checks and review displayed output | No API keys, endpoints, or secret values are exposed in UI, logs, screenshots, or docs | TBD | Not started |  |
 
@@ -133,7 +133,7 @@ Prefer linking GitHub issues, pull requests, commits, or notes when available.
 | ID | Area | Issue or Observation | Severity | Owner | Status | Decision or Fix | PR / Link |
 | --- | --- | --- | --- | --- | --- | --- | --- |
 | W5-001 | QA coordination | Create Week 5 final app QA and scope tracking companion document for Issue #68 | Medium | Yixiao | Completed | Established manual QA, scope, caveat, feedback, and teammate follow-up tracking structure | Issue #68 |
-| W5-002 | Automated tests | Current automated baseline is passing: `149 passed, 2 warnings` | Low | Yixiao | Recorded | Use as the starting baseline for final QA; rerun after behavior-affecting fixes |  |
+| W5-002 | Automated tests | Current automated baseline is passing: `151 passed, 2 warnings` | Low | Yixiao | Recorded | Use as the final Week 5 QA baseline after retrieval performance/stability and PDF dependency checks |  |
 | W5-003 | Scope wording | Need consistent final prototype language across Week 5 report and app discussion | Medium | Yixiao / Team | Open | Describe app as stakeholder-facing final prototype, not production staffing system |  |
 | W5-004 | RFP recommendation caveat | Recommendations must not be framed as authoritative assignment decisions | High | Yixiao / Jai | Open | Use decision-support wording requiring stakeholder validation |  |
 | W5-005 | Retrieval caveat | Retrieved examples must not be framed as proof of a director's prior work | High | Yixiao / Lyken / Kian | Open | Describe retrieved examples as semantic evidence only |  |
@@ -146,6 +146,8 @@ Prefer linking GitHub issues, pull requests, commits, or notes when available.
 | W5-012 | Retrieval / Config Validation | Lyken provided Week 5 retrieval/config validation notes | Medium | Lyken / Yixiao | Received | Use Lyken's results as backend retrieval/config evidence; keep caveat that full Streamlit UI path still needs browser confirmation if the final report claims end-to-end app verification |  |
 | W5-013 | Assignment Logic Review | Jai PR #78 was merged into main with RFP assignment caveat/risk wording updates; Yixiao also completed interim user-style assignment logic QA for three RFP samples | Medium | Yixiao / Jai | Received / Merged | Use Jai's merged owner work as the assignment-logic follow-up. Yixiao's interim QA remains supporting evidence across cloud migration, cybersecurity/compliance, and vague short RFP inputs. Vague and broad-evidence limitations remain documented caveats rather than hidden blockers. | PR #78 |
 | W5-014 | Evidence / Output Review | Kian completed RFP evidence review and confirmed semantic-evidence boundaries; one wording concern remained around "Relevant historical experience and available capacity." | Medium | Kian / Yixiao / Jai | Fixed | Use Kian's review as evidence/output validation; keep semantic-evidence caveat. The app-facing fallback phrase was softened to "Semantically similar historical context and available capacity signal." |  |
+| W5-015 | RFP retrieval performance / stability | Streamlit RFP analysis was slow because Azure/Chroma could rebuild and re-embed the full corpus during Analyze RFP | High | Yixiao / Lyken | Fixed | Option B-lite fix: default interactive path reuses an existing Chroma collection, rebuild is opt-in via `RFP_REBUILD_CHROMA=1`, and local fallback remains safe when Chroma/Azure dependencies or reusable store are unavailable |  |
+| W5-016 | Final RFP UI smoke test | Final local browser smoke test after the performance/stability fix covered PDF upload, text extraction, retrieval mode display, capacity-aware output, and summary rendering | High | Yixiao | Pass | Uploaded PDF text loaded successfully once `pypdf` was available; Azure/Chroma retrieval active was displayed; computed CRM capacity source and semantic-evidence caveat remained visible; no traceback observed and runtime was much faster |  |
 
 ### RFP Capacity Integration QA Finding
 
@@ -207,10 +209,11 @@ aligned.
 | Retrieved examples show relevant prior material | Supported as semantic evidence | Retrieval returns similar chunks/examples; Kian reviewed cloud/managed services, cybersecurity/compliance, and vague/short RFP cases | Retrieved examples provide semantic evidence related to the RFP text | Do not claim proof of director involvement; evidence quality can be weak or broad for vague input |
 | Retrieved examples prove a director's prior experience | Not supported | Proposal chunks do not provide reliable director involvement or opportunity ownership linkage; Kian's evidence review supports this boundary | Retrieved examples are semantic evidence, not proof of director prior experience, involvement, or opportunity ownership | Important final caveat |
 | Azure embeddings are available for sample validation | Supported if smoke test passes in the configured environment | Azure embedding smoke-test/sample result | Azure embeddings are validated at smoke-test/sample level | Do not extend this to all Streamlit runs |
-| Azure + Chroma retrieval is validated | Supported at backend smoke-test/sample/full-corpus level | Lyken confirmed Azure config readability, embedding smoke test, Azure + Chroma sample retrieval, full-corpus backend retrieval over 1216 proposal chunks, `scripts/smoke_azure_chroma.py`, retrieval mode reporting, and fallback preservation | Azure + Chroma retrieval is validated at backend smoke-test/sample/full-corpus level; full browser-based Streamlit flow should be claimed only after explicit UI testing | Preserve retrieved-example caveat: semantic evidence, not proof of director involvement |
-| Streamlit RFP page is fully Azure-backed | Not currently supported by this QA document | No final Week 5 end-to-end Streamlit Azure path recorded here | The Streamlit RFP page should report the retrieval mode used by the current run | Do not claim fully Azure-backed |
+| Azure + Chroma retrieval is validated | Supported at backend smoke-test/sample/full-corpus level and local browser smoke-test level | Lyken confirmed Azure config readability, embedding smoke test, Azure + Chroma sample retrieval, full-corpus backend retrieval over 1216 proposal chunks, `scripts/smoke_azure_chroma.py`, retrieval mode reporting, and fallback preservation; final Yixiao local browser smoke test showed Azure/Chroma retrieval active after the performance/stability fix | Azure + Chroma retrieval is validated for backend smoke tests and for the local Streamlit UI environment tested in Week 5 | Preserve retrieved-example caveat: semantic evidence, not proof of director involvement; do not generalize to environments without Azure/Chroma config, `chromadb`, or a reusable store |
+| Streamlit RFP page is fully Azure-backed | Partially supported only for the tested local smoke-test environment | Final local browser smoke test showed Azure/Chroma retrieval active for a PDF-upload RFP after the performance/stability fix | The Streamlit RFP page reports the retrieval mode used by the current run; the local Week 5 smoke test showed Azure/Chroma active | Do not claim all deployments or all demo environments are fully Azure-backed; local fallback remains supported |
 | Local fallback retrieval can support prototype use | Supported as fallback behavior | Automated tests and app status/caveats | Local fallback retrieval supports prototype behavior when Azure/Chroma is unavailable or skipped | Must be labelled clearly |
-| Scanned PDF/OCR support is available | Not supported unless separately implemented and tested | Text-based extraction only is the known safe boundary | Text-based PDF input may be supported; scanned PDFs may require manual paste or OCR outside the app | Keep wording conservative |
+| Text-based PDF upload is supported | Supported in final local browser smoke test when `pypdf` is installed | Final PDF upload smoke test loaded text successfully and rendered an RFP summary; dependency files include `pypdf` | Text-based PDF upload is supported when the active environment includes `pypdf` | Scanned/OCR-only PDFs may still require manual paste or OCR outside the app |
+| Scanned PDF/OCR support is available | Not supported unless separately implemented and tested | Text-based extraction only is the known safe boundary | Scanned PDFs may require manual paste or OCR outside the app | Keep wording conservative |
 
 ## 7. CGI Feedback Tracking
 
@@ -229,7 +232,7 @@ Use this table for final CGI feedback, stakeholder questions, and action items.
 | Teammate | Follow-up Area | Requested Input | Owner | Status | Notes |
 | --- | --- | --- | --- | --- | --- |
 | Kian | Evidence & Output Review | Review retrieved example wording, output evidence language, and final report phrasing so semantic evidence is not overstated | Kian | Received / Integrated | Kian completed evidence/output review for cloud/managed services, cybersecurity/compliance, and vague/short RFP input. Kian confirmed retrieved examples are usable as semantic evidence but not proof of director involvement or opportunity ownership. |
-| Lyken | Retrieval & Config Validation | Review retrieval mode wording, Azure/Chroma sample validation notes, and configuration caveats | Lyken | Received / Integrated | Retrieval/config validation checklist received and integrated. Azure config readability, embedding smoke test, Azure + Chroma sample retrieval, full-corpus backend retrieval, retrieval mode reporting, and fallback behavior validated. Caveat: full Streamlit browser flow still needs explicit UI confirmation before claiming complete app-flow verification. |
+| Lyken | Retrieval & Config Validation | Review retrieval mode wording, Azure/Chroma sample validation notes, and configuration caveats | Lyken | Received / Integrated | Retrieval/config validation checklist received and integrated. Azure config readability, embedding smoke test, Azure + Chroma sample retrieval, full-corpus backend retrieval, retrieval mode reporting, and fallback behavior validated. Final Yixiao browser smoke test later confirmed Azure/Chroma active status in the local Streamlit UI after the performance/stability fix; caveat remains that other environments may use local fallback if config/dependencies/store are unavailable. |
 | Freya | Dashboard Usability & Wording | Review Director Capacity Dashboard usability, labels, empty states, and final prototype wording | Freya | Received / Merged | PR #73 was reviewed and merged; post-PR wording cleanup and verification were completed. Dashboard language should continue to avoid exact availability/utilization claims. |
 | Jai | Assignment Logic Review | Review recommendation ranking, capacity-aware logic, risk flags, and decision-support caveats | Jai | Received / Merged | Jai PR #78 was merged into main and its RFP assignment caveat/risk wording updates are included after latest-main alignment. Yixiao's interim browser QA across cloud migration, cybersecurity/compliance, and vague short RFP inputs remains supporting evidence, not a replacement for Jai's owner work. Confirm recommendations require stakeholder validation. |
 
@@ -237,7 +240,7 @@ Use this table for final CGI feedback, stakeholder questions, and action items.
 
 Current summary:
 
-- Automated baseline recorded: `python -m pytest` -> `149 passed, 2 warnings`.
+- Automated baseline recorded: `python -m pytest` -> `151 passed, 2 warnings`.
 - This Week 5 baseline may differ from the older Week 4 result recorded in
   `docs/final_integration_qa.md`; this file records the result observed after
   the Yixiao branch was aligned with main.
@@ -249,14 +252,15 @@ Current summary:
   source wording.
 - Initial manual Streamlit QA passed for Dashboard page load, visible dashboard
   charts, safe computed-data wording, and initial RFP page load. The full
-  pasted-input RFP analysis path was browser-tested with three sample inputs;
-  remaining separate items include upload input, empty input, large input, and
-  future CGI feedback if received.
+  pasted-input RFP analysis path was browser-tested with three sample inputs.
+  Final UI smoke testing after the retrieval performance/stability fix also
+  passed for PDF upload, text extraction, retrieval mode display, capacity-aware
+  output, and RFP summary rendering.
 - Lyken's retrieval/config validation notes were received: Azure config
   readability, embedding smoke test, Azure + Chroma sample/full-corpus backend
-  retrieval, retrieval mode reporting, and fallback behavior passed. Full
-  Streamlit browser verification of Azure/Chroma retrieval mode still needs an
-  explicit UI run if the team wants to claim end-to-end app-flow validation.
+  retrieval, retrieval mode reporting, and fallback behavior passed. A final
+  Yixiao local browser smoke test later showed Azure/Chroma retrieval active in
+  the Streamlit RFP page after the performance/stability fix, with no traceback.
 - After PR #73 merge and main alignment, a post-merge wording audit found some
   previous wording risks reappeared. These were cleaned up again on the latest
   main-aligned branch.
@@ -279,6 +283,9 @@ Current summary:
   scope tracking. Lyken's retrieval/config notes, Freya's wording PR, and
   Kian's evidence/output review have been integrated, and Jai's assignment logic
   review is merged through PR #78.
+- Final UI smoke test confirmed that `pypdf` must be installed in the active
+  environment for PDF upload; with `pypdf` available, uploaded PDF text loaded,
+  the RFP summary rendered, and the semantic-evidence caveat remained visible.
 - Manual QA checklist is prepared for Director Capacity Dashboard, RFP
   Assignment Tool, and Azure / Chroma smoke-test status.
 - Key claim boundaries are documented:
@@ -286,17 +293,18 @@ Current summary:
     system.
   - RFP recommendations are capacity-aware when `capacity_df` is available.
   - Azure embeddings and Azure + Chroma retrieval are validated at
-    smoke-test/sample level only, unless a later end-to-end Streamlit Azure path
-    is explicitly implemented and tested.
-  - The Streamlit RFP page should not be described as fully Azure-backed based
-    on smoke tests alone.
+    smoke-test/sample level and in the final local Streamlit browser smoke test;
+    other environments may still use local fallback when config/dependencies or
+    a reusable store are unavailable.
+  - The Streamlit RFP page should report the retrieval mode used by the current
+    run rather than be described as universally Azure-backed.
   - Retrieved examples are semantic evidence, not proof of director
     involvement.
   - Recommendations are decision-support outputs requiring stakeholder
     validation.
 
-Final Week 5 QA summary should be updated after manual testing and teammate
-follow-up notes are completed.
+Final Week 5 QA summary is updated through the final local RFP UI smoke test
+with PDF upload and Azure/Chroma active retrieval mode.
 
 ## 10. Week 5 Report Notes
 
@@ -307,7 +315,7 @@ Suggested safe report wording:
 - The app should be presented as a stakeholder-facing final prototype that
   supports review of director capacity signals and RFP assignment
   decision-support outputs.
-- The current automated baseline is passing with `149 passed, 2 warnings` from
+- The current automated baseline is passing with `151 passed, 2 warnings` from
   `python -m pytest`.
 - Manual QA should confirm that the Director Capacity Dashboard is usable,
   understandable, and appropriately caveated.
@@ -318,8 +326,9 @@ Suggested safe report wording:
 - Retrieved examples should be described as semantic evidence related to the
   RFP text, not proof of director involvement or prior experience.
 - Azure embeddings and Azure + Chroma retrieval should be described as
-  smoke-test/sample-level validated unless a later end-to-end Streamlit Azure
-  path is explicitly implemented and tested.
-- The final report should not claim that the Streamlit RFP page is fully
-  Azure-backed unless that specific path has been implemented, run, and
-  documented.
+  backend smoke-test validated and locally browser smoke-tested for the final
+  Week 5 RFP UI run.
+- The final report should not claim that every Streamlit RFP deployment is fully
+  Azure-backed; the page reports the retrieval mode used by the current run and
+  falls back locally when Azure/Chroma config, dependencies, or a reusable store
+  are unavailable.

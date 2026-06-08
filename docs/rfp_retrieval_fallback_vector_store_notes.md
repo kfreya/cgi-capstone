@@ -1,4 +1,4 @@
-# Fallback Demo and Vector Store Notes
+# RFP Retrieval Fallback and Vector Store Notes
 
 ## Responsibility Summary
 
