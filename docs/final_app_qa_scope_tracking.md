@@ -1,4 +1,4 @@
-g# Final App QA and Scope Tracking
+# Final App QA and Scope Tracking
 
 This document supports Issue #68, Sprint 5 / Week 5 Final App QA and Scope
 Tracking. It is a companion to `docs/final_integration_qa.md`. The Week 4
