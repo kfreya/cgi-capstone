@@ -211,6 +211,81 @@ def test_build_and_retrieve_vector_store_match_dashboard_interface():
     assert results[0]["supporting_text"] == "Azure migration and security"
 
 
+def test_retrieved_examples_preserve_opportunity_linkage_metadata():
+    """Linked CRM fields should survive local retrieval output conversion."""
+
+    chunk = make_dashboard_chunk(
+        "proposal_018_chunk_001",
+        "Cyber managed services and security operations.",
+    )
+    chunk.update(
+        {
+            "proposal_id": "18_cybersecurity_operations",
+            "rfp_alias": "18",
+            "opportunity_id": "OPP-18",
+            "opportunity_owner": "Director Cyber",
+            "opportunity_outcome": "won",
+        }
+    )
+
+    build_vector_store([chunk])
+    results = retrieve_relevant_chunks("Need cyber security operations", top_k=1)
+
+    assert results[0]["proposal_id"] == "18_cybersecurity_operations"
+    assert results[0]["rfp_alias"] == "18"
+    assert results[0]["opportunity_id"] == "OPP-18"
+    assert results[0]["opportunity_owner"] == "Director Cyber"
+    assert results[0]["opportunity_outcome"] == "won"
+
+
+def test_query_chroma_preserves_opportunity_linkage_metadata(monkeypatch, tmp_path):
+    """Chroma query normalization should keep linked CRM metadata fields."""
+
+    vector_store = __import__("src.vector_store", fromlist=["query_chroma"])
+
+    class FakeChromaStore:
+        def __init__(self, *args, **kwargs):
+            self.args = args
+            self.kwargs = kwargs
+
+        def query(self, query_embedding, top_k=5):
+            return {
+                "ids": [["proposal_018_chunk_001"]],
+                "documents": [["Cyber managed services and security operations."]],
+                "distances": [[0.25]],
+                "metadatas": [
+                    [
+                        {
+                            "proposal_id": "18_cybersecurity_operations",
+                            "document_id": "18_doc",
+                            "rfp_alias": "18",
+                            "opportunity_id": "OPP-18",
+                            "opportunity_owner": "Director Cyber",
+                            "opportunity_outcome": "won",
+                        }
+                    ]
+                ],
+            }
+
+    monkeypatch.setattr(vector_store, "ChromaVectorStore", FakeChromaStore)
+
+    results = vector_store.query_chroma(
+        "Need cyber security operations.",
+        persist_directory=str(tmp_path),
+        collection_name="rfp_chunks_test",
+        top_k=1,
+        embedding_function=lambda texts: [[1.0, 0.0] for _ in texts],
+        require_existing_collection=True,
+    )
+
+    assert results[0]["proposal_id"] == "18_cybersecurity_operations"
+    assert results[0]["chunk_id"] == "proposal_018_chunk_001"
+    assert results[0]["rfp_alias"] == "18"
+    assert results[0]["opportunity_id"] == "OPP-18"
+    assert results[0]["opportunity_owner"] == "Director Cyber"
+    assert results[0]["opportunity_outcome"] == "won"
+
+
 def test_optional_chroma_helpers_do_not_require_azure_credentials(tmp_path):
     """If Chroma helper APIs exist, they should be testable with a fake embedder."""
 
