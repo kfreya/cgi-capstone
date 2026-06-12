@@ -14,6 +14,7 @@ import json
 import pytest
 
 from src.rfp_preprocessor import (
+    build_rfp_opportunity_linkage,
     chunk_text,
     estimate_token_count,
     extract_rfp_documents,
@@ -21,6 +22,7 @@ from src.rfp_preprocessor import (
     normalize_text_content,
     prepare_rfp_chunks,
     preprocess_proposals,
+    write_rfp_opportunity_linkage,
 )
 
 
@@ -105,6 +107,92 @@ def test_preprocess_proposals_returns_traceable_chunk_metadata():
     assert "chunk_start_token" in chunks[0].metadata
     assert "approx_tokens" in chunks[0].metadata
     assert chunks[0].chunk_id.endswith("__chunk_0000")
+
+
+def test_build_rfp_opportunity_linkage_uses_alias_column(tmp_path):
+    """Check that proposal title S-numbers map to cleaned CRM aliases."""
+
+    opportunity_path = tmp_path / "cleaned_opportunity_df.csv"
+    opportunity_path.write_text(
+        "\n".join(
+            [
+                "rfp_alias,opportunity_id,opportunity_owner,opportunity_manager,service_solution,status,status_reason",
+                "18,OPP-18,Director Cyber,Manager A,Cyber Managed Services,Won,Won",
+            ]
+        ),
+        encoding="utf-8",
+    )
+    proposals = {
+        "18. Cybersecurity Operations": {
+            "proposal": {"content": "Need managed detection.", "proposal_response": {}}
+        }
+    }
+
+    linkage = build_rfp_opportunity_linkage(
+        proposals,
+        opportunity_path=opportunity_path,
+    )
+
+    metadata = linkage["18_cybersecurity_operations"]
+    assert metadata["opportunity_id"] == "OPP-18"
+    assert metadata["opportunity_owner"] == "Director Cyber"
+    assert metadata["opportunity_outcome"] == "won"
+
+
+def test_preprocess_proposals_enriches_chunks_with_linkage():
+    """Check that RFP chunks carry CRM linkage when a crosswalk is supplied."""
+
+    proposals = {
+        "18. Cybersecurity Operations": {
+            "proposal": {"content": "Need managed detection.", "proposal_response": {}}
+        }
+    }
+    linkage = {
+        "18_cybersecurity_operations": {
+            "rfp_alias": "18",
+            "opportunity_id": "OPP-18",
+            "opportunity_owner": "Director Cyber",
+            "opportunity_outcome": "won",
+        }
+    }
+
+    chunks = preprocess_proposals(
+        proposals,
+        chunk_size=5,
+        overlap=1,
+        opportunity_linkage=linkage,
+    )
+
+    assert chunks[0].metadata["rfp_alias"] == "18"
+    assert chunks[0].metadata["opportunity_id"] == "OPP-18"
+    assert chunks[0].metadata["opportunity_owner"] == "Director Cyber"
+    assert chunks[0].metadata["opportunity_outcome"] == "won"
+
+
+def test_write_rfp_opportunity_linkage_exports_crosswalk(tmp_path):
+    """Check that the local crosswalk artifact can be written reproducibly."""
+
+    opportunity_path = tmp_path / "cleaned_opportunity_df.csv"
+    output_path = tmp_path / "rfp_opportunity_linkage.csv"
+    opportunity_path.write_text(
+        "\n".join(
+            [
+                "rfp_alias,opportunity_id,opportunity_owner,status,status_reason",
+                "2,OPP-2,Director A,Open,Open",
+            ]
+        ),
+        encoding="utf-8",
+    )
+
+    path = write_rfp_opportunity_linkage(
+        {"2. Staff Augmentation": {"proposal": {"content": "Need resources."}}},
+        opportunity_path=opportunity_path,
+        output_path=output_path,
+    )
+
+    exported = path.read_text()
+    assert "2_staff_augmentation" in exported
+    assert "OPP-2" in exported
 
 
 def test_prepare_rfp_chunks_matches_dashboard_interface():

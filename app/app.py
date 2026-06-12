@@ -1460,11 +1460,25 @@ elif page == "RFP Assignment Tool":
                         f"{retrieval_status.get('corpus_chunk_count', 'n/a')} corpus chunks; "
                         f"{retrieval_status.get('query_chunk_count', 'n/a')} submitted RFP query text; historical/sample corpus chunks."
                     )
-                if retrieval_status.get("retrieval_has_director_linkage") is False:
+                if (
+                    retrieval_status.get("retrieval_has_director_linkage") is False
+                    or (
+                        retrieval_status.get("retrieved_example_count")
+                        and not retrieval_status.get("retrieved_examples_have_director_linkage")
+                    )
+                ):
                     st.caption(
                         "Retrieved chunks cannot currently be tied reliably to a specific "
                         "director or opportunity. Treat them as semantic similarity evidence, "
                         "not proof of prior director experience."
+                    )
+                elif retrieval_status.get("retrieved_examples_have_director_linkage"):
+                    st.caption(
+                        "Some retrieved examples are linked to CRM opportunities through "
+                        "CGI's RFP alias. Non-won linked opportunities are historical "
+                        "context, not proof of successful prior delivery. Linked "
+                        "opportunity owner reflects CRM ownership/context, not proof "
+                        "of personal delivery experience."
                     )
 
             notes_text = str(context.get("notes") or "")
@@ -1567,6 +1581,21 @@ elif page == "RFP Assignment Tool":
                             f"**Chunk ID:** `{example.get('chunk_id', 'unknown')}`  \n"
                             f"**Match score:** `{score_str}`"
                         )
+                        if example.get("opportunity_id") or example.get("opportunity_owner"):
+                            linked_bits = []
+                            if example.get("opportunity_id"):
+                                linked_bits.append(
+                                    f"**CRM opportunity:** `{example.get('opportunity_id')}`"
+                                )
+                            if example.get("opportunity_owner"):
+                                linked_bits.append(
+                                    f"**Opportunity owner:** {html.escape(str(example.get('opportunity_owner')))}"
+                                )
+                            if example.get("opportunity_outcome"):
+                                linked_bits.append(
+                                    f"**Outcome:** {html.escape(str(example.get('opportunity_outcome')))}"
+                                )
+                            st.markdown("  \n".join(linked_bits))
                         st.write(preview or "No supporting text returned.")
 
             recommended_directors = context.get("recommended_directors") or []
