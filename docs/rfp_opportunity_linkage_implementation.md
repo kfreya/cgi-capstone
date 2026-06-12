@@ -48,11 +48,30 @@ After replacing the local opps1 workbook, regenerate opportunity outputs:
 python -m src.opportunity_cleaner
 ```
 
-Generated local artifacts include:
+This command generates:
 
 ```text
 data/processed/opportunity_df.csv
 data/processed/cleaned_opportunity_df.csv
+```
+
+The proposal-to-opportunity crosswalk is supported by
+`write_rfp_opportunity_linkage()` and can be written from Python after
+`cleaned_opportunity_df.csv` exists:
+
+```python
+import json
+from src.rfp_preprocessor import write_rfp_opportunity_linkage
+
+with open("data/proposals_responses.json", encoding="utf-8") as handle:
+    proposals = json.load(handle)
+
+write_rfp_opportunity_linkage(proposals)
+```
+
+That writes:
+
+```text
 data/processed/rfp_opportunity_linkage.csv
 ```
 
@@ -189,7 +208,8 @@ shows:
 ```text
 Some retrieved examples are linked to CRM opportunities through CGI's RFP alias.
 Non-won linked opportunities are historical context, not proof of successful
-prior delivery.
+prior delivery. Linked opportunity owner reflects CRM ownership/context, not
+proof of personal delivery experience.
 ```
 
 Retrieved supporting examples can now display these additional labels when

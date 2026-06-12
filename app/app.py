@@ -1476,7 +1476,9 @@ elif page == "RFP Assignment Tool":
                     st.caption(
                         "Some retrieved examples are linked to CRM opportunities through "
                         "CGI's RFP alias. Non-won linked opportunities are historical "
-                        "context, not proof of successful prior delivery."
+                        "context, not proof of successful prior delivery. Linked "
+                        "opportunity owner reflects CRM ownership/context, not proof "
+                        "of personal delivery experience."
                     )
 
             notes_text = str(context.get("notes") or "")
