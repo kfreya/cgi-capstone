@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import argparse
 import re
 from pathlib import Path
 
@@ -25,6 +26,7 @@ SUPPLEMENTAL_FIELDS = [
     "opportunity_estimated_revenue_base_cad",
     "ip",
     "delivery_territory_center",
+    "json_s_num",
 ]
 
 NUMERIC_FIELDS = [
@@ -113,6 +115,20 @@ def clean_opportunity_df(opportunity_df: pd.DataFrame) -> pd.DataFrame:
     cleaned["duplicate_flag"] = _safe_bool_flag(cleaned, "is_duplicate_join_key")
     cleaned["unmatched_flag"] = _safe_bool_flag(cleaned, "is_unmatched_opps2_base")
     cleaned["opps1_exclusive_flag"] = _safe_bool_flag(cleaned, "is_opps1_exclusive")
+
+    json_alias = (
+        cleaned["json_s_num"].astype("string").str.strip()
+        if "json_s_num" in cleaned.columns
+        else pd.Series(pd.NA, index=cleaned.index, dtype="string")
+    )
+    json_alias = json_alias.mask(json_alias == "", pd.NA)
+    if "rfp_alias" in cleaned.columns:
+        existing_alias = cleaned["rfp_alias"].astype("string").str.strip()
+        existing_alias = existing_alias.mask(existing_alias == "", pd.NA)
+        cleaned["rfp_alias"] = json_alias.combine_first(existing_alias)
+    else:
+        cleaned["rfp_alias"] = json_alias
+    cleaned["has_rfp_alias"] = cleaned["rfp_alias"].notna()
 
     for field in NUMERIC_FIELDS:
         if field in cleaned.columns:
@@ -331,15 +347,38 @@ def build_owner_base_summary(cleaned_df: pd.DataFrame) -> pd.DataFrame:
     return summary[columns].sort_values("opportunity_owner").reset_index(drop=True)
 
 
-def load_opportunity_files() -> tuple[pd.DataFrame, pd.DataFrame]:
+def _format_path(path: Path) -> str:
+    """Return a readable path relative to the project root when possible."""
+    try:
+        return str(path.resolve().relative_to(PROJECT_ROOT))
+    except ValueError:
+        return str(path)
+
+
+def _read_opportunity_workbook(path: Path, sheet_name: str) -> pd.DataFrame:
+    try:
+        return pd.read_excel(path, sheet_name=sheet_name)
+    except ValueError as exc:
+        raise ValueError(
+            f"Unable to read sheet {sheet_name!r} from {_format_path(path)}: {exc}"
+        ) from exc
+
+
+def load_opportunity_files(
+    opps1_path: Path = OPPS1_PATH,
+    opps2_path: Path = OPPS2_PATH,
+    sheet_name: str = EXCEL_SHEET_NAME,
+) -> tuple[pd.DataFrame, pd.DataFrame]:
     """Load the local opportunity Excel workbooks."""
-    missing_files = [path for path in [OPPS1_PATH, OPPS2_PATH] if not path.exists()]
+    opps1_path = Path(opps1_path)
+    opps2_path = Path(opps2_path)
+    missing_files = [path for path in [opps1_path, opps2_path] if not path.exists()]
     if missing_files:
-        missing = ", ".join(str(path.relative_to(PROJECT_ROOT)) for path in missing_files)
+        missing = ", ".join(_format_path(path) for path in missing_files)
         raise FileNotFoundError(f"Missing required opportunity file(s): {missing}")
 
-    opps1 = pd.read_excel(OPPS1_PATH, sheet_name=EXCEL_SHEET_NAME)
-    opps2 = pd.read_excel(OPPS2_PATH, sheet_name=EXCEL_SHEET_NAME)
+    opps1 = _read_opportunity_workbook(opps1_path, sheet_name)
+    opps2 = _read_opportunity_workbook(opps2_path, sheet_name)
     return opps1, opps2
 
 
@@ -555,9 +594,13 @@ def merge_opportunity_tables(opps1: pd.DataFrame, opps2: pd.DataFrame) -> tuple[
     return opportunity_df, merge_summary
 
 
-def build_opportunity_df() -> tuple[pd.DataFrame, pd.DataFrame, pd.DataFrame, dict[str, pd.DataFrame]]:
+def build_opportunity_df(
+    opps1_path: Path = OPPS1_PATH,
+    opps2_path: Path = OPPS2_PATH,
+    sheet_name: str = EXCEL_SHEET_NAME,
+) -> tuple[pd.DataFrame, pd.DataFrame, pd.DataFrame, dict[str, pd.DataFrame]]:
     """Run the full opportunity data merge pipeline."""
-    opps1, opps2 = load_opportunity_files()
+    opps1, opps2 = load_opportunity_files(opps1_path, opps2_path, sheet_name)
     schema_comparison = compare_schemas(opps1, opps2)
     opportunity_df, merge_summary = merge_opportunity_tables(opps1, opps2)
 
@@ -582,6 +625,7 @@ def write_outputs(
     output_dir: Path = PROCESSED_DIR,
 ) -> list[Path]:
     """Write local, ignored pipeline artifacts under data/processed."""
+    output_dir = Path(output_dir)
     output_dir.mkdir(parents=True, exist_ok=True)
     audit_tables = audit_tables or {}
     cleaned_opportunity_df = clean_opportunity_df(opportunity_df)
@@ -619,9 +663,50 @@ def write_outputs(
     return written_paths
 
 
+def parse_args() -> argparse.Namespace:
+    parser = argparse.ArgumentParser(
+        description="Build merged and cleaned opportunity CSV outputs."
+    )
+    parser.add_argument(
+        "--opps1-path",
+        type=Path,
+        default=OPPS1_PATH,
+        help="Path to the first opportunity spreadsheet.",
+    )
+    parser.add_argument(
+        "--opps2-path",
+        type=Path,
+        default=OPPS2_PATH,
+        help="Path to the second opportunity spreadsheet.",
+    )
+    parser.add_argument(
+        "--sheet-name",
+        default=EXCEL_SHEET_NAME,
+        help="Excel sheet name to read from both opportunity spreadsheets.",
+    )
+    parser.add_argument(
+        "--output-dir",
+        type=Path,
+        default=PROCESSED_DIR,
+        help="Directory for processed opportunity CSV outputs.",
+    )
+    return parser.parse_args()
+
+
 def main() -> None:
-    opportunity_df, schema_comparison, merge_summary, audit_tables = build_opportunity_df()
-    written_paths = write_outputs(opportunity_df, schema_comparison, merge_summary, audit_tables)
+    args = parse_args()
+    opportunity_df, schema_comparison, merge_summary, audit_tables = build_opportunity_df(
+        args.opps1_path,
+        args.opps2_path,
+        args.sheet_name,
+    )
+    written_paths = write_outputs(
+        opportunity_df,
+        schema_comparison,
+        merge_summary,
+        audit_tables,
+        args.output_dir,
+    )
 
     print("Opportunity merge complete.")
     print()
@@ -631,7 +716,7 @@ def main() -> None:
     print()
     print("Local outputs written:")
     for path in written_paths:
-        print(f"- {path.relative_to(PROJECT_ROOT)}")
+        print(f"- {_format_path(path)}")
 
 
 if __name__ == "__main__":
