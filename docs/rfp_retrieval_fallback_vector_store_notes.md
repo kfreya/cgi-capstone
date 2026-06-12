@@ -1,4 +1,4 @@
-# Fallback Demo and Vector Store Notes
+# RFP Retrieval Fallback and Vector Store Notes
 
 ## Responsibility Summary
 
@@ -164,7 +164,7 @@ This confirms that the Azure embedding path is working and producing a valid vec
 
 ## End-to-End Retrieval Smoke Test
 
-The full Azure/Chroma retrieval path also passed.
+The Azure/Chroma retrieval smoke-test/sample/backend path passed.
 
 ### Retrieval backend report
 

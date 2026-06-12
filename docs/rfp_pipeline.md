@@ -228,7 +228,7 @@ It returns:
             "capacity_score": 0.72,
             "relative_load": 0.65,
             "assignment_score": 0.78,
-            "match_reason": "Relevant historical experience and available capacity",
+            "match_reason": "Semantically similar historical context and available capacity signal",
             "capacity_explanation": "Capacity explanation shown in the dashboard.",
             "experience_match_explanation": "Experience match explanation shown in the dashboard.",
             "risk_flags": [],

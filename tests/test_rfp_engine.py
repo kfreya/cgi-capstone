@@ -186,6 +186,10 @@ def test_generate_assignment_context_uses_mock_director_when_missing():
 
     assert output["recommended_directors"][0]["director_name"] == "Director A"
     assert output["recommended_directors"][0]["capacity_label"] == "Available"
+    match_reason = output["recommended_directors"][0]["match_reason"].lower()
+    assert "retrieved semantic examples" in match_reason
+    assert "does not prove prior director experience" in match_reason
+    assert "relevant historical experience" not in match_reason
     assert isinstance(output["risk_flags"], list)
     assert any(
         "mock director data" in flag["message"].lower()

@@ -16,7 +16,9 @@ from __future__ import annotations
 import html
 import hashlib
 import io
+import os
 import sys
+import time
 import zipfile
 from pathlib import Path
 from xml.etree import ElementTree as ET
@@ -71,6 +73,32 @@ def _extract_uploaded_rfp_text(uploaded_file) -> tuple[str, str | None]:
         return _extract_pdf_upload(data)
 
     return "", "Unsupported file type. Upload a TXT, DOCX, or PDF file."
+
+
+def _rfp_timing_debug_enabled() -> bool:
+    return str(os.getenv("RFP_TIMING_DEBUG", "")).strip().lower() in {
+        "1",
+        "true",
+        "yes",
+        "on",
+    }
+
+
+def _format_rfp_timing_lines(timings: dict | None, *, prefix: str = "") -> list[str]:
+    if not isinstance(timings, dict):
+        return []
+
+    lines: list[str] = []
+    for key, value in timings.items():
+        label = f"{prefix}{key}" if prefix else str(key)
+        if isinstance(value, dict):
+            lines.extend(_format_rfp_timing_lines(value, prefix=f"{label}."))
+            continue
+        if isinstance(value, (int, float)):
+            lines.append(f"{label}: {float(value):.4f}s")
+        elif value not in (None, ""):
+            lines.append(f"{label}: {value}")
+    return lines
 
 
 def _format_decimal(value, digits: int = 2) -> str:
@@ -645,7 +673,7 @@ with st.sidebar:
 
     _src_color = "#4ADE80" if _data_source == "real" else "#FBB040"
     _src_label = {
-        "real":     "Live CRM data",
+        "real":     "Computed CRM opportunity data",
         "prebuilt": "Pre-built CSV",
         "mock":     "Synthetic mock data",
     }[_data_source]
@@ -678,7 +706,7 @@ st.markdown(
 if _data_source == "real":
     st.markdown(
         "<div class='data-banner data-banner-real'>"
-        "<b>Live data</b> — Director capacity scores computed from CRM opportunity records "
+        "<b>Computed data</b> — Director capacity scores computed from CRM opportunity records "
         f"({len(capacity_df)} owners)."
         "</div>",
         unsafe_allow_html=True,
@@ -1210,7 +1238,7 @@ norm. They should be reviewed and adjusted with CGI judgment.
 # ==============================================================================
 elif page == "RFP Assignment Tool":
     rfp_capacity_source_label = {
-        "real": "Live CRM capacity data",
+        "real": "Computed from CRM opportunity records",
         "prebuilt": "Pre-built director_capacity_df.csv",
         "mock": "Synthetic mock capacity data",
     }.get(_data_source, "Unknown capacity data source")
@@ -1245,7 +1273,13 @@ elif page == "RFP Assignment Tool":
                 f"{hashlib.sha256(uploaded_bytes).hexdigest()}"
             )
             if st.session_state.get("rfp_uploaded_file_signature") != upload_signature:
+                upload_start = time.perf_counter()
                 extracted_text, upload_error = _extract_uploaded_rfp_text(uploaded_rfp_file)
+                if _rfp_timing_debug_enabled():
+                    st.session_state["rfp_upload_parse_seconds"] = round(
+                        time.perf_counter() - upload_start,
+                        4,
+                    )
                 st.session_state["rfp_uploaded_file_signature"] = upload_signature
                 if upload_error:
                     st.session_state["rfp_upload_error"] = upload_error
@@ -1292,12 +1326,18 @@ elif page == "RFP Assignment Tool":
                 st.warning("Please paste RFP text before running the analysis.")
             else:
                 try:
+                    analyze_start = time.perf_counter()
                     # Pass the same capacity table used by the dashboard so
                     # RFP recommendations use real/local capacity signals when available.
                     st.session_state["rfp_assignment_context"] = generate_assignment_context(
                         rfp_text,
                         director_df=capacity_df,
                     )
+                    if _rfp_timing_debug_enabled():
+                        st.session_state["rfp_analyze_button_seconds"] = round(
+                            time.perf_counter() - analyze_start,
+                            4,
+                        )
                     st.session_state["rfp_assignment_input"] = rfp_text
                     st.session_state["rfp_capacity_data_source"] = {
                         "source": _data_source,
@@ -1306,6 +1346,11 @@ elif page == "RFP Assignment Tool":
                     }
                     st.session_state.pop("rfp_assignment_error", None)
                 except Exception as exc:
+                    if _rfp_timing_debug_enabled():
+                        st.session_state["rfp_analyze_button_seconds"] = round(
+                            time.perf_counter() - analyze_start,
+                            4,
+                        )
                     st.session_state["rfp_assignment_error"] = str(exc)
                     st.session_state.pop("rfp_assignment_context", None)
 
@@ -1395,6 +1440,11 @@ elif page == "RFP Assignment Tool":
                         "The system used local retrieval instead. Details: "
                         f"{retrieval_status.get('preferred_path_error')}"
                     )
+                elif (
+                    retrieval_mode == "local_fallback"
+                    and retrieval_status.get("preferred_path_fallback_reason")
+                ):
+                    st.caption(str(retrieval_status.get("preferred_path_fallback_reason")))
                 elif retrieval_mode == "azure_chroma":
                     st.caption("Azure/Chroma retrieval is active for this result.")
                 corpus_source = str(retrieval_status.get("corpus_source") or "")
@@ -1408,7 +1458,7 @@ elif page == "RFP Assignment Tool":
                         "Retrieval corpus: "
                         f"{corpus_label}; "
                         f"{retrieval_status.get('corpus_chunk_count', 'n/a')} corpus chunks; "
-                        f"{retrieval_status.get('query_chunk_count', 'n/a')} submitted-RFP query chunks."
+                        f"{retrieval_status.get('query_chunk_count', 'n/a')} submitted RFP query text; historical/sample corpus chunks."
                     )
                 if retrieval_status.get("retrieval_has_director_linkage") is False:
                     st.caption(
@@ -1428,6 +1478,48 @@ elif page == "RFP Assignment Tool":
                     "LLM enrichment: heuristic summary, effort, and match wording are "
                     "shown for this result."
                 )
+            if _rfp_timing_debug_enabled():
+                timing_lines = []
+                upload_seconds = st.session_state.get("rfp_upload_parse_seconds")
+                analyze_seconds = st.session_state.get("rfp_analyze_button_seconds")
+                if isinstance(upload_seconds, (int, float)):
+                    timing_lines.append(
+                        "input_extraction_upload_parse_seconds: "
+                        f"{float(upload_seconds):.4f}s"
+                    )
+                if isinstance(analyze_seconds, (int, float)):
+                    timing_lines.append(
+                        "streamlit_analyze_button_total_seconds: "
+                        f"{float(analyze_seconds):.4f}s"
+                    )
+                timing_lines.extend(_format_rfp_timing_lines(context.get("timings")))
+                status_timings = (
+                    retrieval_status.get("timings")
+                    if isinstance(retrieval_status, dict)
+                    else None
+                )
+                timing_lines.extend(_format_rfp_timing_lines(status_timings, prefix="retrieval_status."))
+                timing_lines.extend(
+                    _format_rfp_timing_lines(
+                        retrieval_status.get("last_chroma_build_timings")
+                        if isinstance(retrieval_status, dict)
+                        else None,
+                        prefix="vector_store.",
+                    )
+                )
+                timing_lines.extend(
+                    _format_rfp_timing_lines(
+                        retrieval_status.get("last_chroma_query_timings")
+                        if isinstance(retrieval_status, dict)
+                        else None,
+                        prefix="vector_store.",
+                    )
+                )
+                with st.expander("RFP timing debug", expanded=False):
+                    if timing_lines:
+                        st.code("\n".join(timing_lines), language="text")
+                    else:
+                        st.caption("No timing data captured for this result.")
 
             st.markdown('<div class="sec-head">RFP Summary</div>', unsafe_allow_html=True)
             st.write(context.get("rfp_summary") or "No summary returned.")

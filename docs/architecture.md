@@ -2,16 +2,41 @@
 
 ## Purpose
 
-The Capacity Analyzer helps CGI Atlantic / Media Atlantic leadership understand each director's current workload, compare it with that director's historical workload, and identify who has capacity to take on additional sales or operational work.
+The Capacity Analyzer helps CGI Atlantic / Media Atlantic leadership understand
+each director's current workload, compare it with that director's historical
+workload, and discuss who may have capacity to take on additional sales or
+operational work.
 
 The project has two deliverables:
 
 1.  A director capacity dashboard that compares current workload against each director's own historical baseline.
-2.  An RFP assignment tool that estimates the effort required by a new RFP and recommends directors who have enough capacity and relevant experience.
+2.  An RFP assignment tool that estimates the effort required by a new RFP and
+    recommends directors using capacity, service-fit, and semantic retrieval
+    signals.
 
 This prototype is scoped to the CGI Atlantic / Media Atlantic business unit based on the opportunity data currently available. It should not be presented as a Canada-wide dashboard unless broader data becomes available.
 
-The system uses structured CRM opportunity data, historical RFP/proposal text, standard Python data processing, and Azure OpenAI. LLMs are used for summarization and reasoning, not for core numeric scoring.
+The system uses processed CRM-derived opportunity data, historical RFP/proposal
+text, standard Python data processing, and optional Azure OpenAI services. LLMs
+are used for summarization and explanation, not for core numeric scoring.
+
+## Final Prototype Boundary
+
+This repository represents a stakeholder-facing final capstone prototype, not a
+production staffing system. Recommendations are decision-support outputs that
+require stakeholder validation before any operational use.
+
+Key boundaries:
+
+- Capacity results are relative workload signals, not exact working hours,
+  utilization, or guaranteed availability.
+- RFP recommendations are not final CGI assignment decisions.
+- Retrieved proposal chunks are semantic evidence only. They do not prove
+  director involvement, director experience, or opportunity ownership because
+  reliable proposal-to-CRM linkage is not available in the current proposal
+  chunks.
+- Azure/Chroma retrieval is optional and backend-validated. Local fallback
+  retrieval remains supported for demo and development environments.
 
 ## Inputs
 
@@ -25,6 +50,38 @@ data/.env
 ```
 
 The data files are local and ignored by git.
+
+## Streamlit Entry Point
+
+The integrated UI entry point is:
+
+```bash
+streamlit run app/app.py
+```
+
+`app/app.py` owns the two-page Streamlit experience:
+
+1.  **Director Capacity Dashboard**
+2.  **RFP Assignment Tool**
+
+The app loads capacity data once through the dashboard data-loading helper and
+passes the active capacity dataframe into the RFP assignment flow so
+recommendations can use the same capacity signals shown on the dashboard.
+
+## Data Loading Precedence
+
+The dashboard is designed to run against local prepared data without requiring
+a live production CRM connection. Data loading proceeds in this order:
+
+1.  Load cleaned/processed opportunity data when available and compute director
+    capacity from the capacity engine.
+2.  Load a prebuilt `data/processed/director_capacity_df.csv` when live
+    computation is unavailable.
+3.  Fall back to synthetic mock capacity data for demo/development continuity,
+    clearly labelled in the UI.
+
+The final app should describe this as processed or computed CRM-derived data,
+not live production CRM integration.
 
 ## Core Entities
 
@@ -289,12 +346,26 @@ RFP processing pipeline:
 1.  Extract proposal and response text.
 2.  Chunk documents with overlap.
 3.  Load the local proposal corpus when available, with a small sample corpus as fallback.
-4.  Use Azure OpenAI embeddings with Chroma as the preferred retrieval path when an indexed store is available or the request can be safely indexed on demand.
-5.  Fall back to local retrieval over the same corpus when Azure/Chroma is unavailable or when on-demand indexing is skipped for the full corpus.
-6.  For a new RFP, extract uploaded TXT/DOCX/text-PDF content or use pasted text, then chunk the RFP query before retrieval.
-7.  Retrieve similar historical proposal/RFP chunks.
-8.  Estimate effort level using deterministic heuristics, enriched by Azure OpenAI chat when configured.
-9.  Rank directors using capacity, retrieval similarity, service-solution fit, capacity label, and risk flags.
+4.  For a new RFP, extract uploaded TXT/DOCX/text-based PDF content or use
+    pasted text. Text-based PDF upload depends on `pypdf` in the active
+    environment.
+5.  Call `generate_assignment_context()` to orchestrate retrieval, effort
+    estimate, summary generation, risk flags, and director recommendations.
+6.  Use the submitted RFP text as a query against chunked historical/sample
+    corpora.
+7.  Prefer Azure OpenAI embeddings with Chroma only when Azure config,
+    optional `chromadb`, and a reusable Chroma collection are available.
+8.  Reuse an existing Chroma collection by default. Do not rebuild Chroma on
+    every Streamlit request.
+9.  Rebuild Chroma only when explicitly requested with `RFP_REBUILD_CHROMA=1`,
+    usually for backend validation or maintenance.
+10. Fall back to local retrieval over the same corpus when Azure/Chroma config,
+    `chromadb`, the reusable store, or the Chroma query path is unavailable.
+11. Retrieve similar historical proposal/RFP chunks as semantic evidence.
+12. Estimate effort level using deterministic heuristics, enriched by Azure
+    OpenAI chat when configured.
+13. Rank directors using capacity, retrieval similarity, service-solution fit,
+    capacity label, and risk flags.
 
 RFP effort features:
 
@@ -441,11 +512,14 @@ RFP ENGINE
 
   vector_store.py
     embed chunks with Azure OpenAI
-    store embeddings in Chroma
-    query with one or more RFP query chunks
+    store embeddings in Chroma when optional backend dependencies are available
+    reuse existing Chroma collections by default
+    support explicit rebuild with RFP_REBUILD_CHROMA=1
+    query against chunked historical/sample corpora
     provide local fallback retrieval
 
   rfp_engine.py
+    generate_assignment_context()
     retrieve similar RFPs
     estimate RFP effort
     match against director capacity and service_solution profiles
@@ -453,7 +527,7 @@ RFP ENGINE
     enrich summary, effort, and match reasons with Azure OpenAI chat when configured
 
 PRESENTATION LAYER
-  Streamlit app
+  app/app.py Streamlit app
     Page 1: Director Capacity Dashboard
     Page 2: RFP Assignment Tool
 ```
@@ -461,6 +535,15 @@ PRESENTATION LAYER
 ## Dashboard Design
 
 Page 1: Director Capacity Dashboard
+
+Flow:
+
+``` text
+local processed opportunity data or prebuilt capacity output
+-> capacity_engine director-level calculations
+-> Streamlit filters and summary cards/charts
+-> stakeholder-facing capacity labels and relative-load evidence
+```
 
 ``` text
 relative load by director
@@ -490,6 +573,16 @@ created date range
 Territory and opportunity-owner filters define the selected population for both current workload and baseline. Row-level filters such as status, sales stage, opportunity type, sales model, and created date range narrow the current workload and trend being viewed, while the historical average remains anchored to the full selected owner/territory history.
 
 Page 2: RFP Assignment Tool
+
+Flow:
+
+``` text
+uploaded TXT/DOCX/text-based PDF or pasted RFP text
+-> upload text extraction (PDF requires pypdf)
+-> generate_assignment_context()
+-> retrieval examples from Azure/Chroma reuse or local fallback
+-> summary, effort estimate, recommendations, risk flags, and caveats
+```
 
 ``` text
 upload TXT/DOCX/text-based PDF or paste RFP text

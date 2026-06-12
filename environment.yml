@@ -13,8 +13,9 @@ dependencies:
       - openai
       - streamlit
       - plotly
-      - chromadb
       - pypdf
       - pytest
       - ipykernel
       - jupyter
+      # Optional Azure/Chroma backend smoke-test dependency:
+      # - chromadb
