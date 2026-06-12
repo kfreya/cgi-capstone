@@ -81,7 +81,7 @@ class SearchResult:
         @return: Flat retrieved-example dictionary for assignment context.
         """
 
-        return {
+        example = {
             "proposal_id": self.chunk.metadata.get(
                 "proposal_id",
                 self.chunk.document_id,
@@ -90,6 +90,8 @@ class SearchResult:
             "similarity_score": round(self.score, 4),
             "supporting_text": self.chunk.text,
         }
+        _copy_linkage_metadata(example, self.chunk.metadata)
+        return example
 
 
 def cosine_similarity(left: Sequence[float], right: Sequence[float]) -> float:
@@ -528,10 +530,9 @@ def _chunk_from_dict(chunk: dict[str, Any]) -> RFPChunk:
                 "chunk_index": chunk_index,
                 "proposal_id": chunk.get("proposal_id", document_id),
                 "source_type": chunk.get("source_type", section),
-                "opportunity_owner": chunk.get("opportunity_owner"),
-                "opportunity_id": chunk.get("opportunity_id"),
             }
         )
+        _copy_linkage_metadata(metadata, chunk)
 
         return RFPChunk(
             chunk_id=chunk_id,
@@ -544,7 +545,7 @@ def _chunk_from_dict(chunk: dict[str, Any]) -> RFPChunk:
         )
 
     source_type = str(chunk.get("source_type", "proposal"))
-    return RFPChunk(
+    rfp_chunk = RFPChunk(
         chunk_id=chunk_id,
         document_id=proposal_id,
         title=proposal_id,
@@ -556,10 +557,10 @@ def _chunk_from_dict(chunk: dict[str, Any]) -> RFPChunk:
             "chunk_id": chunk_id,
             "source_type": source_type,
             "chunk_index": chunk_index,
-            "opportunity_owner": chunk.get("opportunity_owner"),
-            "opportunity_id": chunk.get("opportunity_id"),
         },
     )
+    _copy_linkage_metadata(rfp_chunk.metadata, chunk)
+    return rfp_chunk
 
 
 def _local_embedding(texts: Sequence[str]) -> list[list[float]]:
@@ -758,14 +759,15 @@ def query_chroma(
         if isinstance(meta, dict):
             proposal_id = meta.get("proposal_id") or meta.get("document_id")
 
-        out.append(
-            {
-                "proposal_id": proposal_id or "unknown",
-                "chunk_id": chunk_id,
-                "similarity_score": round(similarity, 4) if similarity is not None else None,
-                "supporting_text": doc,
-            }
-        )
+        example = {
+            "proposal_id": proposal_id or "unknown",
+            "chunk_id": chunk_id,
+            "similarity_score": round(similarity, 4) if similarity is not None else None,
+            "supporting_text": doc,
+        }
+        if isinstance(meta, dict):
+            _copy_linkage_metadata(example, meta)
+        out.append(example)
 
     timings["chroma_query_total_seconds"] = round(time.perf_counter() - total_start, 4)
     _LAST_CHROMA_QUERY_TIMINGS = timings
@@ -876,3 +878,29 @@ def _similarity_value(example: dict[str, Any]) -> float:
     except (TypeError, ValueError, OverflowError):
         return float("-inf")
     return value if isfinite(value) else float("-inf")
+
+
+_LINKAGE_METADATA_FIELDS = (
+    "document_id",
+    "source_type",
+    "source_title",
+    "rfp_alias",
+    "json_s_num",
+    "opportunity_id",
+    "opportunity_owner",
+    "opportunity_manager",
+    "service_solution",
+    "status",
+    "status_reason",
+    "opportunity_outcome",
+)
+
+
+def _copy_linkage_metadata(target: dict[str, Any], source: dict[str, Any]) -> None:
+    for field in _LINKAGE_METADATA_FIELDS:
+        value = source.get(field)
+        if value is None:
+            continue
+        if isinstance(value, str) and not value.strip():
+            continue
+        target[field] = value

@@ -211,6 +211,33 @@ def test_build_and_retrieve_vector_store_match_dashboard_interface():
     assert results[0]["supporting_text"] == "Azure migration and security"
 
 
+def test_retrieved_examples_preserve_opportunity_linkage_metadata():
+    """Linked CRM fields should survive local retrieval output conversion."""
+
+    chunk = make_dashboard_chunk(
+        "proposal_018_chunk_001",
+        "Cyber managed services and security operations.",
+    )
+    chunk.update(
+        {
+            "proposal_id": "18_cybersecurity_operations",
+            "rfp_alias": "18",
+            "opportunity_id": "OPP-18",
+            "opportunity_owner": "Director Cyber",
+            "opportunity_outcome": "won",
+        }
+    )
+
+    build_vector_store([chunk])
+    results = retrieve_relevant_chunks("Need cyber security operations", top_k=1)
+
+    assert results[0]["proposal_id"] == "18_cybersecurity_operations"
+    assert results[0]["rfp_alias"] == "18"
+    assert results[0]["opportunity_id"] == "OPP-18"
+    assert results[0]["opportunity_owner"] == "Director Cyber"
+    assert results[0]["opportunity_outcome"] == "won"
+
+
 def test_optional_chroma_helpers_do_not_require_azure_credentials(tmp_path):
     """If Chroma helper APIs exist, they should be testable with a fake embedder."""
 
