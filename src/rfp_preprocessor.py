@@ -22,6 +22,8 @@ from typing import Any
 DEFAULT_CHUNK_SIZE = 500
 DEFAULT_OVERLAP = 50
 DEFAULT_PROPOSAL_JSON_PATH = Path("data/proposals_responses.json")
+DEFAULT_OPPORTUNITY_LINKAGE_PATH = Path("data/processed/cleaned_opportunity_df.csv")
+DEFAULT_RFP_OPPORTUNITY_LINKAGE_PATH = Path("data/processed/rfp_opportunity_linkage.csv")
 SAMPLE_RFP_TEXT = (
     "CGI is responding to a request for cloud migration, data analytics, "
     "dashboard reporting, and managed service support. The work includes "
@@ -130,7 +132,10 @@ def normalize_text_content(content: Any) -> str:
     return str(content).strip()
 
 
-def extract_rfp_documents(proposals: Mapping[str, Any]) -> list[RFPDocument]:
+def extract_rfp_documents(
+    proposals: Mapping[str, Any],
+    opportunity_linkage: Mapping[str, Mapping[str, Any]] | None = None,
+) -> list[RFPDocument]:
     """Extract proposal and response documents from the historical RFP JSON.
 
     Each RFP can contribute more than one document: the original proposal text
@@ -139,6 +144,8 @@ def extract_rfp_documents(proposals: Mapping[str, Any]) -> list[RFPDocument]:
     came from the request or from a response.
 
     @param proposals: Mapping from RFP title to proposal record.
+    @param opportunity_linkage: Optional mapping from proposal_id to CRM
+        opportunity metadata.
     @return: List of normalized proposal and response documents.
     @raises TypeError: If `proposals` is not a mapping.
     """
@@ -147,6 +154,7 @@ def extract_rfp_documents(proposals: Mapping[str, Any]) -> list[RFPDocument]:
         raise TypeError("proposals must be a mapping of RFP titles to records")
 
     documents: list[RFPDocument] = []
+    opportunity_linkage = opportunity_linkage or {}
 
     for proposal_index, (title, entry) in enumerate(proposals.items()):
         if not isinstance(entry, Mapping):
@@ -157,6 +165,7 @@ def extract_rfp_documents(proposals: Mapping[str, Any]) -> list[RFPDocument]:
             continue
 
         base_document_id = _safe_id(title) or f"proposal_{proposal_index}"
+        linked_metadata = dict(opportunity_linkage.get(base_document_id, {}))
         proposal_text = normalize_text_content(proposal.get("content"))
 
         if proposal_text:
@@ -171,8 +180,8 @@ def extract_rfp_documents(proposals: Mapping[str, Any]) -> list[RFPDocument]:
                         "source_title": str(title),
                         "source_type": "proposal",
                         "proposal_index": proposal_index,
-                        "opportunity_owner": None,
-                        "opportunity_id": None,
+                        **_empty_linkage_metadata(),
+                        **linked_metadata,
                     },
                 )
             )
@@ -183,6 +192,7 @@ def extract_rfp_documents(proposals: Mapping[str, Any]) -> list[RFPDocument]:
                 proposal=proposal,
                 base_document_id=base_document_id,
                 proposal_index=proposal_index,
+                linked_metadata=linked_metadata,
             )
         )
 
@@ -286,6 +296,7 @@ def preprocess_proposals(
     proposals: Mapping[str, Any],
     chunk_size: int = DEFAULT_CHUNK_SIZE,
     overlap: int = DEFAULT_OVERLAP,
+    opportunity_linkage: Mapping[str, Mapping[str, Any]] | None = None,
 ) -> list[RFPChunk]:
     """Run the full preprocessing path from proposal JSON to RFP chunks.
 
@@ -298,7 +309,13 @@ def preprocess_proposals(
     @return: Retrieval-ready chunks for embedding.
     """
 
-    documents = extract_rfp_documents(proposals)
+    if opportunity_linkage is None:
+        opportunity_linkage = build_rfp_opportunity_linkage(proposals)
+
+    documents = extract_rfp_documents(
+        proposals,
+        opportunity_linkage=opportunity_linkage,
+    )
     return chunk_rfp_documents(
         documents,
         chunk_size=chunk_size,
@@ -387,6 +404,7 @@ def _extract_response_documents(
     proposal: Mapping[str, Any],
     base_document_id: str,
     proposal_index: int,
+    linked_metadata: Mapping[str, Any] | None = None,
 ) -> list[RFPDocument]:
     """Extract response sections for one proposal record.
 
@@ -400,6 +418,7 @@ def _extract_response_documents(
     responses = proposal.get("proposal_response", proposal.get("proposal_responses", {}))
     response_items = _iter_response_items(responses)
     documents: list[RFPDocument] = []
+    linked_metadata = dict(linked_metadata or {})
 
     for response_index, (response_name, response) in enumerate(response_items):
         response_text = normalize_text_content(response)
@@ -420,8 +439,8 @@ def _extract_response_documents(
                     "response_name": str(response_name),
                     "proposal_index": proposal_index,
                     "response_index": response_index,
-                    "opportunity_owner": None,
-                    "opportunity_id": None,
+                    **_empty_linkage_metadata(),
+                    **linked_metadata,
                 },
             )
         )
@@ -524,6 +543,164 @@ def _safe_id(value: Any) -> str:
         for character in str(value).strip()
     )
     return "_".join(part for part in safe.split("_") if part)
+
+
+def build_rfp_opportunity_linkage(
+    proposals: Mapping[str, Any],
+    opportunity_path: str | Path = DEFAULT_OPPORTUNITY_LINKAGE_PATH,
+) -> dict[str, dict[str, Any]]:
+    """Build proposal_id -> CRM opportunity metadata from the alias column.
+
+    The local opportunity cleaner exposes CGI's spreadsheet alias as
+    `rfp_alias`. Proposal JSON titles begin with the same S-number, for example
+    `18. ...`, so this creates a deterministic crosswalk without fuzzy title
+    matching.
+    """
+
+    path = Path(opportunity_path)
+    if not path.exists() or not isinstance(proposals, Mapping):
+        return {}
+
+    try:
+        import pandas as pd
+
+        from src.data_validator import classify_opportunity_outcome
+    except Exception:
+        return {}
+
+    try:
+        opportunities = pd.read_csv(path, low_memory=False)
+    except Exception:
+        return {}
+
+    alias_column = "rfp_alias" if "rfp_alias" in opportunities.columns else "json_s_num"
+    if alias_column not in opportunities.columns:
+        return {}
+
+    work = opportunities.copy()
+    work["_normalized_rfp_alias"] = work[alias_column].map(_normalize_alias)
+    work = work[work["_normalized_rfp_alias"] != ""].copy()
+    if work.empty:
+        return {}
+
+    for field in ["status", "status_reason"]:
+        if field not in work.columns:
+            work[field] = None
+    try:
+        work["_opportunity_outcome"] = classify_opportunity_outcome(work)
+    except Exception:
+        work["_opportunity_outcome"] = None
+
+    by_alias = {
+        str(row["_normalized_rfp_alias"]): _linkage_row_metadata(row)
+        for _, row in work.drop_duplicates("_normalized_rfp_alias", keep="first").iterrows()
+    }
+
+    linkage: dict[str, dict[str, Any]] = {}
+    for title in proposals:
+        proposal_id = _safe_id(title)
+        alias = _proposal_alias_from_title(title)
+        if proposal_id and alias in by_alias:
+            linkage[proposal_id] = {
+                "rfp_alias": alias,
+                "json_s_num": alias,
+                **by_alias[alias],
+            }
+    return linkage
+
+
+def write_rfp_opportunity_linkage(
+    proposals: Mapping[str, Any],
+    opportunity_path: str | Path = DEFAULT_OPPORTUNITY_LINKAGE_PATH,
+    output_path: str | Path = DEFAULT_RFP_OPPORTUNITY_LINKAGE_PATH,
+) -> Path:
+    """Write a local proposal-to-opportunity crosswalk CSV."""
+
+    try:
+        import pandas as pd
+    except Exception as exc:
+        raise RuntimeError("pandas is required to write RFP opportunity linkage") from exc
+
+    linkage = build_rfp_opportunity_linkage(
+        proposals,
+        opportunity_path=opportunity_path,
+    )
+    rows = []
+    for title in proposals:
+        proposal_id = _safe_id(title)
+        alias = _proposal_alias_from_title(title)
+        rows.append(
+            {
+                "proposal_id": proposal_id,
+                "proposal_title": str(title),
+                "rfp_alias": alias or None,
+                **dict(linkage.get(proposal_id, {})),
+            }
+        )
+
+    path = Path(output_path)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    pd.DataFrame(rows).to_csv(path, index=False)
+    return path
+
+
+def _empty_linkage_metadata() -> dict[str, Any]:
+    return {
+        "rfp_alias": None,
+        "json_s_num": None,
+        "opportunity_id": None,
+        "opportunity_owner": None,
+        "opportunity_manager": None,
+        "service_solution": None,
+        "status": None,
+        "status_reason": None,
+        "opportunity_outcome": None,
+    }
+
+
+def _proposal_alias_from_title(title: Any) -> str:
+    match = re.match(r"^\s*(\d+)\s*[.)_-]", str(title or ""))
+    return match.group(1) if match else ""
+
+
+def _normalize_alias(value: Any) -> str:
+    if value is None:
+        return ""
+    text = str(value).strip()
+    if not text or text.lower() in {"nan", "none", "<na>"}:
+        return ""
+    try:
+        number = float(text)
+    except ValueError:
+        return text
+    if number.is_integer():
+        return str(int(number))
+    return text
+
+
+def _linkage_row_metadata(row: Any) -> dict[str, Any]:
+    metadata = {
+        field: _none_if_missing(row.get(field))
+        for field in [
+            "opportunity_id",
+            "opportunity_owner",
+            "opportunity_manager",
+            "service_solution",
+            "status",
+            "status_reason",
+        ]
+    }
+    metadata["opportunity_outcome"] = _none_if_missing(row.get("_opportunity_outcome"))
+    return metadata
+
+
+def _none_if_missing(value: Any) -> Any:
+    if value is None:
+        return None
+    text = str(value).strip()
+    if text.lower() in {"", "nan", "none", "<na>"}:
+        return None
+    return value
 
 
 def _preview_chunk(chunk: dict[str, Any], max_chars: int = 500) -> str:

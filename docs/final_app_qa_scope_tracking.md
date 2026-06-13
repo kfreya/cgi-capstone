@@ -332,3 +332,31 @@ Suggested safe report wording:
   Azure-backed; the page reports the retrieval mode used by the current run and
   falls back locally when Azure/Chroma config, dependencies, or a reusable store
   are unavailable.
+
+## 11. Week 6 Client Data Replacement QA
+
+The Week 6 client-data replacement update keeps the opportunity preprocessing
+workflow local and explicit. The opportunity cleaner now supports spreadsheet
+input arguments for `--opps1-path`, `--opps2-path`, `--sheet-name`, and
+`--output-dir`, while the no-argument command remains backward-compatible with
+the existing demo filenames under `data/csv_files/` and outputs under
+`data/processed/`.
+
+CGI can pass local spreadsheet filenames directly in the preprocessing command
+instead of renaming files or setting environment variables. The updated opps1
+`Json S-Num` column is preserved as preprocessing-output fields `rfp_alias` and
+`has_rfp_alias`; local validation found 19 non-empty `rfp_alias` rows. This is a
+machine-readable linkage field for downstream review, not proof of director
+ownership, prior experience, or assignment suitability.
+
+This update does not change capacity scoring, dashboard metrics, RFP retrieval,
+recommendation ranking, UI linkage display, or ownership/experience claims.
+Excel orange highlighting is treated as visual-only context and is not used as
+pipeline logic.
+
+Validation results:
+
+```text
+python -m pytest tests/test_opportunity_cleaner.py -> 14 passed
+python -m pytest -> 152 passed, 2 warnings
+```

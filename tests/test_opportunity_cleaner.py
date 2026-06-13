@@ -89,6 +89,35 @@ def test_merge_opportunity_tables_uses_opps2_base_and_flags_records():
     assert list(unmatched_rows["opportunity_id"]) == ["B"]
 
 
+def test_json_s_num_is_preserved_as_rfp_alias():
+    opps1 = pd.DataFrame(
+        {
+            "Opportunity ID": ["A", "A", "C"],
+            "Json S-Num": [" ", "RFP-123", "RFP-999"],
+        }
+    )
+    opps2 = pd.DataFrame(
+        {
+            "Opportunity ID": ["A", "B"],
+            "Status": ["open", "closed"],
+        }
+    )
+
+    opportunity_df, merge_summary = merge_opportunity_tables(opps1, opps2)
+    cleaned = clean_opportunity_df(opportunity_df).set_index("opportunity_id")
+    summary = merge_summary.set_index("metric")["value"].to_dict()
+
+    assert "json_s_num" in opportunity_df.columns
+    assert "json_s_num" in summary["supplemental_fields_found"]
+    assert cleaned.loc["A", "json_s_num"] == "RFP-123"
+    assert cleaned.loc["A", "rfp_alias"] == "RFP-123"
+    assert bool(cleaned.loc["A", "has_rfp_alias"]) is True
+    assert cleaned.loc["C", "rfp_alias"] == "RFP-999"
+    assert bool(cleaned.loc["C", "has_rfp_alias"]) is True
+    assert pd.isna(cleaned.loc["B", "rfp_alias"])
+    assert bool(cleaned.loc["B", "has_rfp_alias"]) is False
+
+
 def test_collapse_supplemental_fields_uses_first_non_empty_value():
     opps1 = pd.DataFrame(
         {
