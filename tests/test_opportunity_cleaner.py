@@ -1,13 +1,24 @@
+import inspect
+import openpyxl
+from pathlib import Path
+
 import pandas as pd
+import pytest
 
 from src.opportunity_cleaner import (
+    EXCEL_SHEET_NAME,
+    OPPS1_PATH,
+    OPPS2_PATH,
+    PROCESSED_DIR,
     build_owner_base_summary,
     clean_column_name,
     clean_column_names,
     clean_opportunity_df,
     collapse_supplemental_fields,
     compare_schemas,
+    load_opportunity_files,
     merge_opportunity_tables,
+    parse_args,
     write_outputs,
 )
 
@@ -498,3 +509,112 @@ def test_write_outputs_writes_week1_and_sprint2_artifacts_to_temp_dir(tmp_path):
     }
     assert expected_owner_columns.issubset(set(owner_summary_written.columns))
     assert set(owner_summary_written["opportunity_owner"]) == {"Alice", "Bob"}
+
+
+# ---------------------------------------------------------------------------
+# Week 6 regression tests: CLI input workflow and RFP alias preservation
+# ---------------------------------------------------------------------------
+
+
+def _make_minimal_xlsx(path, sheet_name="Data", rows=None):
+    """Create a minimal .xlsx fixture using openpyxl. No real CGI data."""
+    wb = openpyxl.Workbook()
+    ws = wb.active
+    ws.title = sheet_name
+    ws.append(["Opportunity ID", "Status"])
+    for row in (rows or [["A001", "Open"]]):
+        ws.append(row)
+    wb.save(path)
+    return path
+
+
+def test_load_opportunity_files_raises_on_missing_files(tmp_path):
+    """FileNotFoundError is raised when both input files are absent."""
+    missing1 = tmp_path / "not_here_1.xlsx"
+    missing2 = tmp_path / "not_here_2.xlsx"
+    with pytest.raises(FileNotFoundError, match="Missing required opportunity file"):
+        load_opportunity_files(opps1_path=missing1, opps2_path=missing2)
+
+
+@pytest.mark.parametrize("which_missing", ["opps1", "opps2"])
+def test_load_opportunity_files_error_names_missing_file(tmp_path, which_missing):
+    """Error message includes the name of whichever file is missing (both positions)."""
+    real = tmp_path / "real.xlsx"
+    _make_minimal_xlsx(real)
+    missing = tmp_path / "definitely_missing.xlsx"
+    opps1 = missing if which_missing == "opps1" else real
+    opps2 = missing if which_missing == "opps2" else real
+    with pytest.raises(FileNotFoundError) as exc_info:
+        load_opportunity_files(opps1_path=opps1, opps2_path=opps2)
+    assert "definitely_missing.xlsx" in str(exc_info.value)
+
+
+def test_load_opportunity_files_raises_on_missing_sheet(tmp_path):
+    """ValueError is raised when the requested sheet name does not exist."""
+    opps1 = tmp_path / "opps1.xlsx"
+    opps2 = tmp_path / "opps2.xlsx"
+    _make_minimal_xlsx(opps1, sheet_name="WrongSheet")
+    _make_minimal_xlsx(opps2, sheet_name="WrongSheet")
+    with pytest.raises(ValueError, match="[Ss]heet"):
+        load_opportunity_files(opps1_path=opps1, opps2_path=opps2, sheet_name="Data")
+
+
+def test_load_opportunity_files_accepts_custom_paths(tmp_path):
+    """load_opportunity_files successfully reads two caller-supplied xlsx paths."""
+    opps1 = tmp_path / "my_opps1.xlsx"
+    opps2 = tmp_path / "my_opps2.xlsx"
+    _make_minimal_xlsx(opps1)
+    _make_minimal_xlsx(opps2)
+    df1, df2 = load_opportunity_files(opps1_path=opps1, opps2_path=opps2)
+    assert len(df1) == 1
+    assert len(df2) == 1
+    assert "Opportunity ID" in df1.columns
+
+
+def test_load_opportunity_files_default_paths_match_module_constants():
+    """Function signature defaults equal the module-level path constants."""
+    sig = inspect.signature(load_opportunity_files)
+    assert sig.parameters["opps1_path"].default == OPPS1_PATH
+    assert sig.parameters["opps2_path"].default == OPPS2_PATH
+    assert sig.parameters["sheet_name"].default == EXCEL_SHEET_NAME
+
+
+def test_parse_args_defaults_match_module_constants(monkeypatch):
+    """parse_args() with no flags returns the same defaults as module constants."""
+    monkeypatch.setattr("sys.argv", ["opportunity_cleaner"])
+    args = parse_args()
+    assert args.opps1_path == OPPS1_PATH
+    assert args.opps2_path == OPPS2_PATH
+    assert args.sheet_name == EXCEL_SHEET_NAME
+    assert args.output_dir == PROCESSED_DIR
+
+
+def test_parse_args_accepts_custom_paths(monkeypatch, tmp_path):
+    """parse_args() maps all four CLI flags to the expected Namespace attributes."""
+    custom_opps1 = str(tmp_path / "client_opps1.xlsx")
+    custom_opps2 = str(tmp_path / "client_opps2.xlsx")
+    monkeypatch.setattr(
+        "sys.argv",
+        [
+            "opportunity_cleaner",
+            "--opps1-path", custom_opps1,
+            "--opps2-path", custom_opps2,
+            "--sheet-name", "ClientSheet",
+            "--output-dir", str(tmp_path),
+        ],
+    )
+    args = parse_args()
+    assert args.opps1_path == Path(custom_opps1)
+    assert args.opps2_path == Path(custom_opps2)
+    assert args.sheet_name == "ClientSheet"
+    assert args.output_dir == tmp_path
+
+
+def test_clean_opportunity_df_rfp_alias_na_when_json_s_num_absent():
+    """rfp_alias and has_rfp_alias are present even when json_s_num column is absent."""
+    df = pd.DataFrame({"opportunity_id": ["A", "B"]})
+    cleaned = clean_opportunity_df(df)
+    assert "rfp_alias" in cleaned.columns, "rfp_alias must always be present"
+    assert "has_rfp_alias" in cleaned.columns, "has_rfp_alias must always be present"
+    assert cleaned["rfp_alias"].isna().all(), "rfp_alias should be NA when no json_s_num"
+    assert list(cleaned["has_rfp_alias"]) == [False, False]
