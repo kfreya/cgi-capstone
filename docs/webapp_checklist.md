@@ -1,4 +1,4 @@
-# Week 6: App-Level QA & Client Data Replacement Report
+# App-Level QA & Client Data Replacement Report
 
 The purpose of this report is documenting the verification results of the Streamlit application after replacing the demo data with CGI's actual spreadsheet data.
 
