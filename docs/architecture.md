@@ -31,10 +31,10 @@ Key boundaries:
 - Capacity results are relative workload signals, not exact working hours,
   utilization, or guaranteed availability.
 - RFP recommendations are not final CGI assignment decisions.
-- Retrieved proposal chunks are semantic evidence only. They do not prove
-  director involvement, director experience, or opportunity ownership because
-  reliable proposal-to-CRM linkage is not available in the current proposal
-  chunks.
+- Retrieved proposal chunks are semantic evidence. When CGI's `Json S-Num` /
+  `rfp_alias` crosswalk is available, chunks can also carry CRM opportunity
+  linkage. Linked CRM opportunity ownership is context, not proof that a
+  director personally wrote the proposal or delivered the work.
 - Azure/Chroma retrieval is optional and backend-validated. Local fallback
   retrieval remains supported for demo and development environments.
 
@@ -396,7 +396,7 @@ Semantic relevance measures how similar the new RFP is to a director's historica
 
 CGI confirmed that experience should combine semantic relevance with structured track record. Structured track record measures outcome quality and historical success. It should use smoothed rates and confidence adjustment based on sample size and data completeness.
 
-Current prototype boundary: reliable director-to-proposal linkage is not available in the proposal chunks because `opportunity_owner` and `opportunity_id` are not populated consistently. Therefore, retrieved chunks are treated as semantic evidence for the RFP, not proof of a director's prior experience. The final prototype uses director capacity, retrieval similarity, and an owner-level `service_solution` profile as the implemented fit signals.
+Current prototype boundary: proposal-to-CRM linkage is available when CGI's `Json S-Num` / `rfp_alias` crosswalk is present in the cleaned opportunity output. Retrieved chunks should still be treated carefully: linked `opportunity_owner` means CRM opportunity ownership/context, not proof of personal proposal authorship or delivery experience. The final prototype uses director capacity, retrieval similarity, owner-level `service_solution` profile, and a small structured linkage signal as implemented fit signals.
 
 Candidate features include:
 
@@ -637,5 +637,5 @@ The architecture reflects these EDA findings and CGI meeting decisions:
 6.  Proposal and RFP documents require chunking before embedding.
 7.  `total_estimated_revenue` or matched opportunity-level total revenue is the authoritative revenue input; do not add service-solution revenue to opportunity total revenue.
 8.  `service_solution` can support service-fit matching, but the final prototype only uses it as a lightweight owner-level profile, not as proof of director expertise.
-9.  Retrieved proposal chunks currently lack reliable `opportunity_owner` / `opportunity_id` linkage, so retrieval evidence should be described as semantic similarity evidence rather than director experience evidence.
+9.  Retrieved proposal chunks can carry `opportunity_owner` / `opportunity_id` linkage when the local `rfp_alias` crosswalk is available. Linkage should be described as CRM opportunity context, not proof of personal director delivery experience.
 10. Some fields are too sparse for capacity scoring, including `proposal_submission_date`, `rfp_release_date`, `comments`, and `free_field_text_2`.

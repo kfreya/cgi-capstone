@@ -291,6 +291,87 @@ def test_generate_assignment_context_flags_missing_retrieval_linkage():
     )
 
 
+def test_generate_assignment_context_uses_retrieved_linkage_metadata():
+    """Linked retrieved examples should be reported without the missing-linkage caveat."""
+
+    output = generate_assignment_context(
+        "Need cybersecurity operations support.",
+        director_df=pd.DataFrame(
+            {
+                "opportunity_owner": ["Director Cyber"],
+                "capacity_label": ["Available"],
+                "capacity_score": [0.7],
+                "relative_load": [0.8],
+                "service_domain": ["Cyber Managed Services"],
+            }
+        ),
+        historical_chunks=[
+            {
+                "proposal_id": "18_cybersecurity_operations",
+                "chunk_id": "proposal_018_chunk_001",
+                "source_type": "proposal",
+                "text": "Cybersecurity operations and managed detection services.",
+                "chunk_index": 0,
+                "rfp_alias": "18",
+                "opportunity_id": "OPP-18",
+                "opportunity_owner": "Director Cyber",
+                "opportunity_outcome": "won",
+            }
+        ],
+        _chat_fn=None,
+    )
+
+    assert output["retrieval_status"]["retrieved_examples_have_director_linkage"] is True
+    assert output["retrieval_status"]["retrieved_examples_with_won_opportunity"] == 1
+    assert output["retrieved_examples"][0]["opportunity_id"] == "OPP-18"
+    assert not any(
+        "cannot currently be tied reliably" in flag["message"].lower()
+        for flag in output["risk_flags"]
+    )
+    assert "won CRM opportunities" in output["recommended_directors"][0][
+        "experience_match_explanation"
+    ]
+
+
+def test_generate_assignment_context_treats_non_won_linkage_as_context():
+    """Open/lost linked examples should not be described as successful delivery proof."""
+
+    output = generate_assignment_context(
+        "Need data analytics dashboard support.",
+        director_df=pd.DataFrame(
+            {
+                "opportunity_owner": ["Director Data"],
+                "capacity_label": ["Available"],
+                "capacity_score": [0.7],
+                "relative_load": [0.8],
+                "service_domain": ["Data Analytics"],
+            }
+        ),
+        historical_chunks=[
+            {
+                "proposal_id": "17_reporting_solution",
+                "chunk_id": "proposal_017_chunk_001",
+                "source_type": "proposal",
+                "text": "Data analytics dashboard reporting solution.",
+                "chunk_index": 0,
+                "rfp_alias": "17",
+                "opportunity_id": "OPP-17",
+                "opportunity_owner": "Director Data",
+                "opportunity_outcome": "open",
+            }
+        ],
+        _chat_fn=None,
+    )
+
+    assert any(
+        "not all linked opportunities are won" in flag["message"].lower()
+        for flag in output["risk_flags"]
+    )
+    assert "not classified as won" in output["recommended_directors"][0][
+        "experience_match_explanation"
+    ]
+
+
 def test_generate_assignment_context_ranks_directors_by_capacity_signal():
     """Check that better capacity signals move a director higher."""
 

@@ -134,7 +134,7 @@ All list fields handle `None`, empty list, and non-list gracefully.
 
 -   **Full-corpus Azure/Chroma rebuilds are guarded.** Azure/Chroma is wired through the RFP engine, but normal dashboard requests reuse an existing Chroma collection instead of rebuilding on every request. If Azure/Chroma config, optional dependencies, or a reusable store are unavailable, the UI uses labelled local fallback retrieval over the same active corpus. The UI uses client-facing wording such as: "Azure/Chroma retrieval was unavailable for this request. The system used local retrieval instead."
 
--   **Retrieved chunks do not prove director experience.** Current proposal chunks may lack reliable `opportunity_owner` / `opportunity_id` linkage. The UI reports this in client-facing wording so retrieved examples are interpreted as semantic evidence, not proof of a director's prior work.
+-   **Retrieved chunks do not prove director experience.** Proposal chunks can carry CRM opportunity linkage when CGI's `Json S-Num` / `rfp_alias` crosswalk is available. Linked `opportunity_owner` reflects CRM opportunity ownership/context, not proof that the owner personally wrote the proposal or delivered the work. When retrieved examples lack linkage, the UI reports that they should be interpreted as semantic evidence only.
 
 ------------------------------------------------------------------------
 
