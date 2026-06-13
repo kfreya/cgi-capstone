@@ -28,7 +28,7 @@ The initial page loaded normally upon navigation. After copying and pasting a sa
 
 ## 4. Resilience Testing
 
-A failure-state check was conducted to test the application's resilience. When the `data/processed` folder was temporarily renamed to simulate missing data, the dashboard gracefully handled the absence of data by throwing an informational warning or error message rather than experiencing a complete crash. This confirms the robustness of the application's fallback and error-handling logic.
+A failure-state check was conducted to test the application's resilience. When the `data/processed` folder was temporarily renamed to simulate missing data, the dashboard gracefully handled the absence of data by throwing a clear informational warning message rather than experiencing a complete crash. This confirms the robustness of the application's fallback and error-handling logic.
 
 ## 5. Next Steps for CGI
 Users from CGI can now place their new batches of spreadsheets into data/csv_files and run the pipeline independently using the CLI command.
