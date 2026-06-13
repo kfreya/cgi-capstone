@@ -4,11 +4,24 @@ The purpose of this report is documenting the verification results of the Stream
 
 ## 1. Data Replacement and Pipeline Execution
 
-First of all, move the newest data `anonymized_opps_1.xlsx` into the `data/` folder, then run the code below:
+The opportunity preprocessing pipeline was verified against both default and custom CLI arguments.
+
+**Default Workflow:**
+Running the script without arguments successfully processes the default demo files:
 ```bash
-python -m src.opportunity_cleaner --opps1-path data/anonymized_opps_1.xlsx
+python -m src.opportunity_cleaner
 ```
-The code ran successfully, and generated the processed output `.csv` files in the `data/processed` directory. Upon launching the application using `streamlit run app/app.py`, there were no obvious error logs in the backend terminal.
+
+**CLI-Provided Safe Test Files Workflow:**
+The script correctly accepts custom paths to specific safe test spreadsheets, configurable sheet names, and output directories:
+```bash
+python -m src.opportunity_cleaner \
+    --opps1-path data/csv_files/anonymized_opps_1.xlsx \
+    --opps2-path data/csv_files/anonymized_opps_2.xlsx \
+    --sheet-name Data \
+    --output-dir data/processed
+```
+Both workflows ran successfully and generated the expected output `.csv` files. Upon launching the application (`streamlit run app/app.py`), we explicitly verified that the dashboard prioritized loading `data/processed/cleaned_opportunity_df.csv` over fallback sources or raw `opportunity_df.csv`.
 
 ## 2. Dashboard Rendering and Stability
 
@@ -28,7 +41,12 @@ The initial page loaded normally upon navigation. After copying and pasting a sa
 
 ## 4. Resilience Testing
 
-A failure-state check was conducted to test the application's resilience. When the `data/processed` folder was temporarily renamed to simulate missing data, the dashboard gracefully handled the absence of data by throwing a clear informational warning message rather than experiencing a complete crash. This confirms the robustness of the application's fallback and error-handling logic.
+A failure-state check was conducted to test the application's resilience. When the `data/processed` folder was temporarily renamed to simulate missing processed data, the dashboard gracefully fell back to a lower-priority source (prebuilt/mock data) and displayed the exact expected warning: `Data loading fell back to a lower-priority source.` rather than experiencing a complete crash. This confirms the robustness of the application's fallback and error-handling logic.
 
 ## 5. Next Steps for CGI
-Users from CGI can now place their new batches of spreadsheets into data/csv_files and run the pipeline independently using the CLI command.
+Users from CGI can now place their specific actual spreadsheets into the `data/csv_files/` directory. They can then run the pipeline independently using the full CLI command, explicitly pointing to their specific filenames. For example:
+```bash
+python -m src.opportunity_cleaner \
+    --opps1-path data/csv_files/<actual_cgi_opps1>.xlsx \
+    --opps2-path data/csv_files/<actual_cgi_opps2>.xlsx
+```
