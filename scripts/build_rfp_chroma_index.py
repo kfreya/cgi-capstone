@@ -20,7 +20,6 @@ from src.rfp_engine import _default_historical_chunks
 from src.vector_store import (
     ChromaVectorStore,
     _valid_chunks_from_dicts,
-    get_chroma_collection_count,
 )
 
 PERSIST_DIRECTORY = "data/vector_store"
@@ -60,10 +59,7 @@ def main() -> None:
         reset_collection=True,
     )
     store.add_chunks(rfp_chunks, embeddings)
-    indexed_count = get_chroma_collection_count(
-        persist_directory=PERSIST_DIRECTORY,
-        collection_name=COLLECTION_NAME,
-    )
+    indexed_count = store.collection.count()
     elapsed = time.perf_counter() - start
 
     print(f"indexed_chunk_count: {indexed_count}", flush=True)
