@@ -10,6 +10,7 @@ The opportunity preprocessing pipeline was rigorously verified to ensure smooth 
 We confirmed that the pipeline remains fully backward-compatible. Running the script without any arguments defaults to processing the original demo files safely:
 ```bash
 python -m src.opportunity_cleaner
+python scripts/build_rfp_chroma_index.py
 ```
 
 ### 1.2 CLI-Provided Safe Test Files Workflow
@@ -20,6 +21,9 @@ python -m src.opportunity_cleaner \
     --opps2-path data/csv_files/anonymized_opps_2.xlsx \
     --sheet-name Data \
     --output-dir data/processed
+
+# Rebuild the retrieval index with the new processed data
+python scripts/build_rfp_chroma_index.py
 ```
 
 ### 1.3 Processed Data Loading Validation
@@ -39,7 +43,7 @@ When navigating to the dashboard via the sidebar, the page loaded successfully w
 
 The RFP Assignment Tool was also smoke-tested and performed as expected. 
 
-![RFP Assignment Tool Screenshot](image/screencapture-RFP.png)
+![RFP Assignment Tool Screenshot](image/rebuilt.png)
 
 The initial page loaded normally upon navigation. After copying and pasting a sample RFP text into the tool, the entire analysis pipeline executed smoothly and successfully returned recommended directors. The results page accurately displayed the current retrieval mode (e.g., `azure_chroma` or `local_fallback`), and the generated Risk Flags reasonably reflected the constraints and context of the new data.
 
@@ -94,10 +98,13 @@ Users from CGI can now independently run the pipeline using their actual CRM spr
 
 **Example Command for CGI Execution:**
 ```bash
-# change <actual_cgi_opps1>.xlsx to your real spreadsheet filename
+# 1. Clean the new data (change <actual_cgi_opps1>.xlsx to your real spreadsheet filename)
 python -m src.opportunity_cleaner \
     --opps1-path data/csv_files/<actual_cgi_opps1>.xlsx \
     --opps2-path data/csv_files/<actual_cgi_opps2>.xlsx \
     --sheet-name Data \
     --output-dir data/processed
+
+# 2. Rebuild the vector index so the RFP tool can search the new data
+python scripts/build_rfp_chroma_index.py
 ```
