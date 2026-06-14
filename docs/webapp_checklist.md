@@ -39,7 +39,7 @@ When navigating to the dashboard via the sidebar, the page loaded successfully w
 
 The RFP Assignment Tool was also smoke-tested and performed as expected. 
 
-![RFP Assignment Tool Screenshot](image/screencapture-RFP.png)
+![RFP Assignment Tool Screenshot](image/rebuilt.png)
 
 The initial page loaded normally upon navigation. After copying and pasting a sample RFP text into the tool, the entire analysis pipeline executed smoothly and successfully returned recommended directors. The results page accurately displayed the current retrieval mode (e.g., `azure_chroma` or `local_fallback`), and the generated Risk Flags reasonably reflected the constraints and context of the new data.
 
