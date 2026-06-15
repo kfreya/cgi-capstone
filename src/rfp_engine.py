@@ -956,8 +956,7 @@ def _mock_director_record() -> dict[str, Any]:
         "capacity_score": 0.72,
         "relative_load": 0.65,
         "match_reason": (
-            "Semantically similar historical context and available capacity signal "
-            "based on retrieved semantic examples; "
+            "Available capacity signal plus retrieved semantic examples; "
             "this does not prove prior director experience."
         ),
     }
