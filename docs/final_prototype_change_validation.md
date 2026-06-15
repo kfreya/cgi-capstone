@@ -1,8 +1,8 @@
-# Final Prototype Validation
+# Final Prototype Change Validation
 
 Date: May 31, 2026
 
-This document records the fixes implemented in the end of Sprint 4 to stabilize the final prototype. 
+This document records the fixes implemented in the end of Sprint 4 to stabilize the final prototype.
 
 ## Scope
 
@@ -36,12 +36,16 @@ Remaining boundary: scanned PDFs may still require manual paste or OCR because o
 
 - Updated the RFP engine to load the full local `data/proposals_responses.json` proposal corpus when available.
 - Kept the smaller sample corpus as a fallback only when the proposal corpus is unavailable.
-- Chunked the newly submitted RFP query before retrieval.
-- Added query-chunk support to Azure/Chroma retrieval.
-- Added multi-query local fallback retrieval in `vector_store.py`.
-- Added an on-demand Azure/Chroma build cap for large corpora.
-- Changed full-corpus Azure/Chroma skip behavior from an error to an explicit fallback notice.
-- Kept local retrieval over the same corpus as the stable fallback when Azure/Chroma is unavailable or skipped.
+- Used submitted RFP text as the retrieval query against chunked
+  historical/sample corpora.
+- Added support for multi-part query handling in Azure/Chroma and local
+  fallback retrieval paths.
+- Updated interactive Azure/Chroma behavior so an existing Chroma collection is
+  reused by default instead of rebuilt on every request.
+- Kept explicit Chroma rebuild available through `RFP_REBUILD_CHROMA=1` for
+  backend validation or maintenance.
+- Kept local retrieval over the same corpus as the stable fallback when
+  Azure/Chroma config, optional dependencies, or reusable store are unavailable.
 
 Remaining boundary: retrieved proposal chunks do not include reliable `opportunity_owner` or `opportunity_id` linkage, so retrieval evidence should be treated as semantic similarity evidence, not proof of a director's prior experience.
 
@@ -103,7 +107,7 @@ conda run -n cgi-capstone python -m pytest
 Result:
 
 ```text
-148 passed, 1 warning
+151 passed, 2 warnings
 ```
 
 ```bash
@@ -153,7 +157,7 @@ Claims to avoid:
 - `docs/architecture.md`
 - `docs/director_capacity_dashboard_column_dictionary.md`
 - `docs/final_integration_qa.md`
-- `docs/llm_enriched_rfp_output_&_dashboard.md`
+- `docs/rfp_llm_enrichment_dashboard_notes.md`
 - `docs/rfp_dashboard_integration.md`
 - `docs/rfp_week4_status.md`
 - `environment.yml`

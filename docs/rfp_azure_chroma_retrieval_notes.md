@@ -1,4 +1,4 @@
-# Azure Embedding + Vector Store (Week 3)
+# RFP Azure/Chroma Retrieval Notes
 
 ## Responsibility Summary
 This week's focus is moving the RFP retrieval pipeline from a purely local prototype toward an Azure-backed retrieval path **without breaking the existing fallback**.
@@ -38,7 +38,7 @@ Added helper functions to support:
 Intent:
 - Enable an Azure+Chroma retrieval path while preserving the local in-memory retrieval path.
 
-## How to Call / Use 
+## How to Call / Use
 ### Azure embedding function
 - Primary entrypoint is the embedding function that takes `Sequence[str]` and returns `list[list[float]]`.
 - This is designed to plug into vector store build/query helpers.
@@ -81,7 +81,7 @@ python src/check_env.py
 Expected:
 - Required variables show `FOUND`
 
-### Step 2 — run minimal embedding smoke test 
+### Step 2 — run minimal embedding smoke test
 Run from repo root (prints only counts/dimensions):
 ```bash
 python - << 'PY'
@@ -95,9 +95,9 @@ PY
 
 Expected:
 - `n_vectors: 1`
-- `dim: <positive integer>` 
+- `dim: <positive integer>`
 
-### Step 3 — (optional) Chroma smoke test 
+### Step 3 — (optional) Chroma smoke test
 ```bash
 python - << 'PY'
 from src.rfp_preprocessor import prepare_rfp_chunks

@@ -1,4 +1,4 @@
-# Week 4 Report Notes — Freya
+# RFP LLM Enrichment and Dashboard Notes
 
 **Role:** LLM Enrichment + RFP Output Quality Check + Dashboard Polish
 

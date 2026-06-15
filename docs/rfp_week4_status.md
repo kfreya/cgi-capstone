@@ -6,16 +6,16 @@ Jai - Role 5
 
 ## Scope
 
-Week 4 focused on validating the RFP Assignment Tool inside the Streamlit app and confirming that the final prototype can show Azure/Chroma retrieval, Azure OpenAI chat enrichment, live capacity data, director recommendations, risk flags, and prototype limitations clearly.
+Week 4 focused on validating the RFP Assignment Tool inside the Streamlit app and confirming that the final prototype can show Azure/Chroma retrieval, Azure OpenAI chat enrichment, processed CRM-derived capacity data, director recommendations, risk flags, and prototype limitations clearly.
 
 ## Current Status
 
 - The Streamlit RFP Assignment Tool page runs locally.
 - The page accepts pasted RFP text and calls `generate_assignment_context()`.
-- Azure/Chroma retrieval is integrated into the RFP analysis flow when the Azure configuration is available.
+- Azure/Chroma retrieval was validated in configured/backend paths, and the app reports retrieval mode when used.
 - Local fallback behavior is still preserved if Azure/Chroma is unavailable.
 - Azure OpenAI chat enrichment is active for summary, effort estimate, and director match explanations when chat configuration is available.
-- Live CRM capacity data is being used for director capacity signals when available.
+- Processed CRM-derived capacity data is being used for director capacity signals when available.
 - The output is dashboard-ready and includes summary, effort, similar historical RFPs, recommended directors, risk flags, notes, and retrieval status.
 
 ## Week 4 Checklist Confirmation
@@ -27,7 +27,7 @@ Week 4 focused on validating the RFP Assignment Tool inside the Streamlit app an
 - Three main sample categories were tested: cloud migration / managed services, health/data roadmap, and vague or short RFP input.
 - The tested inputs returned summary, effort estimate, similar historical RFPs, recommended directors, risk flags, and notes.
 - LLM enrichment is fallback-safe. When Azure OpenAI chat succeeds, the summary, effort, and match reasons are enriched. When chat fails, the page still shows heuristic output and does not crash.
-- Screenshots were captured during testing showing Azure/Chroma retrieval mode, live CRM capacity data, recommended directors, and risk flags.
+- Screenshots were captured during testing showing Azure/Chroma retrieval mode, processed CRM-derived capacity data, recommended directors, and risk flags.
 
 ## Week 4 RFP Safeguard Updates
 
@@ -44,7 +44,7 @@ Week 4 focused on validating the RFP Assignment Tool inside the Streamlit app an
 - Confirmed in `app/app.py`: the app loads `capacity_df` once through `load_data()`.
 - The Director Capacity Dashboard uses this `capacity_df` for its charts, tables, and capacity labels.
 - The RFP Assignment Tool passes the same `capacity_df` into `generate_assignment_context(rfp_text, director_df=capacity_df)`.
-- The RFP page labels the source as Live CRM capacity data when `_data_source` is `real`.
+- The RFP page labels the source as computed from CRM opportunity records when `_data_source` is `real`.
 - Recommended directors display capacity label, capacity score, and relative load from the passed capacity table.
 - The assignment score is capacity-aware because `src/rfp_engine.py` uses `capacity_score`, capacity label, retrieval similarity, and `service_solution` overlap when available.
 - This confirms the RFP recommendations are using the same capacity data source as the dashboard, while still remaining prototype guidance.
@@ -101,7 +101,7 @@ Result:
 
 - Streamlit RFP page rendered successfully.
 - Retrieval mode displayed as Azure/Chroma retrieval active.
-- Capacity data displayed as Live CRM capacity data with 24 owners.
+- Capacity data displayed as computed from CRM opportunity records with 24 owners.
 - Azure OpenAI chat enrichment produced the RFP summary, effort estimate, and director match reasons.
 - Similar historical RFP chunks were returned from the default sample historical corpus.
 - Recommended directors were shown with capacity score, relative load, assignment score, explanations, and supporting chunks.

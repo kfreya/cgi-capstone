@@ -12,6 +12,7 @@ from __future__ import annotations
 
 import json
 import logging
+import time
 from collections.abc import Callable, Sequence
 from dataclasses import dataclass
 from math import isfinite, sqrt
@@ -26,6 +27,8 @@ except ModuleNotFoundError:
 
 EmbeddingFunction = Callable[[Sequence[str]], list[list[float]]]
 _DEFAULT_STORE: "InMemoryVectorStore | None" = None
+_LAST_CHROMA_TIMINGS: dict[str, Any] = {}
+_LAST_CHROMA_QUERY_TIMINGS: dict[str, Any] = {}
 _LOCAL_EMBEDDING_TERMS = [
     "cloud",
     "azure",
@@ -78,7 +81,7 @@ class SearchResult:
         @return: Flat retrieved-example dictionary for assignment context.
         """
 
-        return {
+        example = {
             "proposal_id": self.chunk.metadata.get(
                 "proposal_id",
                 self.chunk.document_id,
@@ -87,6 +90,8 @@ class SearchResult:
             "similarity_score": round(self.score, 4),
             "supporting_text": self.chunk.text,
         }
+        _copy_linkage_metadata(example, self.chunk.metadata)
+        return example
 
 
 def cosine_similarity(left: Sequence[float], right: Sequence[float]) -> float:
@@ -250,12 +255,15 @@ class ChromaVectorStore:
         persist_directory: str = "data/vector_store",
         collection_name: str = "rfp_chunks",
         reset_collection: bool = False,
+        create_if_missing: bool = True,
     ) -> None:
         """Connect to a persistent Chroma collection.
 
         @param persist_directory: Local directory for Chroma vector-store files.
         @param collection_name: Chroma collection name for RFP chunks.
         @param reset_collection: When true, rebuild the collection from scratch.
+        @param create_if_missing: When false, require a reusable collection to
+            already exist instead of silently creating an empty one.
         @raises ImportError: If `chromadb` is not installed.
         """
 
@@ -264,8 +272,9 @@ class ChromaVectorStore:
             from chromadb.config import Settings
         except ImportError as exc:
             raise ImportError(
-                "chromadb is required for ChromaVectorStore. "
-                "Install the project environment before using it."
+                "chromadb is optional and required only for Azure/Chroma "
+                "retrieval. Install chromadb to run Chroma smoke tests; "
+                "the Streamlit app can use local fallback without it."
             ) from exc
 
         self.client = chromadb.PersistentClient(
@@ -279,7 +288,15 @@ class ChromaVectorStore:
                 # Chroma raises when the collection does not exist; that is fine
                 # because get_or_create_collection below will create a fresh one.
                 pass
-        self.collection = self.client.get_or_create_collection(name=collection_name)
+        if reset_collection or create_if_missing:
+            self.collection = self.client.get_or_create_collection(name=collection_name)
+        else:
+            try:
+                self.collection = self.client.get_collection(name=collection_name)
+            except Exception as exc:
+                raise ValueError(
+                    f"Reusable Chroma collection not found: {collection_name}"
+                ) from exc
 
     def add_chunks(
         self,
@@ -513,10 +530,9 @@ def _chunk_from_dict(chunk: dict[str, Any]) -> RFPChunk:
                 "chunk_index": chunk_index,
                 "proposal_id": chunk.get("proposal_id", document_id),
                 "source_type": chunk.get("source_type", section),
-                "opportunity_owner": chunk.get("opportunity_owner"),
-                "opportunity_id": chunk.get("opportunity_id"),
             }
         )
+        _copy_linkage_metadata(metadata, chunk)
 
         return RFPChunk(
             chunk_id=chunk_id,
@@ -529,7 +545,7 @@ def _chunk_from_dict(chunk: dict[str, Any]) -> RFPChunk:
         )
 
     source_type = str(chunk.get("source_type", "proposal"))
-    return RFPChunk(
+    rfp_chunk = RFPChunk(
         chunk_id=chunk_id,
         document_id=proposal_id,
         title=proposal_id,
@@ -541,10 +557,10 @@ def _chunk_from_dict(chunk: dict[str, Any]) -> RFPChunk:
             "chunk_id": chunk_id,
             "source_type": source_type,
             "chunk_index": chunk_index,
-            "opportunity_owner": chunk.get("opportunity_owner"),
-            "opportunity_id": chunk.get("opportunity_id"),
         },
     )
+    _copy_linkage_metadata(rfp_chunk.metadata, chunk)
+    return rfp_chunk
 
 
 def _local_embedding(texts: Sequence[str]) -> list[list[float]]:
@@ -650,22 +666,41 @@ def build_chroma_from_chunks(
     chunks: dashboard-style chunk dicts (same shape accepted by build_vector_store()).
     embedding_function: callable(texts)->list[list[float]]; if None, uses Azure embed_texts().
     """
+    global _LAST_CHROMA_TIMINGS
+    total_start = time.perf_counter()
+    timings: dict[str, Any] = {
+        "reset_collection": reset_collection,
+    }
     if embedding_function is None:
         try:
             from src.azure_client import embed_texts as embedding_function
         except ModuleNotFoundError:
             from azure_client import embed_texts as embedding_function
 
+    start = time.perf_counter()
     rfp_chunks = _valid_chunks_from_dicts(chunks or [])
     texts = [chunk.text for chunk in rfp_chunks]
-    embeddings = _embed_texts_in_batches(texts, embedding_function) if texts else []
+    timings["chroma_prepare_chunks_seconds"] = round(time.perf_counter() - start, 4)
+    timings["chroma_chunk_count"] = len(rfp_chunks)
 
+    start = time.perf_counter()
+    embeddings = _embed_texts_in_batches(texts, embedding_function) if texts else []
+    timings["chroma_embed_all_chunks_seconds"] = round(time.perf_counter() - start, 4)
+    timings["chroma_embedding_count"] = len(embeddings)
+
+    start = time.perf_counter()
     store = ChromaVectorStore(
         persist_directory=persist_directory,
         collection_name=collection_name,
         reset_collection=reset_collection,
     )
+    timings["chroma_open_collection_seconds"] = round(time.perf_counter() - start, 4)
+
+    start = time.perf_counter()
     store.add_chunks(rfp_chunks, embeddings)
+    timings["chroma_add_chunks_seconds"] = round(time.perf_counter() - start, 4)
+    timings["chroma_build_total_seconds"] = round(time.perf_counter() - total_start, 4)
+    _LAST_CHROMA_TIMINGS = timings
     return store
 
 
@@ -676,20 +711,33 @@ def query_chroma(
     collection_name: str = "rfp_chunks",
     top_k: int = 5,
     embedding_function=None,
+    require_existing_collection: bool = False,
 ) -> list[dict[str, Any]]:
     """Query Chroma using Azure embeddings and return dashboard-style retrieved_examples."""
+    global _LAST_CHROMA_QUERY_TIMINGS
+    total_start = time.perf_counter()
+    timings: dict[str, Any] = {}
     if embedding_function is None:
         try:
             from src.azure_client import embed_texts as embedding_function
         except ModuleNotFoundError:
             from azure_client import embed_texts as embedding_function
 
+    start = time.perf_counter()
     query_embedding = embedding_function([query_text])[0]
+    timings["chroma_query_embedding_seconds"] = round(time.perf_counter() - start, 4)
+
+    start = time.perf_counter()
     store = ChromaVectorStore(
         persist_directory=persist_directory,
         collection_name=collection_name,
+        create_if_missing=not require_existing_collection,
     )
+    timings["chroma_query_open_collection_seconds"] = round(time.perf_counter() - start, 4)
+
+    start = time.perf_counter()
     raw = store.query(query_embedding, top_k=top_k)
+    timings["chroma_collection_query_seconds"] = round(time.perf_counter() - start, 4)
 
     # Chroma returns dict with lists; normalize to retrieved_examples shape.
     ids = (raw.get("ids") or [[]])[0]
@@ -711,15 +759,18 @@ def query_chroma(
         if isinstance(meta, dict):
             proposal_id = meta.get("proposal_id") or meta.get("document_id")
 
-        out.append(
-            {
-                "proposal_id": proposal_id or "unknown",
-                "chunk_id": chunk_id,
-                "similarity_score": round(similarity, 4) if similarity is not None else None,
-                "supporting_text": doc,
-            }
-        )
+        example = {
+            "proposal_id": proposal_id or "unknown",
+            "chunk_id": chunk_id,
+            "similarity_score": round(similarity, 4) if similarity is not None else None,
+            "supporting_text": doc,
+        }
+        if isinstance(meta, dict):
+            _copy_linkage_metadata(example, meta)
+        out.append(example)
 
+    timings["chroma_query_total_seconds"] = round(time.perf_counter() - total_start, 4)
+    _LAST_CHROMA_QUERY_TIMINGS = timings
     return out
 # --- Week 3 Add-ons Ends here ---
 
@@ -755,6 +806,8 @@ def get_vector_store_status() -> dict[str, Any]:
         "local_store_size": len(_DEFAULT_STORE) if _DEFAULT_STORE is not None else 0,
         "supports_flat_contract": True,
         "supports_chroma": True,
+        "last_chroma_build_timings": dict(_LAST_CHROMA_TIMINGS),
+        "last_chroma_query_timings": dict(_LAST_CHROMA_QUERY_TIMINGS),
     }
 
 
@@ -825,3 +878,29 @@ def _similarity_value(example: dict[str, Any]) -> float:
     except (TypeError, ValueError, OverflowError):
         return float("-inf")
     return value if isfinite(value) else float("-inf")
+
+
+_LINKAGE_METADATA_FIELDS = (
+    "document_id",
+    "source_type",
+    "source_title",
+    "rfp_alias",
+    "json_s_num",
+    "opportunity_id",
+    "opportunity_owner",
+    "opportunity_manager",
+    "service_solution",
+    "status",
+    "status_reason",
+    "opportunity_outcome",
+)
+
+
+def _copy_linkage_metadata(target: dict[str, Any], source: dict[str, Any]) -> None:
+    for field in _LINKAGE_METADATA_FIELDS:
+        value = source.get(field)
+        if value is None:
+            continue
+        if isinstance(value, str) and not value.strip():
+            continue
+        target[field] = value

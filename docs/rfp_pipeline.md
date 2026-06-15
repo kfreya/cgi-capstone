@@ -130,13 +130,20 @@ Field-level rules:
   `proposal_response`.
 - `chunk_index` (int): zero-based index within one source document.
 - `text` (string): chunk payload used for embedding/retrieval.
-- `opportunity_owner` (nullable string): currently null in historical chunks.
-- `opportunity_id` (nullable string): currently null in historical chunks.
+- `opportunity_owner` (nullable string): populated when CGI's
+  `Json S-Num` / `rfp_alias` crosswalk links a proposal to a CRM opportunity;
+  otherwise null.
+- `opportunity_id` (nullable string): populated when CGI's `Json S-Num` /
+  `rfp_alias` crosswalk links a proposal to a CRM opportunity; otherwise null.
 
-Current limitation (validated in Sprint 3):
+Current linkage boundary:
 
-- `opportunity_owner` / `opportunity_id` are null for all current chunks, so
-  proposal-to-director linkage cannot be inferred from chunk metadata alone.
+- Historical proposal chunks can carry CRM opportunity linkage when the local
+  cleaned opportunity output includes `rfp_alias`.
+- Linked `opportunity_owner` reflects CRM opportunity ownership/context, not
+  proof that the owner personally wrote the proposal or delivered the work.
+- Open or lost linked opportunities are historical context, not successful
+  prior-delivery evidence.
 
 Validation and sample export references:
 
@@ -228,7 +235,7 @@ It returns:
             "capacity_score": 0.72,
             "relative_load": 0.65,
             "assignment_score": 0.78,
-            "match_reason": "Relevant historical experience and available capacity",
+            "match_reason": "Semantically similar historical context and available capacity signal",
             "capacity_explanation": "Capacity explanation shown in the dashboard.",
             "experience_match_explanation": "Experience match explanation shown in the dashboard.",
             "risk_flags": [],

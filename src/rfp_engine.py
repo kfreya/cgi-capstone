@@ -14,6 +14,7 @@ from __future__ import annotations
 import json
 import logging
 import math
+import os
 import time
 from typing import Any
 
@@ -99,18 +100,45 @@ def generate_assignment_context(
     @return: Week 4 dashboard-ready RFP assignment context.
     """
 
+    timing_enabled = _timing_debug_enabled()
+    timings: dict[str, float] = {}
+    total_start = time.perf_counter()
+
+    start = time.perf_counter()
     if historical_chunks is not None:
         chunks = historical_chunks
         corpus_source = "provided_chunks"
     else:
         chunks, corpus_source = _default_historical_chunks()
+    _record_timing(
+        timings,
+        "retrieval_setup_corpus_load_seconds",
+        start,
+        enabled=timing_enabled,
+    )
     used_sample_corpus = corpus_source == "sample_corpus"
+
+    start = time.perf_counter()
     query_chunks = _query_chunks(rfp_text)
+    _record_timing(
+        timings,
+        "retrieval_setup_query_chunking_seconds",
+        start,
+        enabled=timing_enabled,
+    )
+
+    start = time.perf_counter()
     retrieval_report = _build_retrieval_report(
         chunks=chunks,
         query=rfp_text,
         top_k=3,
         query_chunks=query_chunks,
+    )
+    _record_timing(
+        timings,
+        "retrieval_query_total_seconds",
+        start,
+        enabled=timing_enabled,
     )
     retrieval_mode = retrieval_report.get("retrieval_mode", retrieval_report.get("backend", "local_fallback"))
     retrieval_status = dict(retrieval_report.get("status", {}))
@@ -123,11 +151,21 @@ def generate_assignment_context(
         }
     )
     retrieved_examples = retrieval_report.get("retrieved_examples", [])
+    retrieval_status.update(_retrieved_linkage_status(retrieved_examples))
     supporting_chunk_ids = [
         example["chunk_id"] for example in retrieved_examples
     ]
-    director_records = _director_records(director_df)
 
+    start = time.perf_counter()
+    director_records = _director_records(director_df)
+    _record_timing(
+        timings,
+        "director_data_normalization_seconds",
+        start,
+        enabled=timing_enabled,
+    )
+
+    start = time.perf_counter()
     chat_fn = _resolve_chat_fn(_chat_fn)
     llm_data: dict[str, Any] | None = None
     llm_failed = False
@@ -136,7 +174,14 @@ def generate_assignment_context(
         if llm_data is None:
             llm_failed = True
     llm_used = llm_data is not None
+    _record_timing(
+        timings,
+        "llm_summary_effort_enrichment_seconds",
+        start,
+        enabled=timing_enabled,
+    )
 
+    start = time.perf_counter()
     risk_flags = _risk_flags(
         retrieved_examples,
         rfp_text=rfp_text,
@@ -146,6 +191,14 @@ def generate_assignment_context(
         director_records=director_records,
         llm_failed=llm_failed,
     )
+    _record_timing(
+        timings,
+        "risk_flag_generation_seconds",
+        start,
+        enabled=timing_enabled,
+    )
+
+    start = time.perf_counter()
     recommended_directors = _director_recommendations(
         director_records or [_mock_director_record()],
         supporting_chunk_ids,
@@ -153,7 +206,14 @@ def generate_assignment_context(
         rfp_text,
         retrieved_examples,
     )
+    _record_timing(
+        timings,
+        "director_recommendation_ranking_seconds",
+        start,
+        enabled=timing_enabled,
+    )
 
+    start = time.perf_counter()
     if llm_used:
         rfp_summary = llm_data.get("rfp_summary") or _summarize_rfp_text(rfp_text)
         effort = llm_data.get("effort") or _effort_estimate(rfp_text, retrieved_examples)
@@ -169,8 +229,14 @@ def generate_assignment_context(
     else:
         rfp_summary = _summarize_rfp_text(rfp_text)
         effort = _effort_estimate(rfp_text, retrieved_examples)
+    _record_timing(
+        timings,
+        "summary_effort_finalize_seconds",
+        start,
+        enabled=timing_enabled,
+    )
 
-    return {
+    result = {
         "rfp_summary": rfp_summary,
         "effort": effort,
         "similar_rfps": _similar_rfps(retrieved_examples),
@@ -186,6 +252,33 @@ def generate_assignment_context(
             llm_used=llm_used,
         ),
     }
+    if timing_enabled:
+        timings["total_generate_assignment_context_seconds"] = round(
+            time.perf_counter() - total_start,
+            4,
+        )
+        result["timings"] = timings
+    return result
+
+
+def _timing_debug_enabled() -> bool:
+    return str(os.getenv("RFP_TIMING_DEBUG", "")).strip().lower() in {
+        "1",
+        "true",
+        "yes",
+        "on",
+    }
+
+
+def _record_timing(
+    timings: dict[str, float],
+    label: str,
+    start: float,
+    *,
+    enabled: bool,
+) -> None:
+    if enabled:
+        timings[label] = round(time.perf_counter() - start, 4)
 
 
 def _default_historical_chunks() -> tuple[list[dict[str, Any]], str]:
@@ -231,10 +324,18 @@ def _flatten_preprocessed_chunk(chunk: dict[str, Any]) -> dict[str, Any]:
         "chunk_id": chunk.get("chunk_id"),
         "document_id": chunk.get("document_id"),
         "source_type": metadata.get("source_type") or chunk.get("section"),
+        "source_title": metadata.get("source_title") or chunk.get("title"),
         "text": chunk.get("text"),
         "chunk_index": metadata.get("chunk_index", chunk.get("chunk_index")),
+        "rfp_alias": metadata.get("rfp_alias"),
+        "json_s_num": metadata.get("json_s_num"),
         "opportunity_owner": metadata.get("opportunity_owner"),
         "opportunity_id": metadata.get("opportunity_id"),
+        "opportunity_manager": metadata.get("opportunity_manager"),
+        "service_solution": metadata.get("service_solution"),
+        "status": metadata.get("status"),
+        "status_reason": metadata.get("status_reason"),
+        "opportunity_outcome": metadata.get("opportunity_outcome"),
     }
 
 
@@ -388,6 +489,7 @@ def _director_record(
         if keyword_overlap["status"] == _OVERLAP_NUMERIC
         else 0.0
     )
+    linkage_signal = _director_linkage_signal(record, retrieved_examples)
     label_bonus = _capacity_label_bonus(record.get("capacity_label"))
     assignment_score = _as_float(
         record.get("assignment_score"),
@@ -397,8 +499,9 @@ def _director_record(
                 min(
                     1.0,
                     (capacity_score * 0.45)
-                    + (similarity_signal * 0.25)
+                    + (similarity_signal * 0.20)
                     + (keyword_overlap_score * 0.15)
+                    + linkage_signal
                     + label_bonus,
                 ),
             ),
@@ -440,6 +543,7 @@ def _director_record(
             _experience_explanation(
                 keyword_overlap=keyword_overlap,
                 retrieved_examples=retrieved_examples,
+                director_name=director_name,
             ),
         ),
         "risk_flags": list(record.get("risk_flags", risk_flags)),
@@ -521,6 +625,20 @@ def _risk_flags(
                 ),
             }
         )
+    elif retrieved_examples and retrieval_status.get("retrieved_examples_with_opportunity_id"):
+        linked_count = int(retrieval_status.get("retrieved_examples_with_opportunity_id") or 0)
+        won_count = int(retrieval_status.get("retrieved_examples_with_won_opportunity") or 0)
+        if won_count < linked_count:
+            flags.append(
+                {
+                    "level": "Low",
+                    "message": (
+                        "Some retrieved examples are linked to CRM opportunities, "
+                        "but not all linked opportunities are won. Treat non-won "
+                        "links as historical context, not proof of successful prior delivery."
+                    ),
+                }
+            )
     service_labels = _service_labels(rfp_text)
     if (
         service_labels
@@ -635,11 +753,33 @@ def _corpus_linkage_status(chunks: list[dict[str, Any]] | None) -> dict[str, Any
     }
 
 
+def _retrieved_linkage_status(examples: list[dict[str, Any]] | None) -> dict[str, Any]:
+    examples = examples or []
+    owner_count = sum(1 for example in examples if _has_value(example.get("opportunity_owner")))
+    opportunity_count = sum(1 for example in examples if _has_value(example.get("opportunity_id")))
+    won_count = sum(
+        1
+        for example in examples
+        if str(example.get("opportunity_outcome") or "").strip().lower() == "won"
+    )
+    return {
+        "retrieved_example_count": len(examples),
+        "retrieved_examples_with_opportunity_owner": owner_count,
+        "retrieved_examples_with_opportunity_id": opportunity_count,
+        "retrieved_examples_with_won_opportunity": won_count,
+        "retrieved_examples_have_director_linkage": (
+            bool(examples) and owner_count > 0 and opportunity_count > 0
+        ),
+    }
+
+
 def _retrieval_linkage_missing(retrieval_status: dict[str, Any] | None) -> bool:
     if not isinstance(retrieval_status, dict):
         return False
     if not retrieval_status.get("corpus_chunk_count"):
         return False
+    if retrieval_status.get("retrieved_example_count"):
+        return not bool(retrieval_status.get("retrieved_examples_have_director_linkage"))
     return not bool(retrieval_status.get("retrieval_has_director_linkage"))
 
 
@@ -917,6 +1057,40 @@ def _max_similarity(retrieved_examples: list[dict[str, Any]]) -> float:
     return max(scores, default=0.0)
 
 
+def _director_linkage_signal(
+    record: dict[str, Any],
+    retrieved_examples: list[dict[str, Any]],
+) -> float:
+    """Return a small structured score for validated owner/RFP linkage."""
+
+    director_name = str(
+        record.get(
+            "director_name",
+            record.get("opportunity_owner", record.get("name", "")),
+        )
+        or ""
+    ).strip().lower()
+    if not director_name:
+        return 0.0
+
+    linked_to_director = [
+        example
+        for example in retrieved_examples
+        if str(example.get("opportunity_owner") or "").strip().lower() == director_name
+    ]
+    if not linked_to_director:
+        return 0.0
+
+    won_count = sum(
+        1
+        for example in linked_to_director
+        if str(example.get("opportunity_outcome") or "").strip().lower() == "won"
+    )
+    if won_count:
+        return min(0.10, 0.06 + (0.02 * (won_count - 1)))
+    return 0.03
+
+
 def _director_keyword_overlap(record: dict[str, Any], rfp_text: str) -> dict[str, Any]:
     """Estimate simple service fit between a director record and the RFP.
 
@@ -1034,6 +1208,7 @@ def _capacity_explanation(
 def _experience_explanation(
     keyword_overlap: dict[str, Any],
     retrieved_examples: list[dict[str, Any]],
+    director_name: str | None = None,
 ) -> str:
     """Create the experience-match explanation displayed in the dashboard.
 
@@ -1044,27 +1219,72 @@ def _experience_explanation(
 
     if not retrieved_examples:
         return "No retrieved examples were available, so experience fit is weak."
+    linkage_text = _director_linkage_explanation(director_name, retrieved_examples)
     overlap_status = keyword_overlap.get("status", _OVERLAP_UNAVAILABLE)
     if overlap_status == _OVERLAP_NO_RFP_LABELS:
         return (
             "Experience fit is estimated from retrieved historical/sample RFP "
             "chunks. Service-keyword overlap was not calculated because no "
-            "service-domain keywords were detected in the RFP text."
+            "service-domain keywords were detected in the RFP text. "
+            f"{linkage_text}"
         )
     if overlap_status == _OVERLAP_MISSING_DIRECTOR_PROFILE:
         return (
             "Experience fit is estimated from retrieved historical/sample RFP "
             "chunks. Service-keyword overlap is unavailable because the current "
-            "director capacity records do not include service-domain or expertise fields."
+            "director capacity records do not include service-domain or expertise fields. "
+            f"{linkage_text}"
         )
     if overlap_status != _OVERLAP_NUMERIC:
         return (
             "Experience fit is estimated from retrieved historical/sample RFP "
-            "chunks. Service-keyword overlap is unavailable."
+            f"chunks. Service-keyword overlap is unavailable. {linkage_text}"
         )
     return (
         "Experience fit is estimated from retrieved historical/sample RFP chunks "
-        f"and simple service-keyword overlap ({_as_float(keyword_overlap.get('score'), 0.0):.2f})."
+        f"and simple service-keyword overlap ({_as_float(keyword_overlap.get('score'), 0.0):.2f}). "
+        f"{linkage_text}"
+    )
+
+
+def _director_linkage_explanation(
+    director_name: str | None,
+    retrieved_examples: list[dict[str, Any]],
+) -> str:
+    linked_examples = [
+        example for example in retrieved_examples if _has_value(example.get("opportunity_id"))
+    ]
+    if not linked_examples:
+        return "Retrieved examples do not include validated CRM opportunity linkage."
+
+    if not director_name:
+        return "Some retrieved examples include CRM opportunity linkage from CGI's RFP alias."
+
+    normalized_director = str(director_name).strip().lower()
+    director_examples = [
+        example
+        for example in linked_examples
+        if str(example.get("opportunity_owner") or "").strip().lower() == normalized_director
+    ]
+    if not director_examples:
+        return (
+            "Retrieved examples include CRM opportunity linkage, but not to this "
+            "director in the current top retrieved set."
+        )
+
+    won_count = sum(
+        1
+        for example in director_examples
+        if str(example.get("opportunity_outcome") or "").strip().lower() == "won"
+    )
+    if won_count:
+        return (
+            f"{won_count} retrieved linked example(s) map to this director and "
+            "won CRM opportunities."
+        )
+    return (
+        "Retrieved linked example(s) map to this director, but the linked "
+        "opportunities are not classified as won."
     )
 
 
