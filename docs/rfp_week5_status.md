@@ -13,16 +13,26 @@ Jai's focus area is assignment logic review:
 
 ## Current Retrieval Behavior
 
-- Azure/Chroma retrieval is active when local Azure configuration is available.
+- Azure/Chroma retrieval is supported when local Azure configuration, optional
+  Chroma dependencies, and a reusable Chroma collection are available.
+- When Azure/Chroma requirements are unavailable, incomplete, or fail during a
+  request, the app falls back to local retrieval and labels the fallback mode.
 - The RFP engine now loads the local `proposals_responses.json` corpus when available instead of only the small sample corpus.
 - In the current local data, the proposal corpus preprocesses into roughly 1,216 chunks.
 
 ## Week 5 Caveat: Real-Corpus Indexing Performance
 
-- Azure/Chroma real-corpus retrieval works, but first-run indexing can be slow because the app may rebuild the full proposal corpus inside the Streamlit request.
-- When the user clicks **Analyze RFP**, the app can load the proposal JSON, preprocess chunks, generate Azure embeddings, rebuild/reset the Chroma collection, query Chroma, and optionally run Azure chat enrichment.
-- This is much heavier than the earlier sample-corpus path and can make the Streamlit page appear stuck while the backend is still running.
-- Recommended follow-up: cache or prebuild the Chroma index so the app reuses an existing proposal index instead of rebuilding it during every analysis click.
+- Current Streamlit/retrieval behavior normally reuses an existing Chroma
+  collection instead of rebuilding the proposal index on every analysis click.
+- Chroma rebuilds are explicit maintenance/debug behavior, not the default
+  interactive path. A rebuild can be triggered with `RFP_REBUILD_CHROMA=1` or by
+  running `python scripts/build_rfp_chroma_index.py` from the repository root.
+- The Chroma index should be rebuilt when the proposal corpus, linkage metadata,
+  embedding configuration, or expected indexed content changes. Azure/Chroma
+  metadata should not be assumed to update automatically without rebuilding the
+  index.
+- If a reusable Chroma collection is missing or stale, the app should continue
+  to preserve the local retrieval fallback rather than blocking prototype use.
 
 Test 1:
 cloud/data modernization RFP: Passed. Azure/Chroma retrieval used the local proposals_responses.json corpus with 1,216 chunks, and Azure OpenAI chat enrichment produced the summary, effort estimate, and match wording. Output was coherent and caveated correctly. Retrieved examples were moderately relevant, though match scores were around 0.54-0.55. One wording issue remains: the overextended-candidate risk flag can appear even when the displayed top 3 directors are not overextended, which may confuse users.
