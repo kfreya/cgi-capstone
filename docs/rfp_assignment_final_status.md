@@ -1,5 +1,9 @@
 # RFP Assignment Tool Final Status
 
+Historical note: this document records an earlier validation stage. For the
+current Week 6 handoff workflow, see docs/rfp_week6_status.md and
+docs/README.md.
+
 ## Current Focus
 
 Week 5 is focused on final QA, user-style testing, and refinement of the RFP Assignment Tool rather than major new feature development.

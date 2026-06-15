@@ -1,5 +1,9 @@
 # Final Prototype Change Validation
 
+Historical note: this document records an earlier validation stage. For the
+current Week 6 handoff workflow, see docs/rfp_week6_status.md and
+docs/README.md.
+
 Date: May 31, 2026
 
 This document records the fixes implemented in the end of Sprint 4 to stabilize the final prototype.

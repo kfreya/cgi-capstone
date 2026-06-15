@@ -1,5 +1,9 @@
 # RFP Data Validation Notes (Sprint 3, Issue #38)
 
+Historical note: this document records an earlier validation stage. For the
+current Week 6 handoff workflow, see docs/rfp_week6_status.md and
+docs/README.md.
+
 ## Scope
 
 This note documents Week 3 validation work for:

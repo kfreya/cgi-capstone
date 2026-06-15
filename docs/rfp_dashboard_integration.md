@@ -186,4 +186,4 @@ Passes with no errors. The RFP fallback pipeline tests also pass:
 python -m pytest tests/test_rfp_preprocessor.py tests/test_vector_store.py tests/test_rfp_engine.py
 ```
 
-Current verification: `151 passed, 2 warnings`.
+Current verification: `168 passed, 2 warnings`.

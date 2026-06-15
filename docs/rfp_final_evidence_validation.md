@@ -1,5 +1,9 @@
 # Final RFP Evidence Validation
 
+Historical note: this document records an earlier validation stage. For the
+current Week 6 handoff workflow, see docs/rfp_week6_status.md and
+docs/README.md.
+
 This note records Kian's Sprint 4 issue #53 validation of the RFP retrieval
 path. The purpose is to keep final demo/report claims evidence-backed and clear
 about what the current metadata can and cannot prove.

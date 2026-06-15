@@ -251,8 +251,11 @@ python -m pytest
 Final test result:
 
 ```text
-157 passed, 1 skipped, 3 warnings
+168 passed, 2 warnings
 ```
+
+The warnings are existing pandas FutureWarning messages in capacity-engine
+tests and do not affect the documentation-only packaging update.
 
 Additional smoke check:
 

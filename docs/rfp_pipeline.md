@@ -1,5 +1,9 @@
 # RFP Pipeline
 
+Historical note: this document records an earlier validation stage. For the
+current Week 6 handoff workflow, see docs/rfp_week6_status.md and
+docs/README.md.
+
 ## Purpose
 
 This document describes the Week 3 version of the RFP retrieval and assignment

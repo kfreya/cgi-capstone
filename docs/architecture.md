@@ -49,7 +49,11 @@ data/proposals_responses.json
 data/.env
 ```
 
-The data files are local and ignored by git.
+The data files are local and ignored by git. The default preprocessing command
+uses the listed opportunity spreadsheet paths, but Week 6 handoff also supports
+CLI-configurable local spreadsheet paths through `src.opportunity_cleaner`
+arguments for `--opps1-path`, `--opps2-path`, `--sheet-name`, and
+`--output-dir`.
 
 ## Streamlit Entry Point
 
@@ -116,7 +120,13 @@ service_solution
 service_solution_estimated_revenue
 ip
 delivery_territory_center
+json_s_num
 ```
+
+When present, CGI's `Json S-Num` value from opps1 is preserved as optional
+linkage metadata (`json_s_num`, `rfp_alias`, and `has_rfp_alias`) in the
+cleaned opportunity output. Missing alias values should not block opportunity
+preprocessing or capacity scoring.
 
 Revenue definition:
 
@@ -357,8 +367,9 @@ RFP processing pipeline:
     optional `chromadb`, and a reusable Chroma collection are available.
 8.  Reuse an existing Chroma collection by default. Do not rebuild Chroma on
     every Streamlit request.
-9.  Rebuild Chroma only when explicitly requested with `RFP_REBUILD_CHROMA=1`,
-    usually for backend validation or maintenance.
+9.  Rebuild Chroma only when explicitly requested with `RFP_REBUILD_CHROMA=1`
+    or with `python scripts/build_rfp_chroma_index.py`, usually for backend
+    validation or maintenance.
 10. Fall back to local retrieval over the same corpus when Azure/Chroma config,
     `chromadb`, the reusable store, or the Chroma query path is unavailable.
 11. Retrieve similar historical proposal/RFP chunks as semantic evidence.
@@ -396,7 +407,14 @@ Semantic relevance measures how similar the new RFP is to a director's historica
 
 CGI confirmed that experience should combine semantic relevance with structured track record. Structured track record measures outcome quality and historical success. It should use smoothed rates and confidence adjustment based on sample size and data completeness.
 
-Current prototype boundary: proposal-to-CRM linkage is available when CGI's `Json S-Num` / `rfp_alias` crosswalk is present in the cleaned opportunity output. Retrieved chunks should still be treated carefully: linked `opportunity_owner` means CRM opportunity ownership/context, not proof of personal proposal authorship or delivery experience. The final prototype uses director capacity, retrieval similarity, owner-level `service_solution` profile, and a small structured linkage signal as implemented fit signals.
+Current prototype boundary: proposal-to-CRM linkage is available when CGI's
+`Json S-Num` / `rfp_alias` crosswalk is present in the cleaned opportunity
+output and the retrieval index has been built with that metadata. Retrieved
+chunks should still be treated carefully: linked `opportunity_owner` means CRM
+opportunity context, not proof of director authorship, ownership, prior
+experience, or delivery responsibility. The final prototype uses director
+capacity, retrieval similarity, owner-level `service_solution` profile, and a
+small structured linkage signal as implemented fit signals.
 
 Candidate features include:
 
@@ -432,7 +450,11 @@ assignment_score =
   + capacity_label_bonus
 ```
 
-The final prototype ranks every candidate director before selecting the top three recommendations. Because reliable proposal-to-director linkage is not yet available, the implemented ranking is capacity-aware and service-aware, but it should not be described as a validated historical-performance ranking.
+The final prototype ranks every candidate director before selecting the top
+three recommendations. Conditional `rfp_alias` linkage can provide CRM
+traceability for retrieved examples, but the implemented ranking should still
+not be described as a validated historical-performance ranking or proof of
+personal director experience.
 
 The tool should return:
 
@@ -489,6 +511,7 @@ PROCESSING LAYER
     merge opps2 base with opps1 supplemental fields
     append opps1-exclusive rows
     flag duplicates and sparse fields
+    preserve optional Json S-Num / rfp_alias linkage metadata when present
 
   identity_resolver.py
     define opportunity_owner as director
@@ -637,5 +660,5 @@ The architecture reflects these EDA findings and CGI meeting decisions:
 6.  Proposal and RFP documents require chunking before embedding.
 7.  `total_estimated_revenue` or matched opportunity-level total revenue is the authoritative revenue input; do not add service-solution revenue to opportunity total revenue.
 8.  `service_solution` can support service-fit matching, but the final prototype only uses it as a lightweight owner-level profile, not as proof of director expertise.
-9.  Retrieved proposal chunks can carry `opportunity_owner` / `opportunity_id` linkage when the local `rfp_alias` crosswalk is available. Linkage should be described as CRM opportunity context, not proof of personal director delivery experience.
+9.  Retrieved proposal chunks can carry `opportunity_owner` / `opportunity_id` linkage when the local `rfp_alias` crosswalk is available and the index is current. Linkage should be described as CRM opportunity context, not proof of director authorship, ownership, prior experience, or delivery responsibility.
 10. Some fields are too sparse for capacity scoring, including `proposal_submission_date`, `rfp_release_date`, `comments`, and `free_field_text_2`.
