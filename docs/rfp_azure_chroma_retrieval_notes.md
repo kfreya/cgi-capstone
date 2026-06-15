@@ -1,5 +1,9 @@
 # RFP Azure/Chroma Retrieval Notes
 
+Historical note: this document records an earlier validation stage. For the
+current Week 6 handoff workflow, see docs/rfp_week6_status.md and
+docs/README.md.
+
 ## Responsibility Summary
 This week's focus is moving the RFP retrieval pipeline from a purely local prototype toward an Azure-backed retrieval path **without breaking the existing fallback**.
 

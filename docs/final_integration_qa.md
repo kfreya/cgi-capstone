@@ -145,7 +145,7 @@ Recorded local QA commands and results:
 | App syntax check | `python -m py_compile app/app.py` | Passed |
 | RFP retrieval/engine tests | `python -m pytest tests/test_rfp_engine.py tests/test_azure_rag_client.py tests/test_vector_store.py` | 45 passed, 1 warning |
 | Azure client mocked tests | `python -m pytest tests/test_azure_client.py` | 16 passed |
-| Full test suite | `python -m pytest` | 151 passed, 2 warnings |
+| Full test suite | `python -m pytest` | 168 passed, 2 warnings |
 | Azure + Chroma smoke test | `python scripts/smoke_azure_chroma.py` | `stored_chunks: 3`; `query_result_count: 2`; top result `smoke-cloud-modernization`; `first_result_mentions_cloud: True` |
 
 Azure environment check:
@@ -171,6 +171,8 @@ CGI provided the missing Azure configuration values during Week 4. The local
 or secret values are included in this document.
 
 The remaining warnings do not fail the tests.
+The current full-suite warnings are existing pandas FutureWarning messages in
+capacity-engine tests and do not affect the documentation-only packaging update.
 
 Azure is no longer blocked at the environment/configuration level. Minimal real
 Azure embedding smoke testing passed with `embedding_count: 1`,
@@ -239,7 +241,7 @@ Validation after the capacity-aware RFP page update:
 | --- | --- | --- |
 | App syntax check | `python -m py_compile app/app.py` | Passed |
 | RFP retrieval/engine tests | `python -m pytest tests/test_rfp_engine.py tests/test_azure_rag_client.py tests/test_vector_store.py` | 45 passed, 1 warning |
-| Full test suite | `python -m pytest` | 151 passed, 2 warnings |
+| Full test suite | `python -m pytest` | 168 passed, 2 warnings |
 
 ### Manual Streamlit Demo Check
 

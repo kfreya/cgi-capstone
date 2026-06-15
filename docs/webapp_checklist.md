@@ -1,6 +1,9 @@
 # App-Level QA & Client Data Replacement Report
 
-The purpose of this report is documenting the verification results of the Streamlit application after replacing the demo data with CGI's actual spreadsheet data.
+The purpose of this report is documenting the verification results of the
+Streamlit application after replacing the demo data with local CGI-provided
+spreadsheet data. Local CGI spreadsheets and generated outputs remain local and
+should not be committed.
 
 ## 1. Data Replacement and Pipeline Execution
 
@@ -92,19 +95,20 @@ These verified behaviors confirm the robustness of the application's error-handl
 
 ## 5. Next Steps for CGI User Handoff
 
-Users from CGI can now independently run the pipeline using their actual CRM spreadsheets. 
-1. Place your specific actual spreadsheets into the `data/csv_files/` directory. 
+Users from CGI can now independently run the pipeline using their local
+CGI-provided opportunity spreadsheets.
+1. Place the local spreadsheets into the `data/csv_files/` directory.
 2. Run the pipeline using the full CLI command, explicitly pointing to your specific filenames.
 
 **Example Command for CGI Execution:**
 ```bash
-# 1. Clean the new data (change <actual_cgi_opps1>.xlsx to your real spreadsheet filename)
+# 1. Clean the new data (change placeholders to the local spreadsheet filenames)
 python -m src.opportunity_cleaner \
     --opps1-path data/csv_files/<actual_cgi_opps1>.xlsx \
     --opps2-path data/csv_files/<actual_cgi_opps2>.xlsx \
     --sheet-name Data \
     --output-dir data/processed
 
-# 2. Rebuild the vector index so the RFP tool can search the new data
+# 2. Rebuild the vector index so RFP-to-CRM linkage metadata is current
 python scripts/build_rfp_chroma_index.py
 ```

@@ -1,5 +1,9 @@
 # Final UI Usability Review
 
+Historical note: this document records an earlier validation stage. For the
+current Week 6 handoff workflow, see docs/rfp_week6_status.md and
+docs/README.md.
+
 Date: June 2, 2026
 
 This document records the first Week 5 stakeholder-style usability review of

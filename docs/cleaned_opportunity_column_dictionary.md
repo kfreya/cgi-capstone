@@ -7,6 +7,10 @@ This dictionary documents the main columns used by validation, scoring, and
 dashboard handoff work. The cleaned dataframe preserves the original Week 1
 columns and adds non-breaking Sprint 2 alias and data-quality flags.
 
+Week 6 adds optional RFP linkage fields from CGI's client-provided `Json S-Num`
+metadata when that column is present in opps1. Missing alias values are valid
+and should not break preprocessing.
+
 Revenue fields remain separate in this dataset. `authoritative_revenue` uses
 the opportunity-level fallback rule `total_estimated_revenue` first, then
 `opportunity_estimated_revenue_base_cad` when the primary is missing.
@@ -34,6 +38,9 @@ reliability review of the revenue semantics.
 | `service_solution` | supplemental | Service/solution label carried from opps1 where available. | Supplemental context for analysis and dashboard filtering. |
 | `opportunity_product` | supplemental | Product field carried from opps1 where available. | Supplemental context for analysis and dashboard filtering. |
 | `ip` | supplemental | IP-related field carried from opps1 where available. | Supplemental context. Semantics should be confirmed before using in scoring. |
+| `json_s_num` | linkage metadata | Normalized form of CGI's `Json S-Num` alias metadata from opps1 when present. | Optional RFP-to-CRM traceability field. Missing values should not block preprocessing. |
+| `rfp_alias` | linkage metadata | Downstream-friendly alias derived from `json_s_num` or an existing alias field when available. | Supports linkage review between proposal titles and CRM opportunity context. Not proof of director authorship, opportunity ownership, prior experience, or delivery responsibility. |
+| `has_rfp_alias` | linkage metadata | Boolean flag indicating whether `rfp_alias` is populated for the row. | Useful for coverage checks and troubleshooting missing linkage metadata. |
 | `source_file_flag` | merge flag | Sprint 2 alias derived from `source_table` when available. Defaults to `unknown` if source metadata is absent. | Downstream-friendly source indicator for validation, scoring, and dashboard handoff. |
 | `duplicate_flag` | merge flag | Sprint 2 alias derived from `is_duplicate_join_key` when available. Defaults to `False` if absent. | Indicates rows whose opportunity ID is duplicated in the merged output. This merge-level flag is separate from CRM `status_reason` values such as Duplicated/Duplicate. |
 | `unmatched_flag` | merge flag | Sprint 2 alias derived from `is_unmatched_opps2_base` when available. Defaults to `False` if absent. | Identifies opps2/base records not matched to opps1. |

@@ -42,6 +42,8 @@ The function:
 - adds downstream-friendly source and merge flags
 - adds lightweight data-quality flags
 - creates `authoritative_revenue` using the opportunity-level revenue fallback
+- preserves CGI's client-provided `Json S-Num` alias metadata when present as
+  `json_s_num`, `rfp_alias`, and `has_rfp_alias`
 
 ## Prepared Fields
 
@@ -77,6 +79,19 @@ risks:
 `close_before_created_flag` uses a normalized calendar-date comparison so a
 same-day created/closed record is not incorrectly flagged because of timestamp
 granularity.
+
+### RFP Alias Fields
+
+When the opps1 source includes CGI's `Json S-Num` column, the cleaner preserves
+it as `json_s_num` and exposes downstream-friendly linkage fields:
+
+- `rfp_alias`
+- `has_rfp_alias`
+
+Missing alias values are allowed and should not break preprocessing, capacity
+scoring, or dashboard loading. `Json S-Num` / `rfp_alias` supports linkage
+review and RFP-to-CRM traceability only; it does not prove director authorship,
+opportunity ownership, prior experience, or delivery responsibility.
 
 ### Authoritative Revenue
 
@@ -126,6 +141,9 @@ documented in `docs/capacity_scoring.md`.
 - The CRM duplicate outcome is separate from the merge-level `duplicate_flag`.
 - `authoritative_revenue` uses the non-additive opportunity-level fallback
   described above.
+- Missing `Json S-Num` / `rfp_alias` values are expected for some rows and
+  should be treated as absent linkage metadata rather than preprocessing
+  failures.
 
 ## Limitations
 

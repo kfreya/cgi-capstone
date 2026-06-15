@@ -86,9 +86,13 @@ The `data/` directory is for local CGI-provided files and generated artifacts on
 
 ## Documentation
 
+Start with the [documentation map](docs/README.md) for the final handoff
+reading order and historical note guidance.
+
 Core technical documentation:
 
 - [Architecture](docs/architecture.md)
+- [Documentation map](docs/README.md)
 - [Opportunity merge](docs/opportunity_merge.md)
 - [Opportunity cleaning](docs/opportunity_cleaning.md)
 - [Cleaned opportunity column dictionary](docs/cleaned_opportunity_column_dictionary.md)
@@ -105,6 +109,8 @@ Core technical documentation:
 - [RFP data validation](docs/rfp_data_validation.md)
 - [RFP final evidence validation](docs/rfp_final_evidence_validation.md)
 - [RFP evidence output review](docs/rfp_evidence_output_review.md)
+- [Week 6 RFP handoff/status](docs/rfp_week6_status.md)
+- [RFP opportunity linkage implementation](docs/rfp_opportunity_linkage_implementation.md)
 - [Azure/Chroma retrieval notes](docs/rfp_azure_chroma_retrieval_notes.md)
 - [RFP retrieval backend validation](docs/rfp_retrieval_backend_validation.md)
 - [Final integration QA](docs/final_integration_qa.md)
@@ -116,7 +122,7 @@ Project process documentation:
 
 - [Team charter](docs/team_charter.md)
 - [Weekly reports and time management artifacts](docs/time_management/) (Week
-  1 through Week 5, including the [Week 5 team report](docs/time_management/week5_2026-06-07_team_report.pdf))
+  1 through Week 6, including the [Week 6 team report](docs/time_management/week6_2026-06-14_team_report.pdf))
 
 ## Setup
 
@@ -163,7 +169,28 @@ data/csv_files/anonymized_opps_2.xlsx
 data/proposals_responses.json
 ```
 
-The Excel filenames should match the listed names exactly because the opportunity merge/cleaning pipeline reads from those expected paths.
+The default no-argument preprocessing workflow reads the listed Excel filenames.
+For CGI handoff, spreadsheet paths can also be supplied explicitly without
+renaming local files.
+
+Default preprocessing:
+
+```bash
+python -m src.opportunity_cleaner
+```
+
+Custom local spreadsheet preprocessing:
+
+```bash
+python -m src.opportunity_cleaner \
+  --opps1-path data/csv_files/<opps1_file>.xlsx \
+  --opps2-path data/csv_files/<opps2_file>.xlsx \
+  --sheet-name Data \
+  --output-dir data/processed
+```
+
+CGI spreadsheets, proposal JSON, credentials, and generated outputs must remain
+local and should not be committed.
 
 Generated local output folders:
 
@@ -192,6 +219,13 @@ Build the merged opportunity dataset:
 python -m src.opportunity_cleaner
 ```
 
+Build the persistent RFP Chroma index when Azure configuration and optional
+Chroma dependencies are available:
+
+```bash
+python scripts/build_rfp_chroma_index.py
+```
+
 Run the Streamlit app:
 
 ```bash
@@ -204,11 +238,14 @@ Run all tests:
 python -m pytest
 ```
 
-Current final validation baseline:
+Latest local validation:
 
 ```text
-151 passed, 2 warnings
+168 passed, 2 warnings
 ```
+
+The warnings are existing pandas FutureWarning messages in capacity-engine
+tests and do not affect the documentation-only packaging update.
 
 Run selected validation suites:
 
@@ -232,6 +269,10 @@ The Streamlit app is intended to run safely for stakeholder demonstration:
 - Set `RFP_REBUILD_CHROMA=1` only when an explicit Chroma rebuild is needed for
   backend validation or maintenance; normal interactive analysis does not
   rebuild Chroma on every request.
+- To rebuild the reusable index outside the app, run
+  `python scripts/build_rfp_chroma_index.py`. To force an explicit
+  maintenance/debug rebuild through the Streamlit path, run
+  `RFP_REBUILD_CHROMA=1 streamlit run app/app.py`.
 
 ## Final Prototype Status
 
@@ -280,18 +321,24 @@ Final prototype capabilities:
 - RFP recommendations are capacity-aware when `capacity_df` is available.
 - Owner-level `service_solution` profiles from open/won opportunities provide
   a lightweight service-fit signal.
+- When CGI's `Json S-Num` field is present in the local opps1 spreadsheet, the
+  preprocessing pipeline preserves it as `json_s_num`, `rfp_alias`, and
+  `has_rfp_alias`. This supports RFP-to-CRM traceability review.
 - The dashboard labels retrieval mode, capacity source, prototype status, and
   risk flags.
-- Retrieved proposal chunks are treated as semantic similarity evidence, not
-  proof of director involvement, director experience, or opportunity ownership,
-  because reliable `opportunity_owner` / `opportunity_id` linkage is not
-  available in the proposal chunks.
+- Retrieved proposal chunks are treated as supporting semantic/contextual
+  evidence. Alias linkage can provide CRM opportunity traceability when
+  available, but it does not prove director authorship, ownership, prior
+  experience, or delivery responsibility.
 
-Latest validation:
+Latest local validation:
 
 ```text
-151 passed, 2 warnings
+168 passed, 2 warnings
 ```
+
+The warnings are existing pandas FutureWarning messages in capacity-engine
+tests and do not affect the documentation-only packaging update.
 
 ## Limitations and Non-Claims
 
@@ -299,10 +346,14 @@ Latest validation:
   system.
 - RFP recommendations are decision-support outputs and require stakeholder
   validation before use.
-- Retrieved chunks are semantic evidence only; they do not establish historical
-  director participation or related opportunity ownership.
+- Retrieved chunks are supporting evidence only; even when `rfp_alias` links a
+  proposal to CRM opportunity context, the link does not establish historical
+  director participation, authorship, ownership, prior experience, or delivery
+  responsibility.
 - Azure/Chroma retrieval is optional and backend-validated. The app reports the
-  retrieval mode used by each run and can fall back locally.
+  retrieval mode used by each run, reuses a Chroma collection when available,
+  and can fall back locally when Azure config, optional Chroma dependencies, or
+  a reusable collection are unavailable.
 - Capacity results use processed CRM-derived data, not a live production CRM
   integration.
 

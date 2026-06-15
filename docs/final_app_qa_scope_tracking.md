@@ -47,7 +47,7 @@ clear wording around prototype limits and decision-support use.
 | Development focus | Final QA, fixes, feedback tracking, and refinement |
 | Out of scope for Week 5 | Major new feature development or production staffing workflow claims |
 | Data / recommendation caveat | Recommendations are decision-support outputs requiring stakeholder validation |
-| Retrieval caveat | Retrieved examples are semantic evidence, not proof of director involvement |
+| Retrieval caveat | Retrieved examples are supporting semantic/contextual evidence. Conditional `rfp_alias` linkage can provide CRM traceability, but not proof of director authorship, ownership, prior experience, or delivery responsibility |
 | Azure caveat | Azure embeddings and Azure + Chroma retrieval are validated at smoke-test/sample level only, unless a later end-to-end Streamlit Azure path is explicitly implemented and tested |
 
 ## 3. Automated Test Baseline
@@ -108,7 +108,7 @@ and `Notes / Issue Link` as testing is completed.
 | RFP-05 | Capacity-aware recommendations | Confirm capacity data is used when available | Run an RFP analysis while `capacity_df` is available | RFP recommendations are capacity-aware when `capacity_df` is available | Pass - app-facing RFP path passes `director_df=capacity_df` into `generate_assignment_context()` | Pass | See W5-008 |
 | RFP-06 | Missing capacity fallback | Confirm behavior when capacity data is unavailable where feasible | Simulate or inspect fallback path if real capacity data cannot load | App labels fallback/mock director data clearly and avoids presenting outputs as final staffing guidance | TBD | Not started |  |
 | RFP-07 | Recommendation wording | Review recommendation section | Inspect match reasons, ranking labels, and any explanatory notes | Recommendations are described as decision-support outputs requiring stakeholder validation | Pass - Recommended Directors rendered with capacity, capacity score, relative load, and assignment score; prototype/capacity-aware framing remained visible | Pass | Interim assignment logic QA by Yixiao |
-| RFP-08 | Retrieval wording | Review retrieved examples section | Inspect headings and notes around retrieved examples | Retrieved examples are described as semantic evidence, not proof of director involvement or prior experience | Pass with caveat - Retrieved Supporting Examples rendered with match scores; wording stated retrieved chunks are semantic similarity evidence and not proof of prior director experience. Kian confirmed retrieved examples are semantic evidence only, not proof of director involvement or opportunity ownership; vague input evidence was weak/unclear because examples were broad or generic. | Pass with caveat | Interim assignment logic QA by Yixiao; Kian evidence/output review |
+| RFP-08 | Retrieval wording | Review retrieved examples section | Inspect headings and notes around retrieved examples | Retrieved examples are described as supporting evidence, not proof of director authorship, ownership, prior experience, or delivery responsibility | Pass with caveat - Retrieved Supporting Examples rendered with match scores; wording stated retrieved chunks are semantic similarity evidence and not proof of prior director experience. Kian confirmed retrieved examples are supporting evidence only, not proof of director involvement or opportunity ownership; vague input evidence was weak/unclear because examples were broad or generic. Week 6 `rfp_alias` linkage can add CRM traceability when available, but it does not change the non-proof caveat. | Pass with caveat | Interim assignment logic QA by Yixiao; Kian evidence/output review |
 | RFP-09 | Azure wording | Review retrieval/Azure status shown in the RFP page | Run standard RFP page flow and inspect status text | The page does not claim the Streamlit RFP page is fully Azure-backed unless that exact path is implemented and tested | Pass with caveat - final local browser smoke test after the retrieval performance/stability fix displayed Azure/Chroma retrieval active, capacity-aware recommendations using Computed from CRM opportunity records, and the semantic-evidence caveat; earlier browser runs also validated local fallback wording | Pass with caveat | Local browser smoke test only; describe carefully and keep fallback/demo caveats |
 | RFP-10 | Risk flags | Confirm risk/caveat display | Run an RFP analysis and inspect risk flags | Risk flags render clearly and include relevant caveats for fallback, data limits, missing linkage, or prototype status | Pass with caveat - risk flags and caveat wording appeared for missing director/opportunity linkage and short/vague input; semantic-evidence warning helped. Vague short input still produced confident-looking retrieved examples and recommendation output, so a stronger limited-input / low-detail warning may be useful. | Pass with caveat | See W5-013 and W5-014 |
 | RFP-11 | Large input | Submit a long RFP-like text | Paste a longer sample and run analysis | App handles chunking and either completes or shows a clear non-crashing warning/fallback status | TBD | Not started |  |
@@ -206,10 +206,10 @@ aligned.
 | Director capacity outputs support workload review | Supported as prototype | Capacity dashboard and capacity scoring outputs | The dashboard provides relative capacity signals for stakeholder review | Avoid exact utilization or guaranteed availability claims |
 | RFP recommendations use capacity data | Supported when `capacity_df` is available | Week 5 QA reconfirmed the app-facing RFP path passes `director_df=capacity_df` into `generate_assignment_context()` | RFP recommendations are capacity-aware when `capacity_df` is available | Capacity-aware means capacity signals are available to the assignment engine; recommendations still require stakeholder validation |
 | RFP recommendations are final assignment decisions | Not supported | No stakeholder-approved assignment process or calibrated decision policy | Recommendations are decision-support outputs requiring stakeholder validation | Use in final report and demo wording |
-| Retrieved examples show relevant prior material | Supported as semantic evidence | Retrieval returns similar chunks/examples; Kian reviewed cloud/managed services, cybersecurity/compliance, and vague/short RFP cases | Retrieved examples provide semantic evidence related to the RFP text | Do not claim proof of director involvement; evidence quality can be weak or broad for vague input |
-| Retrieved examples prove a director's prior experience | Not supported | Proposal chunks do not provide reliable director involvement or opportunity ownership linkage; Kian's evidence review supports this boundary | Retrieved examples are semantic evidence, not proof of director prior experience, involvement, or opportunity ownership | Important final caveat |
+| Retrieved examples show relevant prior material | Supported as semantic/contextual evidence | Retrieval returns similar chunks/examples; Kian reviewed cloud/managed services, cybersecurity/compliance, and vague/short RFP cases. Week 6 alias linkage can add CRM traceability when available. | Retrieved examples provide supporting evidence related to the RFP text and, when linked, CRM opportunity context | Do not claim proof of director authorship, ownership, prior experience, or delivery responsibility; evidence quality can be weak or broad for vague input |
+| Retrieved examples prove a director's prior experience | Not supported | Conditional `rfp_alias` linkage can provide CRM traceability, but it does not validate personal director involvement, authorship, or delivery responsibility; Kian's evidence review supports this boundary | Retrieved examples are supporting evidence, not proof of director prior experience, involvement, authorship, ownership, or delivery responsibility | Important final caveat |
 | Azure embeddings are available for sample validation | Supported if smoke test passes in the configured environment | Azure embedding smoke-test/sample result | Azure embeddings are validated at smoke-test/sample level | Do not extend this to all Streamlit runs |
-| Azure + Chroma retrieval is validated | Supported at backend smoke-test/sample/full-corpus level and local browser smoke-test level | Lyken confirmed Azure config readability, embedding smoke test, Azure + Chroma sample retrieval, full-corpus backend retrieval over 1216 proposal chunks, `scripts/smoke_azure_chroma.py`, retrieval mode reporting, and fallback preservation; final Yixiao local browser smoke test showed Azure/Chroma retrieval active after the performance/stability fix | Azure + Chroma retrieval is validated for backend smoke tests and for the local Streamlit UI environment tested in Week 5 | Preserve retrieved-example caveat: semantic evidence, not proof of director involvement; do not generalize to environments without Azure/Chroma config, `chromadb`, or a reusable store |
+| Azure + Chroma retrieval is validated | Supported at backend smoke-test/sample/full-corpus level and local browser smoke-test level | Lyken confirmed Azure config readability, embedding smoke test, Azure + Chroma sample retrieval, full-corpus backend retrieval over 1216 proposal chunks, `scripts/smoke_azure_chroma.py`, retrieval mode reporting, and fallback preservation; final Yixiao local browser smoke test showed Azure/Chroma retrieval active after the performance/stability fix | Azure + Chroma retrieval is validated for backend smoke tests and for the local Streamlit UI environment tested in Week 5 | Preserve retrieved-example caveat: semantic/contextual evidence and conditional CRM traceability, not proof of director authorship, ownership, prior experience, or delivery responsibility; do not generalize to environments without Azure/Chroma config, `chromadb`, or a reusable store |
 | Streamlit RFP page is fully Azure-backed | Partially supported only for the tested local smoke-test environment | Final local browser smoke test showed Azure/Chroma retrieval active for a PDF-upload RFP after the performance/stability fix | The Streamlit RFP page reports the retrieval mode used by the current run; the local Week 5 smoke test showed Azure/Chroma active | Do not claim all deployments or all demo environments are fully Azure-backed; local fallback remains supported |
 | Local fallback retrieval can support prototype use | Supported as fallback behavior | Automated tests and app status/caveats | Local fallback retrieval supports prototype behavior when Azure/Chroma is unavailable or skipped | Must be labelled clearly |
 | Text-based PDF upload is supported | Supported in final local browser smoke test when `pypdf` is installed | Final PDF upload smoke test loaded text successfully and rendered an RFP summary; dependency files include `pypdf` | Text-based PDF upload is supported when the active environment includes `pypdf` | Scanned/OCR-only PDFs may still require manual paste or OCR outside the app |
@@ -272,9 +272,11 @@ Current summary:
 - Kian's evidence/output review was received and integrated. Kian reviewed cloud
   / managed services, cybersecurity / compliance, and vague / short RFP cases
   and confirmed retrieved examples are useful as semantic evidence but cannot
-  prove director/opportunity linkage. The app-facing fallback phrase Kian
-  flagged was softened to "Semantically similar historical context and available
-  capacity signal."
+  prove director involvement or opportunity ownership. Week 6 `rfp_alias`
+  linkage can add CRM traceability when available, but it does not prove
+  director authorship, ownership, prior experience, or delivery responsibility.
+  The app-facing fallback phrase Kian flagged was softened to "Semantically
+  similar historical context and available capacity signal."
 - Jai's assignment logic review was received through PR #78 and merged into
   main. Its RFP assignment caveat/risk wording updates are included after
   latest-main alignment; Yixiao's three-input interim browser QA remains
@@ -298,8 +300,9 @@ Current summary:
     a reusable store are unavailable.
   - The Streamlit RFP page should report the retrieval mode used by the current
     run rather than be described as universally Azure-backed.
-  - Retrieved examples are semantic evidence, not proof of director
-    involvement.
+  - Retrieved examples are supporting evidence; conditional `rfp_alias` linkage
+    can add CRM traceability, but not proof of director authorship, ownership,
+    prior experience, or delivery responsibility.
   - Recommendations are decision-support outputs requiring stakeholder
     validation.
 
@@ -323,8 +326,10 @@ Suggested safe report wording:
   capacity-aware recommendations when `capacity_df` is available.
 - RFP recommendations should be treated as decision-support outputs requiring
   stakeholder validation.
-- Retrieved examples should be described as semantic evidence related to the
-  RFP text, not proof of director involvement or prior experience.
+- Retrieved examples should be described as semantic/contextual evidence
+  related to the RFP text and, when linked, CRM opportunity context. They should
+  not be described as proof of director involvement, authorship, ownership,
+  prior experience, or delivery responsibility.
 - Azure embeddings and Azure + Chroma retrieval should be described as
   backend smoke-test validated and locally browser smoke-tested for the final
   Week 5 RFP UI run.
@@ -347,7 +352,8 @@ instead of renaming files or setting environment variables. The updated opps1
 `Json S-Num` column is preserved as preprocessing-output fields `rfp_alias` and
 `has_rfp_alias`; local validation found 19 non-empty `rfp_alias` rows. This is a
 machine-readable linkage field for downstream review, not proof of director
-ownership, prior experience, or assignment suitability.
+authorship, ownership, prior experience, delivery responsibility, or assignment
+suitability.
 
 This update does not change capacity scoring, dashboard metrics, RFP retrieval,
 recommendation ranking, UI linkage display, or ownership/experience claims.
@@ -358,5 +364,8 @@ Validation results:
 
 ```text
 python -m pytest tests/test_opportunity_cleaner.py -> 14 passed
-python -m pytest -> 152 passed, 2 warnings
+python -m pytest -> 168 passed, 2 warnings
 ```
+
+The warnings are existing pandas FutureWarning messages in capacity-engine
+tests and do not affect the documentation-only packaging update.

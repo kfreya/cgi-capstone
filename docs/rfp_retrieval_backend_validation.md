@@ -49,4 +49,10 @@ when the preferred path cannot run.
 
 ## Remaining note
 
-The proposal corpus still does not provide reliable `opportunity_owner` or `opportunity_id` linkage for historical RFP evidence, so retrieved chunks should be treated as semantic similarity evidence rather than proof of a director's prior work.
+Week 6 alias linkage can provide CRM traceability when CGI's `Json S-Num` /
+`rfp_alias` metadata is present in the cleaned opportunity output and the
+Chroma index has been rebuilt with that metadata. This linkage remains
+supporting context for stakeholder review. It does not prove director
+authorship, opportunity ownership, prior experience, or delivery responsibility,
+and retrieved examples should still be treated as semantic/contextual evidence
+rather than final assignment proof.

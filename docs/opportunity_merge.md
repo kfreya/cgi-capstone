@@ -23,6 +23,7 @@ These files are local-only and not committed.
 - `opportunity_estimated_revenue_base_cad`
 - `ip`
 - `delivery_territory_center`
+- `json_s_num` when CGI's `Json S-Num` alias metadata is present
 
 ## Merge Strategy
 
@@ -33,6 +34,8 @@ These files are local-only and not committed.
 - Append `opps1`-exclusive opportunity IDs once each.
 - Keep duplicate/detail rows in audit outputs instead of multiplying `opportunity_df`.
 - Preserve diagnostics for duplicates, unmatched records, and `opps1`-exclusive records.
+- Preserve client-provided `Json S-Num` alias metadata from opps1 as
+  `json_s_num` when present. Missing alias values do not block the merge.
 
 ## Merge Summary
 
@@ -91,3 +94,6 @@ documented in `docs/opportunity_cleaning.md`.
 - The 1067 `opps2`-only opportunity IDs should be reviewed as part of unmatched/source coverage notes.
 - `opps1` duplicate rows likely reflect service/product-level detail and are preserved in audit outputs.
 - Need downstream users to avoid using `opps1_supplemental_detail.csv` as an opportunity-level scoring input.
+- `Json S-Num` / `json_s_num` supports RFP-to-CRM linkage review only. It is
+  not proof of director authorship, opportunity ownership, prior experience, or
+  delivery responsibility.

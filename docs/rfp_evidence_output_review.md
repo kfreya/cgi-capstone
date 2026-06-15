@@ -1,5 +1,9 @@
 # RFP Evidence Output Review
 
+Historical note: this document records an earlier validation stage. For the
+current Week 6 handoff workflow, see docs/rfp_week6_status.md and
+docs/README.md.
+
 This note records the Week 5 evidence and output review for final app QA
 consolidation. The focus is whether retrieved examples support displayed RFP
 outputs, and whether wording stays within the current metadata limits.
