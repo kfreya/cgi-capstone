@@ -123,6 +123,7 @@ Project process documentation:
 - [Team charter](docs/team_charter.md)
 - [Weekly reports and time management artifacts](docs/time_management/) (Week
   1 through Week 6, including the [Week 6 team report](docs/time_management/week6_2026-06-14_team_report.pdf))
+- [Final report](docs/time_management/final_report_2026-06-24.pdf) — to be added before final submission.
 
 ## Setup
 
