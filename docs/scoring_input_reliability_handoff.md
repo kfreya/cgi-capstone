@@ -1,5 +1,8 @@
 # Scoring-Input Reliability Handoff (Kian to Lyken)
 
+Note: this file is retained as a handoff/alias copy of
+`docs/scoring_input_reliability_findings.md` for traceability.
+
 **From:** Kian (Data Validation Owner) — issue #21
 **To:** Lyken (Capacity Scoring + Director Table)
 **Source data:** `cleaned_opportunity_df` — 8,746 opportunity-level rows as of
