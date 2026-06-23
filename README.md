@@ -29,9 +29,11 @@ The project has two core deliverables:
 ```text
 cgi-capstone/
 ├── app/
+│   ├── README.md               # Streamlit app directory guide
 │   ├── app.py                  # Streamlit integrated prototype dashboard
 │   └── mock_data.py            # synthetic data for dashboard prototyping
 ├── src/
+│   ├── README.md               # source module directory guide
 │   ├── azure_client.py         # Azure/OpenAI chat and environment helpers
 │   ├── azure_embedding_client.py # Azure embedding compatibility helpers
 │   ├── azure_rag_client.py     # Azure/Chroma retrieval with local fallback
@@ -47,6 +49,7 @@ cgi-capstone/
 │   └── vector_store.py         # in-memory and Chroma vector retrieval helpers
 ├── tests/                      # unit tests for data, scoring, dashboard contracts, and RFP modules
 ├── config/
+│   ├── README.md               # config directory guide
 │   └── fallback_assumptions.yaml # shared fallback rules for validation/scoring
 ├── docs/
 │   ├── architecture.md         # system architecture and modeling approach
@@ -73,7 +76,9 @@ cgi-capstone/
 │   ├── rfp_retrieval_backend_validation.md # RFP retrieval backend validation
 │   ├── team_charter.md         # team working agreement
 │   └── time_management/        # weekly team report PDFs and time-management artifacts
-├── notebooks/                  # EDA and validation notebooks
+├── scripts/                    # utility scripts for Chroma, validation, and evidence export
+├── notebooks/                  # exploratory/historical EDA and validation notebooks
+├── outputs/                    # tracked redacted validation/evidence artifacts
 ├── data/                       # local-only CGI data and generated outputs, ignored by Git
 ├── .streamlit/
 │   └── config.toml             # Streamlit configuration
@@ -82,7 +87,7 @@ cgi-capstone/
 └── requirements.txt            # optional pip fallback
 ```
 
-The `data/` directory is for local CGI-provided files and generated artifacts only. It is ignored by Git and must not be committed.
+The `data/` directory is for local CGI-provided files and generated artifacts only. It is ignored by Git and must not be committed. The tracked `outputs/` directory contains intentionally committed redacted validation/evidence artifacts for handoff review.
 
 ## Documentation
 
@@ -123,7 +128,7 @@ Project process documentation:
 - [Team charter](docs/team_charter.md)
 - [Weekly reports and time management artifacts](docs/time_management/) (Week
   1 through Week 6, including the [Week 6 team report](docs/time_management/week6_2026-06-14_team_report.pdf))
-- [Final report](docs/time_management/final_report_2026-06-24.pdf) — to be added before final submission.
+- [Final report](docs/time_management/final_report_2026-06-24.pdf)
 
 ## Setup
 
@@ -378,6 +383,14 @@ git ls-files data
 ```
 
 This should return no output.
+
+## Acknowledgements and AI Use
+
+The core project ideas, problem framing, system design, feature priorities, and final implementation decisions were developed through team discussion, weekly planning, mentor feedback, and partner feedback. The team maintained weekly work plans, progress notes, documentation, and validation records throughout the project to support transparent collaboration and decision-making.
+
+ChatGPT was used as an auxiliary development and writing-support tool. Its use included code maintenance support, debugging assistance, documentation polishing, wording review, and clarification of implementation notes. The project concept, core functionality, system architecture, validation decisions, and final claims were created, reviewed, and approved by the human authors. All AI-assisted outputs were checked through human review, repository tests, manual QA, and the project documentation available under `docs/`.
+
+We sincerely thank every team member for their effort throughout this project. As a team that experienced personnel changes, we worked through many coordination, technical, and communication challenges to bring the project to completion. We are also grateful to the UBC teaching team, especially our mentor Garrett, for guidance and for helping support communication between CGI and the student team. Finally, we thank CGI for providing continuous feedback, sharing a valuable real-world project opportunity, and allowing us to learn through practical problem solving. This project helped us better understand the technical, collaborative, and professional skills needed in applied data science work.
 
 ## Team
 

@@ -62,8 +62,16 @@ prototype.
 - [Time management reports](time_management/) - weekly team reports and related
   project process artifacts.
 
+## Historical / traceability notes
+
 Historical weekly status notes and implementation notes remain in this folder
 for traceability. When a historical note conflicts with current Week 6 handoff
 behavior, prefer [Week 6 RFP status and handoff](rfp_week6_status.md),
 [RFP opportunity linkage implementation](rfp_opportunity_linkage_implementation.md),
 and this documentation map.
+
+Older sprint or issue-specific notes are retained so reviewers can trace how
+the prototype evolved. The canonical final handoff path starts with the root
+[Project README](../README.md), this documentation map,
+[Architecture](architecture.md), [Final integration QA](final_integration_qa.md),
+and [Week 6 RFP status and handoff](rfp_week6_status.md).
